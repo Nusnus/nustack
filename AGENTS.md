@@ -60,7 +60,7 @@ CI runs `make check` and checks commit messages. On a pull request, it checks ea
 
 ## Environment
 
-`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where the machine lacks them, then runs `make install` and installs the commit hooks' environments. Where the uv it finds is older than `pyproject.toml` requires, the build stops at `make install` with the fix. A change to the blueprint goes through review like any other file, and its merge starts the build.
+`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where the machine lacks them, then runs `make install` and installs the commit hooks' environments. Where the uv it finds is older than `pyproject.toml` requires, the build stops at `make install` with the fix. Where the Bun it finds is older than `package.json` pins, the build stops before `make install` and names the fix: when another repository's blueprint installs that Bun, raise its pin to nustack's. A change to the blueprint goes through review like any other file, and its merge starts the build.
 
 ### Onboarding a Devin organization
 
