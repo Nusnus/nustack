@@ -1,0 +1,11 @@
+{
+  "name": "nustack",
+  "version": "0.0.1",
+  "description": "Trust a coding agent to work like a senior engineer while you're away: Tomer's way of building software, as a mode for coding agents.",
+  "author": {
+    "name": "Tomer Nosrati"
+  },
+  "homepage": "https://github.com/Nusnus/nustack",
+  "repository": "https://github.com/Nusnus/nustack",
+  "license": "MIT"
+}

@@ -1,0 +1,57 @@
+[build-system]
+build-backend = "uv_build"
+requires = [ "uv-build>=0.9,<0.14" ]
+
+[project]
+name = "nustack"
+version = "0.0.1"
+description = "The harness that checks and bundles the nustack plugin."
+license = "MIT"
+authors = [ { name = "Tomer Nosrati" } ]
+requires-python = ">=3.15"
+dependencies = [
+  "cyclopts>=5.3.2",
+  "markdown-it-py>=4.2",
+  "pydantic>=2.14.2",
+  "ruamel-yaml>=0.19.1",
+]
+scripts.nustack = "nustack.cli:app"
+
+[dependency-groups]
+dev = [
+  "actionlint-py>=1.7.12.25",
+  "commitizen>=4.19.3",
+  "pre-commit>=4.7",
+  "pyproject-fmt>=2.30.3",
+  "pytest>=9.2",
+  "pytest-cov>=7.1",
+  "ruff>=0.17.3",
+  "ty>=0.0.95",
+  "zizmor>=1.31.1",
+]
+
+[tool.uv]
+required-version = ">=0.13.6"
+
+[tool.ruff]
+src = [ "src" ]
+lint.select = [ "ALL" ]
+lint.ignore = [ "COM812", "CPY001", "D102", "D103", "D105", "D107", "TC" ]
+lint.per-file-ignores."src/nustack/cli.py" = [ "T201" ]
+lint.per-file-ignores."tests/**" = [ "INP001", "S101" ]
+lint.isort.force-single-line = true
+lint.pydocstyle.convention = "pep257"
+
+[tool.pyproject-fmt]
+generate_python_version_classifiers = false
+
+[tool.pytest]
+addopts = [ "--strict-markers", "--strict-config", "-ra", "--import-mode=importlib" ]
+testpaths = [ "tests/harness" ]
+
+[tool.coverage]
+run.source = [ "nustack", "tests" ]
+run.branch = true
+report.fail_under = 100
+report.exclude_also = [ 'case \w+:\n\s*assert_never\(' ]
+report.show_missing = true
