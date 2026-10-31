@@ -60,7 +60,18 @@ CI runs `make check` and checks commit messages. On a pull request, it checks ea
 
 ## Environment
 
-`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where the machine lacks them, then runs `make install` and installs the commit hooks' environments. Where the uv it finds is older than `pyproject.toml` requires, the build stops at `make install` with the fix. A change to the blueprint goes through review like any other file. After it merges, sync the blueprint and trigger a build, as [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) describes.
+`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where the machine lacks them, then runs `make install` and installs the commit hooks' environments. Where the uv it finds is older than `pyproject.toml` requires, the build stops at `make install` with the fix. A change to the blueprint goes through review like any other file, and its merge starts the build.
+
+### Onboarding a Devin organization
+
+nustack is onboarded once all four of these hold. When a session finds one missing, set it up where your tools can, and walk the user through the rest one step at a time, each with a link to its page in the Devin web app:
+
+1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, so the session lists `/nustack:nus-mode`. Install it at the organization's scope, which the user approves, or have the user add it at `/customize?tab=plugins&scope=organization`, under **Add plugin** › **From repository**.
+2. On the repository's blueprint page, `/settings/environment/blueprints/Nusnus/nustack`, **Include in environment** is on. Turning it on starts a build.
+3. The blueprint's source is GitHub, so it reads `.devin/blueprint.yaml` from `main`, as [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) describes.
+4. Under the same page's **Advanced** tab, **Run on every commit to default branch** is on, so each merge to `main` builds from the blueprint in that commit.
+
+Onboarding is done when a session that starts after the latest build has nustack cloned, and `make check` passes there.
 
 ## Releases
 
