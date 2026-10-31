@@ -39,6 +39,8 @@ Ruff enforces a docstring on every public module and class. Every file follows o
 
 PR descriptions start from the PR template. A pull request is squash-merged, so it lands on `main` as one commit named by its title.
 
+A pull request is done once Devin Review has reviewed its head commit and left no open finding. Fix each finding in a new commit, which Devin Review then reviews, or answer it in its thread, and resolve the thread.
+
 ## Checks
 
 `make install` sets up the harness and the commit hooks. `make check` runs every pre-commit hook in `.pre-commit-config.yaml` over every file, and fixes what the tools can fix. Both first stop with the fix when Bun is missing. `bun test` fails when Bun is older than the version `package.json` pins, and uv refuses to run below the `required-version` in `pyproject.toml`. On each commit, the pre-commit hook runs the same hooks.
