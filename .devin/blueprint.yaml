@@ -1,6 +1,6 @@
 # The Devin environment for nustack. AGENTS.md › Environment says how it works and how to change it.
 maintenance:
-  - name: uv and Bun, where the machine lacks them
+  - name: uv and Bun where the machine lacks them, and a Bun at least package.json's pin
     run: |
       set -euo pipefail
       if ! command -v uv >/dev/null; then
@@ -11,6 +11,11 @@ maintenance:
         curl -fsSL https://bun.sh/install | bash
         sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
         sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bunx
+      fi
+      if ! bun test tests/loader/toolchain.test.ts; then
+        echo "nustack needs Bun at least the version package.json pins, and found Bun $(bun --version) at $(command -v bun)." >&2
+        echo "If another repository's blueprint installs that Bun, raise its pin to nustack's. Otherwise install Bun from https://bun.sh/docs/installation." >&2
+        exit 1
       fi
   - name: The harness, the loader's tools, the commit hooks and their environments
     run: |
