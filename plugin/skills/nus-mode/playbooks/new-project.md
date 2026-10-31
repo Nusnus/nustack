@@ -1,0 +1,21 @@
+# New project
+
+New project starts a project from nothing. Build its development environment before any product code, complete and coherent: the layout, the tools, and the standards those tools enforce. Each later session then spends its effort on its own goal.
+
+1. **Learn what the project does.** State its behaviour at the boundary and the domain terms it uses. Done when both are written down in a few lines.
+2. **Choose the stack and its tools.** For each development job the stack has (building, running, formatting, linting, type checking, testing, mutation testing, commit hooks, CI), pick the ecosystem's current standard tool, confirmed against its documentation. Pin each tool's version in the file the tool or the package manager enforces, so every machine runs the same version. Done when each job has one pinned tool and a one-line reason.
+3. **Agree the standards with the user.** Propose every standard the tools will enforce, at the strictest setting the principles allow, and record the user's decision on each. Done when the user has decided every one.
+4. **Lay out the project** following [layout](../../principle-layout/SKILL.md), with the stack's own project tool, letting each tool write the files it owns. Version control tracks every file a fresh clone needs, lockfiles included, and ignores what the tools rebuild from those files, such as build output and caches. It also ignores each coding agent's machine-local files. Name every part from the terms of step 1, following [naming](../../principle-naming/SKILL.md). Done when the project installs and runs, and running it leaves version control with nothing new to track.
+5. **Make the tools enforce the standards.** Each tool's config holds only the settings that differ from its defaults. Write a check of your own only for a standard no tool enforces, and have it call the tool that owns any format it reads, following [long term](../../principle-long-term/SKILL.md). One command runs every check, and the commit hooks and CI run that same command. CI publishes each run's results in the CI system's own report, where a PR description can link them. Done when it passes on the new project, fails on a deliberate break of each standard, and the CI system's report shows a run's results.
+6. **Write the project's `AGENTS.md` and PR template.** `AGENTS.md` holds how to install and check the project, each standard no tool enforces, and this line, so every later session works in nus-mode:
+
+   ```markdown
+   Work in this repository in nus-mode: load the skill before you start.
+   ```
+
+   Where a host the project uses reads another instruction file instead, that file imports `AGENTS.md`. The PR template lays out a description by [PR descriptions](../../principle-pr-descriptions/SKILL.md). Done when a fresh clone installs and passes its checks by following `AGENTS.md` alone, a new session on the current host loads nus-mode before its first step, each other host the project uses reads `AGENTS.md`, directly or through an import in its own instruction file, and the environment is committed on its own.
+
+7. **Build what the request asks**, reading each principle whose trigger the work meets, with every commit passing the project's checks as configured: when code fails a check, change the code. Done when the project does what step 1 states.
+8. **Review your work.** Read each principle the work triggered in full, then read every file you wrote against it. Treat each nitpick as a sign of a design flaw until you have traced it to its cause, and fix each finding at that cause. Run the mutation testing tool over the code you wrote, and give each mutant that survives a test that fails on it. Where no input tells a mutant from the code, and every other mutant there has a test that kills it, mark only that mutant, as narrowly as the tool allows, with a one-line reason beside it. Then read the whole project cold, as the goal asks. Done when a full pass over every file and a cold read of the project find nothing, every mutant is killed or marked with its reason, and the project's checks pass.
+
+**Reply:** the stack and its tools, each standard with the user's decision, the project layout with one line per module, the principle behind each design decision, and every departure with its reason.
