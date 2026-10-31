@@ -53,9 +53,10 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: uv run --locked cz check --rev-range "$BASE..$HEAD"
-      - name: Commit messages pushed to main
+      # Every commit on main, not the pushed range: after a force-push the old
+      # head is no longer in the checkout, so a range from it can't be read.
+      - name: Commit messages on main
         if: github.event_name == 'push'
         env:
-          BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
-        run: uv run --locked cz check --allowed-prefixes --rev-range "$BEFORE..$AFTER"
+        run: uv run --locked cz check --allowed-prefixes --rev-range "$AFTER"
