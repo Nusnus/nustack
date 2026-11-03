@@ -27,7 +27,7 @@ A low-friction project reads as if one careful engineer wrote it all. Every prin
 
 - **The project's rules come first.** Where the project's `AGENTS.md` or standards conflict with a principle or language skill, follow the project and name the conflict in the PR description or your reply.
 - **Principles and language skills are strong defaults.** Give each departure from their rules a one-sentence reason beside it, in a comment that states the lasting fact forcing it, so every later reader meets it; where nothing beside it can hold a comment, as in a strict-JSON file, put that line in the project's `AGENTS.md`. Name it in the PR description or your reply too.
-- **Name the principle or language skill behind each design decision**, and the choice it changed, in the PR description or your reply. Read each skill you cite in full first.
+- **Name the principle or language skill behind each design decision**, and the choice it changed, in the PR description or your reply.
 - **The user's request sets the scope.** The request decides what changes, and [long term](../principle-long-term/SKILL.md)'s *finish what you touch* and *fix the flaw everywhere it appears* decide which files the principles cover.
 - **Verify end to end, as its user runs it.** Run what you deliver before you finish.
 - **Carry nus-mode through each summary.** When you summarize your context, write in the summary that you work in nus-mode; when your context is summarized and this text is no longer in it, load nus-mode before you continue.
@@ -53,7 +53,7 @@ Match the task to one playbook, read it in full, and copy its numbered steps to 
 
 ## Principles
 
-Each principle is a skill. Before you apply one, read its `SKILL.md` in full as a file, so this mode stays loaded. In this list, code includes config, workflows and scripts, such as bash scripts. Each applies, to work you do or review, when:
+Before you apply or cite a principle, read its `SKILL.md` in full as a file, so this mode stays loaded. Here code includes config, workflows and scripts. Each applies, to work you do or review, when:
 
 - [naming](../principle-naming/SKILL.md): you name anything, or change what a named thing does.
 - [DRY](../principle-dry/SKILL.md): you write a value, a rule, a format or a decision, or add a codepath, type, setting, helper or parser.
@@ -65,11 +65,12 @@ Each principle is a skill. Before you apply one, read its `SKILL.md` in full as 
 - [dependencies](../principle-dependencies/SKILL.md): you make one part depend on another, add or use anything third-party, such as a library, a tool or a CI action, choose the runtime versions a project targets, or write code that does I/O or reads the time or other outside state.
 - [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, retries or falls back, writes state a crash or timeout can leave half-done, or does work that may repeat, such as a job or message handler.
 - [long term](../principle-long-term/SKILL.md): you write or change anything, experiments included.
+- [deterministic tests](../principle-deterministic-tests/SKILL.md): you write or change a test or its helpers, or one flakes.
 - [self-explanatory code](../principle-self-explanatory-code/SKILL.md): you write or change code or any comment, or the docs that describe them.
 - [PR descriptions](../principle-pr-descriptions/SKILL.md): you write or update a PR description, or push to a branch with an open pull request.
 
 ## Languages
 
-Each language skill holds one language's tools, and the form a principle takes where that language changes it. Before you apply one, read its `SKILL.md` in full, as a file. Each applies when:
+Each language skill holds one language's tools, and the form a principle takes where that language changes it. Read each as you read a principle. Each applies when:
 
-- [Python](../language-python/SKILL.md): you write, review or set up Python, or write or review a Python project's tool config.
+- [Python](../language-python/SKILL.md): you write, review or set up Python, or a Python project's tool config.

@@ -28,7 +28,6 @@ class TestGit:
     """
 
     @pytest.mark.usefixtures("stalling")
-    @pytest.mark.timeout(5)
     def test_stops_a_listing_of_local_variables_that_outlasts_its_time_limit(
         self, tmp_path: Path
     ) -> None:
@@ -123,11 +122,10 @@ class TestGit:
             "cannot run Git (No such file or directory); check the clone path and Git",
         )
 
-    @pytest.mark.timeout(5)
     def test_stops_a_fetch_that_outlasts_its_time_limit(
-        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch, stall: str
     ) -> None:
-        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        monkeypatch.setenv("GIT_SSH_COMMAND", f"{stall}; :")
         with pytest.raises(GitError) as failed:
             _ = Git(sync.upstream.root, timeout=0.1).run("fetch", "ssh://remote/r")
         assert failed.value.problem == Problem(
@@ -136,11 +134,10 @@ class TestGit:
             " remote answers, then rerun",
         )
 
-    @pytest.mark.timeout(5)
     def test_stops_a_push_that_outlasts_its_time_limit(
-        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch, stall: str
     ) -> None:
-        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        monkeypatch.setenv("GIT_SSH_COMMAND", f"{stall}; :")
         with pytest.raises(GitError) as failed:
             _ = Git(sync.upstream.root, timeout=0.1).run(
                 "push", "ssh://remote/r", "HEAD:refs/heads/b"
@@ -150,11 +147,10 @@ class TestGit:
             "git push took over 0.1 seconds; check that the remote answers, then rerun",
         )
 
-    @pytest.mark.timeout(5)
     def test_stops_a_remote_listing_that_outlasts_its_time_limit(
-        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch, stall: str
     ) -> None:
-        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        monkeypatch.setenv("GIT_SSH_COMMAND", f"{stall}; :")
         with pytest.raises(GitError) as failed:
             _ = Git(sync.upstream.root, timeout=0.1).run("ls-remote", "ssh://remote/r")
         assert failed.value.problem == Problem(
@@ -163,11 +159,10 @@ class TestGit:
             " the remote answers, then rerun",
         )
 
-    @pytest.mark.timeout(5)
     def test_stops_a_blob_read_a_partial_clone_fetches_that_outlasts_its_time_limit(
-        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch, stall: str
     ) -> None:
-        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        monkeypatch.setenv("GIT_SSH_COMMAND", f"{stall}; :")
         setup = Git(sync.upstream.root)
         _ = setup.run("remote", "add", "promisor", "ssh://remote/r")
         _ = setup.run("config", "remote.promisor.promisor", "true")
@@ -180,10 +175,11 @@ class TestGit:
             " its disk or, in a partial clone, the remote it fetches from, then rerun",
         )
 
-    @pytest.mark.timeout(5)
-    def test_stops_a_commit_a_hook_holds_past_its_time_limit(self, sync: Sync) -> None:
+    def test_stops_a_commit_a_hook_holds_past_its_time_limit(
+        self, sync: Sync, stall: str
+    ) -> None:
         hook = sync.upstream.root / ".git" / "hooks" / "pre-commit"
-        hook.write_text("#!/bin/sh\nexec sleep 10\n")
+        hook.write_text(f"#!/bin/sh\nexec {stall}\n")
         hook.chmod(0o755)
         setup = Git(sync.upstream.root)
         # A global core.hooksPath would skip the repository's own hooks.

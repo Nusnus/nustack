@@ -7,6 +7,19 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- `principle-deterministic-tests`, a principle nus-mode reads when the agent writes or changes a test or its helpers, or one flakes: a test's outcome depends only on its inputs, the same on every run and under any load. `language-python` gives its form with pytest-timeout, signals and pytest-randomly.
+
+### Changed
+
+- Every Python test keeps the suite's whole per-test limit, as `principle-deterministic-tests` says, where `language-python` had a test that guards against a slow path set a tighter `@pytest.mark.timeout`.
+
+### Fixed
+
+- For nustack's maintainers:
+  - The harness's tests of commands that stall or are interrupted pass the same way under load: a stalled command never ends on its own, each test that signals a command waits until the command reports it is ready, a grace that depends on time runs on a fake clock, and work that must finish gets the suite's whole per-test limit.
+
 ## [0.0.1] - 2026-11-04
 
 nustack's first release brings nus-mode, a mode that has a coding agent build software to a senior engineer's bar, installable in Devin, Claude Code, Cursor and OpenCode. nus-mode follows a playbook, a task's numbered steps, when one fits, and reads skills, instruction files the agent loads when its work needs them: one for each principle and one for Python. When the agent's host, the app it runs in, summarizes a long session, nus-mode comes back on its own, or, on hosts where it cannot, has the agent load it again.

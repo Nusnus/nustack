@@ -1,8 +1,10 @@
 """The real Git repositories and gh's recorded replies the integration tests share.
 
 That is upstream, a checkout copying its first state with the PR template the sync
-fills, and an empty remote the sync pushes to, beside a Git and a gh that stall, and
-the FIFO a command writes once it is ready.
+fills, and an empty remote the sync pushes to, beside a command that never ends on its
+own, a Git and a gh that stall, the FIFO a command writes once it is ready, and the
+suite's per-test limit, which the grace for a stopped group lasts, so no deadline on
+work that must finish undercuts it.
 """
 
 import os
@@ -12,6 +14,7 @@ lazy from pathlib import Path
 
 import pytest
 
+from nustack import process_group
 from nustack.sync.description import SyncTemplate
 from tests.fixtures.processes import Ready
 from tests.fixtures.sync.git_repository import GitRepository
@@ -61,22 +64,31 @@ def github_fixtures(repository_root: Path) -> Path:
     return repository_root / "tests/fixtures/github"
 
 
+# A command a time limit must stop never ends on its own, so no load lets it finish
+# first; tail follows /dev/null until a signal ends it, and writes to /dev/null, since
+# tail dies of SIGPIPE once run closes the pipe it would otherwise write to:
+# https://github.com/coreutils/coreutils/blob/v8.32/src/tail.c#L340-L375
 @pytest.fixture
-def stalling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def stall() -> str:
+    return "/usr/bin/tail -f /dev/null > /dev/null"
+
+
+@pytest.fixture
+def stalling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stall: str) -> None:
     folder = tmp_path / "stalling"
     folder.mkdir()
     for name in ("git", "gh"):
         script = folder / name
-        script.write_text("#!/bin/sh\nexec /bin/sleep 10\n")
+        script.write_text(f"#!/bin/sh\nexec {stall}\n")
         script.chmod(0o755)
     monkeypatch.setenv("PATH", str(folder))
 
 
 # A loaded machine can let a command's limit pass, or an interrupt land, before its
 # shell sets its trap or starts its processes. So each command writes the FIFO once it
-# is set up, and its limit and interrupts count from when the fixture reads it. Only
-# the first communicate, the command's, waits for the FIFO, so a later process, such as
-# alive's ps, runs at once.
+# is set up, and its limit counts, and the test acts, from when the fixture reads it.
+# Only the first communicate, the command's, waits for the FIFO, so a later process,
+# such as alive's ps, runs at once.
 @pytest.fixture
 def ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ready:
     ready = Ready(tmp_path / "ready")
@@ -88,8 +100,20 @@ def ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ready:
     ) -> tuple[bytes, bytes]:
         monkeypatch.setattr(subprocess.Popen, "communicate", communicate)
         _ = ready.path.read_bytes()
-        ready.start()
+        ready.reached()
         return communicate(process, stdin, timeout)
 
     monkeypatch.setattr(subprocess.Popen, "communicate", once_ready)
     return ready
+
+
+@pytest.fixture
+def per_test_limit(pytestconfig: pytest.Config) -> float:
+    return float(pytestconfig.getini("timeout"))
+
+
+# The wait for a stopped group is work that must finish, so it lasts as long as the
+# test may, and a slow clean-up on a loaded machine still ends before SIGKILL.
+@pytest.fixture
+def unhurried(monkeypatch: pytest.MonkeyPatch, per_test_limit: float) -> None:
+    monkeypatch.setattr(process_group, "GRACE", per_test_limit)
