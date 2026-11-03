@@ -1,0 +1,44 @@
+"""Every rule the check enforces reaches its help."""
+
+from nustack.rule import Rule
+
+
+class TestRule:
+    """The help a contributor reads lists exactly what the check enforces."""
+
+    def test_lists_each_once_in_the_help(self) -> None:
+        assert Rule.help() == (
+            "Hold the repository to these rules:\n"
+            "\n"
+            "- the manifests, both marketplaces, plugin/package.json and"
+            " pyproject.toml agree on the plugin's name, version, description and"
+            " author, and the marketplaces on their own name and description;\n"
+            "- plugin/ holds only the host manifests, skills, playbooks, the OpenCode"
+            " loader with its package.json, the Claude Code hook that reloads the"
+            " mode, and a LICENSE equal to the repository's;\n"
+            "- plugin/ is a folder that holds no symlink and no folder the check"
+            " cannot open, and a break of either stops the check before it reads"
+            " anything else;\n"
+            "- each skill folder names the mode or starts with a skill prefix spelled"
+            " right, its frontmatter and triggers follow Writing skill text, and its"
+            " SKILL.md stays under the line limit;\n"
+            "- plugin/skills/ holds exactly one mode, every plugin document calls it"
+            " by its name, its body opens with its title and fits the Claude Code"
+            " hook's output, and it indexes each playbook, principle and language"
+            " skill under its own heading;\n"
+            "- each playbook step ends on a done condition;\n"
+            "- skill text names no agent host, model, host's folder or date;\n"
+            "- every link in plugin/ is a full URL or a relative path to a file"
+            " there, and each anchor names a heading in that file;\n"
+            "- CHANGELOG.md titles, dates and orders every release, opens with the"
+            " plugin version's entry, which reads the same on its own, and links"
+            " each release to its tag and [Unreleased] to the changes since the"
+            " newest;\n"
+            "- the commit hooks that rewrite text, and Ruff's extend-exclude, skip"
+            " the folder the writing-for-agents sync copies into;\n"
+            "- README.md's activation line is the new-project playbook's;\n"
+            "- each test module sits in a tier folder and mirrors the path of the"
+            " source it tests, apart from smoke tests and the tests of the suite's"
+            " own settings, and a tier folder holds no file but tests and"
+            " conftest.py."
+        )

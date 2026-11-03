@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "api",
+    "repos/microsoft/bioemu/commits/tags/v1.2.3",
+    "--jq",
+    ".sha"
+  ],
+  "stdout": "{\"message\":\"No commit found for SHA: tags/v1.2.3\",\"documentation_url\":\"https://docs.github.com/rest/commits/commits#get-a-commit\",\"status\":\"422\"}",
+  "stderr": "gh: No commit found for SHA: tags/v1.2.3 (HTTP 422)\n",
+  "code": 1
+}

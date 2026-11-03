@@ -1,0 +1,19 @@
+# Each entry tells actionlint about something GitHub documents that its newest
+# release rejects, with the issue tracking it; drop the entry once a release
+# supports it.
+
+# ubuntu-26.04 is a standard GitHub-hosted runner
+# (https://docs.github.com/en/actions/reference/runners/github-hosted-runners;
+# https://github.com/rhysd/actionlint/issues/682).
+self-hosted-runner:
+  labels: [ubuntu-26.04]
+
+paths:
+  # $/ calls a reusable workflow from the caller's own commit, and is the syntax
+  # GitHub recommends and zizmor's self-repository audit requires
+  # (https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows;
+  # https://github.com/rhysd/actionlint/issues/711). Until actionlint reads it,
+  # it no longer checks that call's inputs.
+  .github/workflows/release.yml:
+    ignore:
+      - 'reusable workflow call "\$/\.github/workflows/ci\.yml" at "uses" is not following the format'

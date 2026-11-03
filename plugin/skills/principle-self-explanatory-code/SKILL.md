@@ -8,9 +8,9 @@ triggers:
 
 # Self-explanatory code
 
-Few readers read the code line by line. A human catching up skims the docstrings of modules and classes, and an agent reads only what its goal needs. So the code explains itself, docstrings orient the reader, and comments carry only what the code cannot hold. Every other line of prose is noise to both readers.
+Few readers read code line by line: a human catching up skims module and class docstrings, and an agent reads only what its goal needs. So code and its docs hold only the prose the rules below call for.
 
-- **The code explains itself.** Names, types and structure say what each part does. When a line needs explaining, rename, extract or restructure it until it reads plainly.
-- **Docstrings belong to modules and classes.** Each states the responsibility its module or class holds, in the domain's terms. A function's name and signature are its documentation.
-- **Comments point outside the code.** A comment holds what the code cannot show: a spec, an upstream issue, an external constraint or a tool's quirk, with its link.
-- **Docs hold what the code cannot.** Documentation outside the code states the project's purpose, its concepts and how to run it, and leaves everything the code, its help output or its config states to them.
+- **The code explains itself.** Names, types and structure say what each part does. Rename, extract or restructure until each part reads plainly.
+- **Docstrings belong to modules and classes.** A module's docstring does for the module what frontmatter does for a skill: it summarizes, in domain terms, everything the file holds, so a reader learns from it alone whether their goal needs the rest of the file. A class's docstring states the class's responsibility in domain terms. A function's or method's name and signature are its documentation. In tests, a module's docstring summarizes what its classes or groups verify together, and a class's states its domain term's promises and its edge cases; a test group that cannot hold a docstring names its term. No docstring repeats what the path, the imports or the test names already say.
+- **Comments point outside the code.** Each holds what the code cannot show, with its link: a spec, upstream issue, external constraint or tool quirk.
+- **Docs hold what the code cannot.** Docs outside the code state the project's purpose, concepts and how to run it.

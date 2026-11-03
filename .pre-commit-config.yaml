@@ -1,5 +1,3 @@
-default_install_hook_types: [pre-commit, commit-msg]
-default_stages: [pre-commit, manual]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
@@ -10,6 +8,10 @@ repos:
       - id: check-executables-have-shebangs
       - id: check-illegal-windows-names
       - id: check-json
+        # TypeScript reads tsconfig.json as JSON with comments, which this hook
+        # refuses; tsc reads it on every run instead:
+        # https://www.typescriptlang.org/docs/handbook/tsconfig-json.html
+        exclude: ^tsconfig\.json$
       - id: check-merge-conflict
         args: [--assume-in-merge]
       - id: check-shebang-scripts-are-executable
@@ -19,95 +21,131 @@ repos:
       - id: destroyed-symlinks
       - id: detect-private-key
       - id: end-of-file-fixer
+        # The sync workflow (.github/workflows/sync-writing-for-agents.yml)
+        # proposes this copy byte for byte from its source, so the hooks that
+        # rewrite or restyle text skip it.
+        exclude: &upstream ^\.agents/skills/writing-for-agents/
       - id: fix-byte-order-marker
+        exclude: *upstream
       - id: mixed-line-ending
+        exclude: *upstream
       - id: trailing-whitespace
+        exclude: *upstream
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: 341e2a331ba578029e66c2e01183e7a6b5ca9ab4  # frozen: v0.24.0
     hooks:
       - id: markdownlint-cli2
+        exclude: *upstream
+        args: [--fix]
   - repo: local
     hooks:
       - id: uv-lock
         name: uv.lock is current
         entry: uv lock --check
-        language: system
-        pass_filenames: false
+        language: unsupported
         always_run: true
-      - id: bun-lock
-        name: bun.lock is current
-        entry: bun install --frozen-lockfile
-        language: system
-        files: ^(package\.json|bun\.lock)$
         pass_filenames: false
       - id: pyproject-fmt
         name: pyproject-fmt
-        entry: uv run pyproject-fmt pyproject.toml
-        language: system
-        pass_filenames: false
+        entry: uv run --locked pyproject-fmt pyproject.toml
+        language: unsupported
         always_run: true
+        pass_filenames: false
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix
-        language: system
-        pass_filenames: false
+        entry: uv run --locked ruff check --fix
+        language: unsupported
         always_run: true
+        pass_filenames: false
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
-        language: system
-        pass_filenames: false
+        entry: uv run --locked ruff format
+        language: unsupported
         always_run: true
+        pass_filenames: false
       - id: ty
         name: ty
-        entry: uv run ty check
-        language: system
-        pass_filenames: false
+        entry: uv run --locked ty check
+        language: unsupported
         always_run: true
+        pass_filenames: false
+      - id: lint-imports
+        name: import-linter
+        entry: uv run --locked lint-imports
+        language: unsupported
+        always_run: true
+        pass_filenames: false
       - id: pytest
         name: pytest, 100% branch coverage
-        entry: uv run pytest --cov
-        language: system
-        pass_filenames: false
+        entry: uv run --locked pytest --cov
+        language: unsupported
         always_run: true
+        pass_filenames: false
       - id: actionlint
         name: actionlint
-        entry: uv run actionlint
-        language: system
-        pass_filenames: false
+        entry: uv run --locked actionlint
+        language: unsupported
         always_run: true
+        pass_filenames: false
       - id: zizmor
         name: zizmor
-        entry: uv run zizmor .
-        language: system
-        pass_filenames: false
+        entry: uv run --locked zizmor .
+        language: unsupported
         always_run: true
-      - id: biome
-        name: biome
-        entry: bunx biome ci
-        language: system
         pass_filenames: false
-        always_run: true
-      - id: tsc
-        name: tsc
-        entry: bunx tsc -p tsconfig.json
-        language: system
-        pass_filenames: false
-        always_run: true
-      - id: bun-test
-        name: bun test, 100% coverage
-        entry: bun test
-        language: system
-        pass_filenames: false
-        always_run: true
+      - id: shellcheck
+        name: shellcheck
+        entry: uv run --locked shellcheck
+        language: unsupported
+        types: [shell]
       - id: nustack-check
         name: nustack check
-        entry: uv run nustack check
-        language: system
-        pass_filenames: false
+        entry: uv run --locked nustack check
+        language: unsupported
         always_run: true
+        pass_filenames: false
+      - id: bun-lock
+        name: bun.lock is current
+        entry: make --no-print-directory bun-lock
+        language: unsupported
+        always_run: true
+        # biome and tsc run the packages it installs, so a missing or stale lock
+        # stops the run before they check or rewrite files with the wrong
+        # versions; only Bun's hooks run after it
+        # (https://pre-commit.com/#config-fail_fast).
+        fail_fast: true
+        pass_filenames: false
+      # bun runs biome's and tsc's launchers from node_modules, which needs no
+      # Node and stops where one is missing; bunx would run one from PATH
+      # (https://github.com/oven-sh/bun/blob/bun-v1.4.4/src/runtime/cli/bunx_command.rs#L1035-L1036),
+      # or fetch one from npm, such as the unrelated unscoped `biome`
+      # (https://bun.com/docs/pm/bunx). The ./ makes bun run the path as a
+      # file, never as a package.json script (https://bun.com/docs/runtime).
+      - id: biome
+        name: biome
+        entry: bun ./node_modules/.bin/biome check --write
+        language: unsupported
+        always_run: true
+        pass_filenames: false
+      - id: tsc
+        name: tsc
+        entry: bun ./node_modules/.bin/tsc -p tsconfig.json
+        language: unsupported
+        always_run: true
+        pass_filenames: false
+      - id: bun-test
+        name: bun test, 100% line and function coverage
+        entry: bun test
+        language: unsupported
+        always_run: true
+        pass_filenames: false
       - id: conventional-commit
         name: Conventional Commits
-        entry: uv run cz check --allow-abort --commit-msg-file
-        language: system
+        entry: uv run --locked cz check --allow-abort --commit-msg-file
+        language: unsupported
         stages: [commit-msg]
+default_install_hook_types: [commit-msg, pre-commit]
+default_stages: [pre-commit]
+# The replies recorded from gh and the Messages API stay exactly as recorded, so
+# no hook touches them (https://pre-commit.com/#top-level-exclude).
+exclude: ^tests/fixtures/(github/|messages/.*\.reply$)

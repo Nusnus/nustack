@@ -1,0 +1,91 @@
+name: Sync writing-for-agents
+
+# Proposes the newest version of the skill on Matt Pocock's main branch,
+# unchanged, as a pull request to .agents/skills/writing-for-agents/, so review
+# reads it from here.
+# No check holds the copy equal to upstream between syncs, since upstream's
+# newest version always wins, so a check would fail every unrelated pull request
+# from upstream's change until this sync merged. The owner merges it after
+# review, since it steers every agent that writes or reviews nustack's docs.
+# GitHub holds the workflows of a pull request this job's token opens or updates
+# until someone with write access approves them, so the owner approves them
+# while reviewing and merges once they pass
+# (https://docs.github.com/en/actions/concepts/security/github_token). The job
+# works from the default branch whatever ref starts it, so the pull request
+# holds only the sync commit. It asks the API for that branch, since a scheduled
+# run's event payload holds no repository
+# (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule;
+# https://docs.github.com/en/rest/repos/repos#get-a-repository).
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# An explicit bash adds -o pipefail, so a piped command fails its step:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#defaultsrunshell
+defaults:
+  run:
+    shell: bash
+
+# A second run waits for the first, so the two never push the branch at once:
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  sync:
+    name: Sync
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-26.04
+    env:
+      BRANCH: sync/writing-for-agents
+      DESTINATION: .agents/skills/writing-for-agents
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SOURCE: skills/productivity/writing-for-agents
+      UPSTREAM: mattpocock/skills
+    steps:
+      # gh takes its host from GH_HOST, not from the server the workflow runs
+      # on, and its token for an Enterprise Server host from GH_ENTERPRISE_TOKEN
+      # (https://cli.github.com/manual/gh_help_environment).
+      - id: base
+        name: Find the default branch
+        run: |
+          export GH_HOST=${GITHUB_SERVER_URL#https://}
+          name=$(gh api "repos/$GH_REPO" --jq .default_branch)
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+        env:
+          GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ steps.base.outputs.name }}
+          persist-credentials: false
+      # nustack sync reads upstream's trees and fetches each blob it copies, so
+      # the clone needs no old blobs
+      # (https://git-scm.com/docs/git-clone#Documentation/git-clone.txt---filterltfilter-specgt).
+      - name: Clone upstream's main
+        run: |
+          git clone --filter=blob:none --single-branch --branch main --no-checkout \
+            "https://github.com/$UPSTREAM.git" "$RUNNER_TEMP/skills"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      - name: Copy the skill and propose it in a pull request
+        run: |
+          export GH_HOST=${GITHUB_SERVER_URL#https://}
+          # Opening the pull request needs the repository setting that lets
+          # GitHub Actions create pull requests:
+          # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
+          uv run --locked nustack sync \
+            --upstream "https://github.com/$UPSTREAM" --run "$RUN" \
+            --checks "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions?query=branch:$BRANCH" \
+            --clone "$RUNNER_TEMP/skills" --source "$SOURCE" --folder "$DESTINATION" \
+            --branch "$BRANCH" --repository "$GITHUB_REPOSITORY" \
+            --remote "https://x-access-token:${GH_TOKEN}@${GH_HOST}/${GITHUB_REPOSITORY}.git"
+        env:
+          GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 5

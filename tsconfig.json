@@ -1,14 +1,18 @@
 {
+  // tsc reads every folder but dot-folders and node_modules, as Biome does
+  // (https://www.typescriptlang.org/tsconfig/#include); Biome also skips what Git ignores,
+  // where only the copies make mutate leaves in mutants/ hold TypeScript.
+  "exclude": ["mutants"],
+  // Settings equal to TypeScript's defaults stay out: https://www.typescriptlang.org/tsconfig
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleResolution": "bundler",
-    "strict": true,
     "noUncheckedIndexedAccess": true,
-    "noEmit": true,
     "allowImportingTsExtensions": true,
-    "skipLibCheck": true,
-    "types": ["bun"]
-  },
-  "include": ["plugin/opencode.ts", "tests/loader"]
+    "module": "Preserve",
+    "types": ["bun"],
+    "noEmit": true,
+    "target": "ESNext",
+    // @opencode/plugin's types import json-schema, which ships no types, so tsc skips
+    // checking the libraries' own .d.ts files: https://www.typescriptlang.org/tsconfig/#skipLibCheck
+    "skipLibCheck": true
+  }
 }

@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "release",
+    "view",
+    "v1.2.3",
+    "-R",
+    "microsoft/bioemu",
+    "--json",
+    "isDraft",
+    "--jq",
+    ".isDraft"
+  ],
+  "stdout": "",
+  "stderr": "release not found\n",
+  "code": 1
+}

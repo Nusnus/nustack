@@ -8,10 +8,9 @@ triggers:
 
 # Naming
 
-Names lower the [friction rate](../nus-mode/SKILL.md) more than any other principle in this mode. A name hides assumptions and pulls in others: whoever reads `SessionCache` assumes a scope, a lifetime and an owner, right or wrong. Unclear names are the main reason humans lose track of code an agent wrote.
+Naming lowers the [friction rate](../nus-mode/SKILL.md#goal) more than any other principle: unclear names are the main reason humans lose track of code an agent wrote. Readers believe what a name implies: whoever reads `SessionCache` assumes a scope, a lifetime and an owner, right or wrong.
 
-- **The code is the naming convention.** A project's vocabulary lives in its identifiers, defined by the docstrings of the modules and classes that introduce them.
-- **Read before naming.** Learn the names the code and its domain already use, and reuse them exactly. One concept has one name everywhere: modules, classes, variables, tests, errors and CLI options.
-- **Name what a thing is in the domain:** `Invoice`, `RetryPolicy`.
-- **Rename when the meaning moves.** When a thing's job changes, its name changes in the same commit, everywhere it appears.
-- **A name that resists you is a design signal.** When no honest name fits, the thing usually has two responsibilities: split it, then name each part.
+- **The code is the naming convention.** Before naming, read the names the code and its domain already use, and reuse them exactly. One concept has one name everywhere, including tests, errors and CLI options. Define each new domain term in the docstring of the module or class that introduces it, or in the project's docs where no module or class does.
+- **Name what a thing is in the domain**, whether a symbol, file, folder or package: `Invoice`, `RetryPolicy`, `billing/`. A catch-all such as `core` or `utils`, or a metaphor such as `edges`, names no domain thing.
+- **Rename when a thing's responsibility changes**, in the same commit, everywhere the name appears.
+- **When no honest name fits**, the thing usually has two responsibilities: split it, then name each part.

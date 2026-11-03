@@ -1,5 +1,17 @@
+# Rules: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
 config:
+  # Each paragraph and list entry keeps to one line, so a diff shows the
+  # sentence that changed instead of a rewrapped block.
   MD013: false
+  # Each CHANGELOG.md release repeats the section headings Keep a Changelog
+  # names, such as Added: https://keepachangelog.com/en/1.1.0/
+  MD024:
+    siblings_only: true
+  # CLAUDE.md is a single import line, and the PR template opens on the
+  # comments and table a description starts from; a title in either would be
+  # text no reader needs. The rule names no files to skip
+  # (https://github.com/DavidAnson/markdownlint/blob/main/doc/md041.md), and an
+  # inline disable comment would land in every description and host session.
   MD041: false
   MD060:
     style: compact

@@ -1,0 +1,34 @@
+{
+  "model": "claude-haiku-5-5",
+  "max_tokens": 64,
+  "stream": true,
+  "tools": [
+    {
+      "name": "skill",
+      "description": "Load a skill.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The ID of an available skill"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "tool_choice": {
+    "type": "tool",
+    "name": "skill"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Load sample-mode with the skill tool. Its ID is sample-mode."
+    }
+  ]
+}
