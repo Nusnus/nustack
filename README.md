@@ -133,6 +133,7 @@ Because they are hidden, the principle and language skills stay out of the model
 | ➡️ [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure. |
 | 🛟 [principle-resilience](plugin/skills/principle-resilience/SKILL.md) | Code that comes through a stalled or failing dependency, or a crash part way through. |
 | ⏳ [principle-long-term](plugin/skills/principle-long-term/SKILL.md) | Changes built to last, so they are done once. |
+| 🧪 [principle-deterministic-tests](plugin/skills/principle-deterministic-tests/SKILL.md) | Tests whose outcome depends only on their inputs, the same on every run and under any load. |
 | 📖 [principle-self-explanatory-code](plugin/skills/principle-self-explanatory-code/SKILL.md) | Code that explains itself, and docs for what it cannot say. |
 | 📝 [principle-pr-descriptions](plugin/skills/principle-pr-descriptions/SKILL.md) | PR descriptions a reviewer takes in at a glance. |
 | 🐍 [language-python](plugin/skills/language-python/SKILL.md) | Python's tools, and where Python changes how a principle applies. |

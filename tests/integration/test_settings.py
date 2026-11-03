@@ -141,10 +141,14 @@ class TestPytest:
         result.stdout.fnmatch_lines(["*'no_such_mark' not found in `markers`*"])
         assert result.parseoutcomes() == {"errors": 1}
 
-    def test_accepts_a_registered_marker(self, suite: pytest.Pytester) -> None:
+    def test_accepts_a_registered_marker(
+        self, suite: pytest.Pytester, pytestconfig: pytest.Config
+    ) -> None:
+        limit = pytestconfig.getini("timeout")
         suite.makepyfile(
             test_a=(
-                "import pytest\n\n\n@pytest.mark.timeout(5)\ndef test_a():\n    pass\n"
+                "import pytest\n\n\n"
+                f"@pytest.mark.timeout({limit})\ndef test_a():\n    pass\n"
             )
         )
         result = suite.runpytest_subprocess()
@@ -202,15 +206,17 @@ class TestPytest:
         result = suite.runpytest_subprocess()
         result.stdout.fnmatch_lines(["timeout: 60.0s"])
 
+    # test_c must finish, so it keeps the suite's whole per-test limit.
     def test_fails_a_test_or_fixture_that_outlasts_the_time_limit(
-        self, suite: pytest.Pytester
+        self, suite: pytest.Pytester, pytestconfig: pytest.Config
     ) -> None:
+        limit = pytestconfig.getini("timeout")
         suite.makepyfile(
-            test_a="import time\n\nimport pytest\n\n\n@pytest.fixture\n"
-            "def hung():\n    time.sleep(30)\n\n\n"
-            "def test_a():\n    time.sleep(30)\n\n\n"
+            test_a="import signal\n\nimport pytest\n\n\n@pytest.fixture\n"
+            "def hung():\n    signal.pause()\n\n\n"
+            "def test_a():\n    signal.pause()\n\n\n"
             "def test_b(hung):\n    pass\n\n\n"
-            "def test_c():\n    pass\n"
+            f"@pytest.mark.timeout({limit})\ndef test_c():\n    pass\n"
         )
         result = suite.runpytest_subprocess("-o", "timeout=0.5")
         assert result.parseoutcomes() == {"failed": 1, "errors": 1, "passed": 1}

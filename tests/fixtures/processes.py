@@ -1,32 +1,26 @@
 """When a command is ready, whether a process still runs, and running a tool's module.
 
-A command writes Ready's FIFO once it is set up, and a tool's module runs under the
-test's interpreter. `alive` counts a zombie as ended, since it holds no running code.
+A command writes Ready's FIFO once it is set up, and the test acts then. A tool's
+module runs under the test's interpreter. `alive` counts a zombie as ended, since it
+holds no running code.
 """
 
 import subprocess
 import sys
-lazy import threading
+lazy from collections.abc import Callable
 lazy from pathlib import Path
 
 
 class Ready:
-    """The FIFO a command writes once it is set up, and the timers that start then."""
+    """The FIFO a command writes once it is set up, and what the test does then."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.timers: list[threading.Timer] = []
-        self.started: list[threading.Timer] = []
+        self.actions: list[Callable[[], None]] = []
 
-    def start(self) -> None:
-        for timer in self.timers:
-            timer.start()
-            self.started.append(timer)
-
-    def stop(self) -> None:
-        for timer in self.started:
-            timer.cancel()
-            timer.join()
+    def reached(self) -> None:
+        for action in self.actions:
+            action()
 
 
 def alive(pid: int) -> bool:

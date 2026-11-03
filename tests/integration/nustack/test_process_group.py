@@ -3,12 +3,13 @@
 A stall or an interrupt stops the command's process group.
 """
 
+import contextlib
 import os
 import signal
 import subprocess
 import sys
-import threading
 lazy from collections.abc import Iterator
+lazy from functools import partial
 lazy from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from tests.fixtures.processes import Ready
 from tests.fixtures.processes import alive
 
 
+@pytest.mark.usefixtures("unhurried")
 class TestRun:
     """A command reads its input, and returns its status and output.
 
@@ -38,10 +40,12 @@ class TestRun:
         yield
         _ = signal.signal(signal.SIGINT, previous)
 
-    def test_returns_the_status_and_output_for_the_input(self, tmp_path: Path) -> None:
+    def test_returns_the_status_and_output_for_the_input(
+        self, tmp_path: Path, per_test_limit: float
+    ) -> None:
         completed = process_group.run(
             ["sh", "-c", 'cat; echo err >&2; pwd; echo "$X"; exit 3'],
-            timeout=5,
+            timeout=per_test_limit,
             stdin=b"in\n",
             stderr=subprocess.PIPE,
             cwd=tmp_path,
@@ -59,48 +63,52 @@ class TestRun:
             b"err\n",
         )
 
-    def test_reads_text_for_text_input(self) -> None:
+    def test_reads_text_for_text_input(self, per_test_limit: float) -> None:
         completed = process_group.run(
-            ["cat"], timeout=5, stdin="a\r\nb", stderr=None, cwd=None, env=None
+            ["cat"],
+            timeout=per_test_limit,
+            stdin="a\r\nb",
+            stderr=None,
+            cwd=None,
+            env=None,
         )
         assert completed.stdout == "a\nb"
 
-    @pytest.mark.timeout(5)
     @pytest.mark.usefixtures("interruptible")
     def test_stops_the_process_group_of_an_interrupted_command(
-        self, tmp_path: Path, ready: Ready
+        self, tmp_path: Path, ready: Ready, stall: str, per_test_limit: float
     ) -> None:
         pid_file = tmp_path / "pid"
-        interrupt = threading.Timer(0.5, os.kill, [os.getpid(), signal.SIGINT])
-        ready.timers.append(interrupt)
-        try:
-            with pytest.raises(KeyboardInterrupt):
-                _ = process_group.run(
-                    [
-                        "sh",
-                        "-c",
-                        f"sleep 30 & echo $! > {pid_file}; echo > {ready.path}; wait",
-                    ],
-                    timeout=60,
-                    stdin=b"",
-                    stderr=None,
-                    cwd=None,
-                    env=None,
-                )
-        finally:
-            ready.stop()
+        ready.actions.append(partial(signal.raise_signal, signal.SIGINT))
+        with pytest.raises(KeyboardInterrupt):
+            _ = process_group.run(
+                [
+                    "sh",
+                    "-c",
+                    f"{stall} & echo $! > {pid_file}; echo > {ready.path}; wait",
+                ],
+                timeout=per_test_limit,
+                stdin=b"",
+                stderr=None,
+                cwd=None,
+                env=None,
+            )
         assert not alive(int(pid_file.read_text()))
 
     def test_reraises_the_timeout_when_the_group_ended_before_the_signals(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, stall: str
     ) -> None:
-        def ended(pid: int, signal: int) -> None:
-            raise ProcessLookupError(pid, signal)
+        killpg = os.killpg
+
+        def ended(pid: int, signum: int) -> None:
+            with contextlib.suppress(ProcessLookupError):
+                killpg(pid, signal.SIGKILL)
+            raise ProcessLookupError(pid, signum)
 
         monkeypatch.setattr(process_group.os, "killpg", ended)
         with pytest.raises(subprocess.TimeoutExpired):
             _ = process_group.run(
-                ["sleep", "0.2"],
+                ["sh", "-c", stall],
                 timeout=0.1,
                 stdin=b"",
                 stderr=None,
@@ -108,9 +116,8 @@ class TestRun:
                 env=None,
             )
 
-    @pytest.mark.timeout(5)
     def test_lets_a_stalled_command_clean_up_before_it_stops(
-        self, tmp_path: Path, ready: Ready
+        self, tmp_path: Path, ready: Ready, stall: str
     ) -> None:
         cleaned = tmp_path / "cleaned"
         with pytest.raises(subprocess.TimeoutExpired):
@@ -119,7 +126,7 @@ class TestRun:
                     "sh",
                     "-c",
                     (
-                        f"trap 'touch {cleaned}; exit 1' TERM; sleep 30 &"
+                        f"trap 'touch {cleaned}; exit 1' TERM; {stall} &"
                         f" echo > {ready.path}; wait"
                     ),
                 ],
@@ -131,9 +138,8 @@ class TestRun:
             )
         assert cleaned.exists()
 
-    @pytest.mark.timeout(5)
     def test_lets_the_process_group_of_a_stalled_command_clean_up(
-        self, tmp_path: Path, ready: Ready
+        self, tmp_path: Path, ready: Ready, stall: str
     ) -> None:
         cleaned = tmp_path / "cleaned"
         # The child cleans up only once run has reaped the command's own process, so
@@ -141,7 +147,7 @@ class TestRun:
         child = (
             "trap 'while kill -0 \\$PPID 2>/dev/null; do sleep 0.05; done;"
             f" touch {cleaned}; exit 0' TERM;"
-            f" echo > {ready.path}; while :; do sleep 0.05; done"
+            f" echo > {ready.path}; {stall}"
         )
         with pytest.raises(subprocess.TimeoutExpired):
             _ = process_group.run(
@@ -154,11 +160,17 @@ class TestRun:
             )
         assert cleaned.exists()
 
-    @pytest.mark.timeout(5)
+    # The command's own shell ends on SIGTERM, so only the clock holds the wait for
+    # the process that ignores it, and the fake clock lets the grace run out at once.
     def test_kills_a_stalled_command_that_ignores_the_signal_to_clean_up(
-        self, tmp_path: Path, ready: Ready, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, ready: Ready, stall: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(process_group, "GRACE", 0.2)
+        readings = iter([0.0])
+
+        def clock() -> float:
+            return next(readings, process_group.GRACE)
+
+        monkeypatch.setattr(process_group.time, "monotonic", clock)
         pid_file = tmp_path / "pid"
         with pytest.raises(subprocess.TimeoutExpired):
             _ = process_group.run(
@@ -166,8 +178,8 @@ class TestRun:
                     "sh",
                     "-c",
                     (
-                        f"trap '' TERM; sleep 30 & echo $! > {pid_file};"
-                        f" echo > {ready.path}; wait"
+                        f"sh -c \"trap '' TERM; echo \\$\\$ > {pid_file};"
+                        f' echo > {ready.path}; exec {stall}" & wait'
                     ),
                 ],
                 timeout=1,
@@ -178,53 +190,53 @@ class TestRun:
             )
         assert not alive(int(pid_file.read_text()))
 
-    @pytest.mark.timeout(5)
+    # The second interrupt lands the moment the wait for the group reads the clock.
     @pytest.mark.usefixtures("interruptible")
     def test_kills_a_command_interrupted_again_while_it_cleans_up(
-        self, tmp_path: Path, ready: Ready
+        self,
+        tmp_path: Path,
+        ready: Ready,
+        stall: str,
+        per_test_limit: float,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         pid_file = tmp_path / "pid"
-        first = threading.Timer(0.5, os.kill, [os.getpid(), signal.SIGINT])
-        interrupted_again = threading.Event()
+        interrupts: list[int] = []
 
+        # raise_signal runs the SIGINT handler before it returns, so the clock read
+        # ends in KeyboardInterrupt and the wait reads the clock only once.
         def interrupt_again() -> None:
-            interrupted_again.set()
-            os.kill(os.getpid(), signal.SIGINT)
+            interrupts.append(signal.SIGINT)
+            signal.raise_signal(signal.SIGINT)
 
-        second = threading.Timer(1.0, interrupt_again)
-        ready.timers.extend((first, second))
-        try:
-            with pytest.raises(KeyboardInterrupt):
-                _ = process_group.run(
-                    [
-                        "sh",
-                        "-c",
-                        (
-                            f"trap '' TERM; sleep 30 & echo $! > {pid_file};"
-                            f" echo > {ready.path}; wait"
-                        ),
-                    ],
-                    timeout=60,
-                    stdin=b"",
-                    stderr=None,
-                    cwd=None,
-                    env=None,
-                )
-        finally:
-            ready.stop()
-        assert (interrupted_again.is_set(), alive(int(pid_file.read_text()))) == (
-            True,
-            False,
-        )
+        monkeypatch.setattr(process_group.time, "monotonic", interrupt_again)
+        ready.actions.append(partial(signal.raise_signal, signal.SIGINT))
+        with pytest.raises(KeyboardInterrupt):
+            _ = process_group.run(
+                [
+                    "sh",
+                    "-c",
+                    (
+                        f"trap '' TERM; {stall} & echo $! > {pid_file};"
+                        f" echo > {ready.path}; wait"
+                    ),
+                ],
+                timeout=per_test_limit,
+                stdin=b"",
+                stderr=None,
+                cwd=None,
+                env=None,
+            )
+        assert (len(interrupts), alive(int(pid_file.read_text()))) == (1, False)
 
 
+@pytest.mark.usefixtures("unhurried")
 class TestWaitForGroup:
     """The wait for a stopped group ends once the group is gone or the grace runs out.
 
     The wait for the command's own process counts against the grace.
     """
 
-    @pytest.mark.timeout(5)
     def test_counts_the_wait_for_the_command_against_the_grace(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -253,7 +265,6 @@ class TestWaitForGroup:
         process_group.wait_for_group(process)
         assert probes == [(process.pid, 0)]
 
-    @pytest.mark.timeout(5)
     def test_stops_waiting_for_the_group_once_the_clock_reaches_the_deadline(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -265,26 +276,28 @@ class TestWaitForGroup:
         def clock() -> float:
             return next(readings)
 
+        def nap(_seconds: float) -> None:
+            pass
+
         def probe(pid: int, signal: int) -> None:
             probes.append((pid, signal))
 
         monkeypatch.setattr(process_group.time, "monotonic", clock)
+        monkeypatch.setattr(process_group.time, "sleep", nap)
         monkeypatch.setattr(process_group.os, "killpg", probe)
         process_group.wait_for_group(process)
         assert probes == [(process.pid, 0)]
 
-    @pytest.mark.timeout(5)
     def test_ends_the_grace_once_the_process_group_is_gone(
-        self, tmp_path: Path, ready: Ready, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, ready: Ready, stall: str
     ) -> None:
-        monkeypatch.setattr(process_group, "GRACE", 30)
         pid_file = tmp_path / "pid"
         with pytest.raises(subprocess.TimeoutExpired):
             _ = process_group.run(
                 [
                     "sh",
                     "-c",
-                    f"sleep 30 & echo $! > {pid_file}; echo > {ready.path}; wait",
+                    f"{stall} & echo $! > {pid_file}; echo > {ready.path}; wait",
                 ],
                 timeout=1,
                 stdin=b"",

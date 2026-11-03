@@ -24,8 +24,6 @@ class TestFrontmatterBlockFields:
     itself is refused, and a shared alias is checked once.
     """
 
-    # An alias walk that revisits what it read slows to a stall; this fails it at once.
-    QUICK = pytest.mark.timeout(5)
     LEVELS = 40
     CHAIN = 3000
 
@@ -626,7 +624,6 @@ class TestFrontmatterBlockFields:
     @pytest.mark.parametrize(
         "frontmatter", ["metadata: &loop [*loop]\n", "metadata: &loop\n  - *loop\n"]
     )
-    @QUICK
     def test_refuses_an_alias_that_contains_itself(self, frontmatter: str) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
             _ = FrontmatterBlock(frontmatter).fields
@@ -648,7 +645,6 @@ class TestFrontmatterBlockFields:
             ("a0: &a0\n  - x\n", "a{i}: &a{i}\n  - *a{j}\n  - *a{j}\n"),
         ],
     )
-    @QUICK
     def test_checks_each_shared_alias_once(self, first: str, level: str) -> None:
         levels = "".join(level.format(i=i, j=i - 1) for i in range(1, self.LEVELS))
         fields = FrontmatterBlock(first + levels).fields

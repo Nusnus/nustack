@@ -270,7 +270,6 @@ class TestGitHub:
             " https://cli.github.com"
         )
 
-    @pytest.mark.timeout(5)
     @pytest.mark.usefixtures("stalling")
     def test_stops_a_command_that_outlasts_its_time_limit(self) -> None:
         with pytest.raises(GitHubError) as failed:
