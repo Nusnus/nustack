@@ -1,8 +1,8 @@
 """A release publishes through gh from the zip and notes CI built, once per tag.
 
-Publishing drafts the release when none exists, uploads the zips and publishes the notes
-only while the tag names the commit CI passed on, and leaves a published release
-as it is.
+Publishing drafts the release when none exists, uploads the zips and publishes the
+notes, as a pre-release before v0.1.0, only while the tag names the commit CI passed on,
+and leaves a published release as it is.
 """
 
 lazy from pathlib import Path
@@ -18,9 +18,9 @@ lazy from tests.fixtures.gh import FakeGh
 class TestPublication:
     """A tag's release publishes from its commit's build, or names what stopped it.
 
-    A tag naming another commit stops it, a published release is left alone, and a
-    draft an earlier run left is published; a tag gone after the upload, or a failed
-    gh, stops it.
+    A tag naming another commit stops it, a release before v0.1.0 publishes as a
+    pre-release, a published release is left alone, and a draft an earlier run left is
+    published; a tag gone after the upload, or a failed gh, stops it.
     """
 
     TAG = ("api", "repos/o/r/commits/tags/v1.2.3", "--jq", ".sha")
@@ -101,12 +101,67 @@ class TestPublication:
                     "-R",
                     "o/r",
                     "--draft=false",
+                    "--prerelease=false",
                     "--title",
                     "nustack 1.2.3",
                     "--notes-file",
                     str(zip_folder / "notes.md"),
                 ),
             ],
+        )
+
+    @pytest.mark.parametrize(
+        ("tag", "expected"),
+        [
+            (
+                "v0.0.1",
+                (
+                    "Published release v0.0.1",
+                    (
+                        *("release", "edit", "v0.0.1", "-R", "o/r", "--draft=false"),
+                        *("--prerelease", "--title", "nustack 0.0.1", "--notes-file"),
+                    ),
+                ),
+            ),
+            (
+                "v0.1.0",
+                (
+                    "Published release v0.1.0",
+                    (
+                        *("release", "edit", "v0.1.0", "-R", "o/r", "--draft=false"),
+                        *(
+                            "--prerelease=false",
+                            "--title",
+                            "nustack 0.1.0",
+                            "--notes-file",
+                        ),
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_publishes_a_pre_release_only_before_0_1_0(
+        self,
+        gh: FakeGh,
+        github_fixtures: Path,
+        zip_folder: Path,
+        tag: str,
+        expected: tuple[str, tuple[str, ...]],
+    ) -> None:
+        gh.replay(
+            *("api", f"repos/o/r/commits/tags/{tag}", "--jq", ".sha"),
+            recording=github_fixtures / "tag-commit/found.json",
+        )
+        gh.replay(
+            *("release", "view", tag, "-R", "o/r", "--json", "isDraft"),
+            *("--jq", ".isDraft"),
+            recording=github_fixtures / "release-state/draft.json",
+        )
+        outcome = Publication(tag, self.COMMIT, zip_folder).publish(GitHub("o/r"))
+        message, argv = expected
+        assert (outcome, gh.calls[-1][0]) == (
+            message,
+            (*argv, str(zip_folder / "notes.md")),
         )
 
     def test_leaves_a_published_release_as_it_is(

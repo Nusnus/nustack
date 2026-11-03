@@ -1,11 +1,11 @@
 """The release page: the notes GitHub shows under a release's title.
 
 The page opens with what the plugin is, then the changelog entry's lead and its
-changes, README's install and use steps, and a link to every change since the
-previous release, so it reads well to someone who never saw the repository. It
-leaves out README's third step, which turns nus-mode on for every session in a
-project: installing and using it is all a reader needs to try the release, and the
-repository the page's first line links holds the rest.
+changes, README's install and use steps and, from the second release on, a link to
+every change since the previous one, so it reads well to someone who never saw the
+repository. It leaves out README's third step, which turns nus-mode on for every
+session in a project: installing and using it is all a reader needs to try the
+release, and the repository the page's first line links holds the rest.
 """
 
 from dataclasses import dataclass
@@ -21,7 +21,7 @@ lazy from nustack.repository.page import PageStep
 class ReleaseNotes:
     """One release's page, from its manifest, its changelog entry and the README."""
 
-    CHANGES_HEADING: ClassVar[str] = "## 🆕 What changed"
+    CHANGES_HEADING: ClassVar[str] = "## 🆕 What's new"
     PAGE_STEPS_HEADING: ClassVar[str] = "## 🚀 Quick start"
     manifest: Manifest
     entry: Entry

@@ -196,13 +196,16 @@ class TestGitHub:
             " rerun once GitHub answers"
         )
 
+    @pytest.mark.parametrize(
+        ("prerelease", "flag"), [(True, "--prerelease"), (False, "--prerelease=false")]
+    )
     def test_drafts_uploads_to_and_publishes_a_release(
-        self, gh: FakeGh, tmp_path: Path
+        self, gh: FakeGh, tmp_path: Path, flag: str, *, prerelease: bool
     ) -> None:
         github = GitHub("o/r")
         github.create_draft("v1")
         github.upload("v1", (tmp_path / "a.zip", tmp_path / "b.zip"))
-        github.publish("v1", "nustack 1", tmp_path / "notes.md")
+        github.publish("v1", "nustack 1", tmp_path / "notes.md", prerelease=prerelease)
         assert [argv for argv, _ in gh.calls] == [
             (
                 "release",
@@ -232,6 +235,7 @@ class TestGitHub:
                 "-R",
                 "o/r",
                 "--draft=false",
+                flag,
                 "--title",
                 "nustack 1",
                 "--notes-file",

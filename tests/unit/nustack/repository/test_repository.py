@@ -41,7 +41,7 @@ class TestRepositoryRelease:
             "1.2.3",
             (
                 "> **[kit](https://example.com/kit)** · A kit.\n\n"
-                "## 🆕 What changed\n\n### Added\n\n- Adds the kit.\n\n"
+                "## 🆕 What's new\n\n### Added\n\n- Adds the kit.\n\n"
                 "## 🚀 Quick start\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
                 "### 2️⃣ Use\n\nRun `kit`.\n\n"
                 "**Full changelog:** [`v1.2.2...v1.2.3`]"
