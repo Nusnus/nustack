@@ -63,6 +63,7 @@ Each principle is a skill. Before you apply one, read its `SKILL.md` in full as 
 - [design](../principle-design/SKILL.md): you write or change code, from one branch to how parts work together.
 - [layout](../principle-layout/SKILL.md): you add, move or split folders, files, types or functions, or decide where a function or value lives, or change what a file, type or function is responsible for.
 - [dependencies](../principle-dependencies/SKILL.md): you make one part depend on another, add or use anything third-party, such as a library, a tool or a CI action, choose the runtime versions a project targets, or write code that does I/O or reads the time or other outside state.
+- [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, retries or falls back, writes state a crash or timeout can leave half-done, or does work that may repeat, such as a job or message handler.
 - [long term](../principle-long-term/SKILL.md): you write or change anything, experiments included.
 - [self-explanatory code](../principle-self-explanatory-code/SKILL.md): you write or change code or any comment, or the docs that describe them.
 - [PR descriptions](../principle-pr-descriptions/SKILL.md): you write or update a PR description, or push to a branch with an open pull request.

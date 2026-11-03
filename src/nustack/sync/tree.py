@@ -76,11 +76,11 @@ class CopyTree:
             return None
         return next((sha for sha, tree in history if self == tree), None)
 
-    def problems(self, copy: Path) -> list[Problem]:
+    def problems(self, copy_folder: Path) -> list[Problem]:
         missing = [
-            Problem(copy / name, f"has no upstream source; {fix}")
+            Problem(copy_folder / name, f"has no upstream source; {fix}")
             for name, fix in {
-                Skill.FILE: "pass --source the skill's folder upstream",
+                Skill.FILE: "pass --source-folder the skill's folder upstream",
                 self.LICENSE: (
                     "upstream holds no LICENSE in the skill's folder or at its root;"
                     " ask the owner to raise it upstream"
@@ -90,7 +90,7 @@ class CopyTree:
         ]
         return missing + [
             Problem(
-                copy / path,
+                copy_folder / path,
                 f"is {self.UNCOPIABLE[entry.mode]} upstream, which no copy can hold;"
                 " ask the owner to raise it upstream",
             )

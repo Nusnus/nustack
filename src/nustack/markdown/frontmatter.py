@@ -1,9 +1,11 @@
 """The YAML block that opens a `SKILL.md`, held to the lines every host reads alike.
 
-The block is found, stripped from the body a host shows, and read into one-line
-fields and list entries, frozen all the way down. Any line or value a host might
-read differently is refused by line, with its fix. The sync still reads a block
-whose close an edit broke.
+The block is found, stripped from the body a host shows, and read into one-line fields
+and list entries, frozen all the way down. Any line or value a host might read
+differently is refused with its fix, by line where it has one; a key that is not text,
+an alias that contains itself, nesting too deep, a reused anchor and a character YAML
+cannot read have no line of their own. The sync still reads a block whose close an edit
+broke.
 """
 
 import re
@@ -12,13 +14,8 @@ from functools import cached_property
 from typing import ClassVar
 lazy from collections.abc import Iterator
 
-from nustack.problem import Problem
-from nustack.yaml_reader import YamlAnchorReusedError
-from nustack.yaml_reader import YamlDuplicateKeyError
 from nustack.yaml_reader import YamlError
 from nustack.yaml_reader import YamlInvalidError
-from nustack.yaml_reader import YamlLineError
-from nustack.yaml_reader import YamlNestingError
 from nustack.yaml_reader import YamlUnhashableKeyError
 from nustack.yaml_reader import YamlValue
 from nustack.yaml_reader import read_yaml
@@ -48,10 +45,7 @@ class FrontmatterBlock:
         r"(?:[A-Za-z][\w-]*:(?: [^\r\n]*)?| *- [^\r\n]+)\r?"
     )
     LINE_SEPARATOR: ClassVar[re.Pattern[str]] = re.compile("[\x85\u2028\u2029]")
-    KEY_NOT_TEXT: ClassVar[str] = (
-        "it holds a key that is not text; write each key as plain text"
-    )
-    header: str
+    text: str
 
     @cached_property
     def fields(self) -> frozendict[str, object]:
@@ -72,27 +66,31 @@ class FrontmatterBlock:
                 raise InvalidFrontmatterError(msg)
 
     @classmethod
-    def of(cls, text: str) -> FrontmatterBlock | None:
-        match = cls.OPENING.prefixmatch(text)
+    def of(cls, file_text: str) -> FrontmatterBlock | None:
+        match = cls.OPENING.prefixmatch(file_text)
         if match is not None:
             return cls(match.group(1))
-        if text.partition("\n")[0].removesuffix("\r") == "---":
+        if file_text.partition("\n")[0].removesuffix("\r") == "---":
             msg = "it opens with --- and never closes; end it with a --- line"
             raise InvalidFrontmatterError(msg)
         return None
 
     @classmethod
-    def body_of(cls, text: str) -> str:
-        return cls.OPENING.sub("", text)
+    def body_of(cls, file_text: str) -> str:
+        return cls.OPENING.sub("", file_text)
 
     @classmethod
-    def fenced_of(cls, text: str) -> str:
-        if match := cls.OPENING.prefixmatch(text):
+    def fenced_of(cls, file_text: str) -> str:
+        if match := cls.OPENING.prefixmatch(file_text):
             return match.group(0)
-        return text if text.partition("\n")[0].removesuffix("\r") == "---" else ""
+        return (
+            file_text
+            if file_text.partition("\n")[0].removesuffix("\r") == "---"
+            else ""
+        )
 
     def refuse_ambiguous_lines(self) -> None:
-        lines = self.header.split("\n")[:-1]
+        lines = self.text.split("\n")[:-1]
         if reasons := [
             reason
             for number, line in enumerate(lines, start=self.FIRST_LINE)
@@ -127,41 +125,28 @@ class FrontmatterBlock:
 
     def load(self) -> object:
         try:
-            return read_yaml(self.header)
-        except YamlAnchorReusedError as error:
-            msg = "it reuses an anchor name; give each anchor its own name"
-            raise InvalidFrontmatterError(msg) from error
-        except YamlDuplicateKeyError as error:
-            msg = f"it repeats a key on line {self.line_of(error)}; keep one"
-            raise InvalidFrontmatterError(msg) from error
-        except YamlInvalidError as error:
+            return read_yaml(self.text)
+        except YamlError as error:
             # YAML 1.2 lets a tab sit in a plain value, but ruamel refuses one:
             # https://yaml.org/spec/1.2.2/#733-plain-style
-            if "\t" in self.header.split("\n")[error.line]:
-                msg = (
-                    f"it is not valid YAML on line {self.line_of(error)}, which"
-                    " holds a tab outside quotes; replace the tab with a space, or"
-                    " quote the value"
+            if (
+                isinstance(error, YamlInvalidError)
+                and "\t" in self.text.split("\n")[error.line]
+            ):
+                where = YamlInvalidError.WHERE.format(
+                    line=error.line_from(self.FIRST_LINE)
                 )
-            else:
-                msg = f"it is not valid YAML on line {self.line_of(error)}; fix it"
-            raise InvalidFrontmatterError(msg) from error
-        except YamlNestingError as error:
-            msg = f"it {Problem.TOO_DEEP}"
-            raise InvalidFrontmatterError(msg) from error
-        except YamlUnhashableKeyError as error:
-            raise InvalidFrontmatterError(self.KEY_NOT_TEXT) from error
-        except YamlError as error:
-            msg = (
-                "it holds a value YAML cannot read; quote it, fix or remove its tag, "
-                "or delete any control character"
-            )
-            raise InvalidFrontmatterError(msg) from error
+                msg = (
+                    f"{where}, which holds a tab outside quotes; replace the tab with"
+                    " a space, or quote the value"
+                )
+                raise InvalidFrontmatterError(msg) from error
+            raise InvalidFrontmatterError(error.reason(self.FIRST_LINE)) from error
 
     def refuse_ambiguous_values(self) -> None:
         if reasons := [
             reason
-            for value in yaml_values(self.header)
+            for value in yaml_values(self.text)
             for reason in self.value_reasons(value)
         ]:
             raise InvalidFrontmatterError(*reasons)
@@ -178,7 +163,7 @@ class FrontmatterBlock:
         # YAML needs a space before a comment, so Bun refuses a # right after a
         # quote or bracket, which other readers take as a comment or as part of
         # the value: https://yaml.org/spec/1.2.2/#66-comments
-        if self.header.startswith("#", value.end_index):
+        if self.text.startswith("#", value.end_index):
             yield (
                 f"line {value.end_line + self.FIRST_LINE} has a # right after a"
                 " quote or bracket, which some hosts refuse; put a space before the #"
@@ -193,9 +178,6 @@ class FrontmatterBlock:
             item, leaving = pending.pop()
             if leaving:
                 done.add(id(item))
-            elif isinstance(item, bytes):
-                msg = "it holds binary data; write it as text"
-                raise InvalidFrontmatterError(msg)
             elif isinstance(item, dict | list) and id(item) not in done:
                 if id(item) in entered:
                     msg = "it holds an alias that contains itself; remove the loop"
@@ -203,14 +185,11 @@ class FrontmatterBlock:
                 if isinstance(item, dict) and not all(
                     isinstance(key, str) for key in item
                 ):
-                    raise InvalidFrontmatterError(cls.KEY_NOT_TEXT)
+                    raise InvalidFrontmatterError(YamlUnhashableKeyError.REASON)
                 entered.add(id(item))
                 pending.append((item, True))
                 children = item.values() if isinstance(item, dict) else item
                 pending.extend((child, False) for child in reversed(list(children)))
-
-    def line_of(self, error: YamlLineError) -> int:
-        return error.line + self.FIRST_LINE
 
 
 def frozen(fields: dict[str, object]) -> frozendict[str, object]:

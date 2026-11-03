@@ -28,8 +28,17 @@ class TestFile:
     """Only bytes every host decodes count as text to a check."""
 
     @pytest.mark.parametrize(("content", "text"), [(b"a\n", "a\n"), (b"\xff", None)])
-    def test_reads_as_text_only_in_utf8(self, content: bytes, text: str | None) -> None:
+    def test_reads_text_only_from_utf8(self, content: bytes, text: str | None) -> None:
         assert File(content).text == text
+
+
+class TestBlocked:
+    """A path under an entry where a folder belongs names that entry and its fix."""
+
+    def test_names_the_blocking_entry_and_its_fix(self) -> None:
+        assert Blocked(Path("/p/a"), "is a pipe; remove it").absence("is missing") == (
+            "cannot be read, since /p/a is a pipe; remove it"
+        )
 
 
 class TestUnreadable:
@@ -54,7 +63,11 @@ class TestUnopened:
 
 
 class TestTree:
-    """Checks see the files the disk held, in one order, each read as its kind."""
+    """Checks see the files the disk held, in one order, each read as its kind.
+
+    A symlink reads as missing, and a path below a file, an unreadable file or a
+    special entry reads as blocked, naming the topmost such entry.
+    """
 
     TREE = Tree(
         Path("/p"),
@@ -96,7 +109,7 @@ class TestTree:
             (
                 File(b"x"),
                 Blocked(
-                    Path("/p/a"),
+                    Path("/p/a/b"),
                     "is a file where a folder belongs; move the file, then add the"
                     " folder",
                 ),
@@ -104,7 +117,7 @@ class TestTree:
             (
                 Unreadable("cannot be read (Permission denied); make it readable"),
                 Blocked(
-                    Path("/p/a"),
+                    Path("/p/a/b"),
                     "is a file where a folder belongs; move the file, then add the"
                     " folder",
                 ),
@@ -112,7 +125,7 @@ class TestTree:
             (
                 Special(),
                 Blocked(
-                    Path("/p/a"),
+                    Path("/p/a/b"),
                     "is neither a file nor a folder; remove it, then add the folder",
                 ),
             ),
@@ -123,29 +136,44 @@ class TestTree:
     ) -> None:
         tree = Tree(
             Path("/p"),
-            frozendict({PurePosixPath("a"): entry, PurePosixPath("b"): Folder()}),
+            frozendict({PurePosixPath("a"): Folder(), PurePosixPath("a/b"): entry}),
         )
         assert tree.read(PurePosixPath("a/b/c")) == blocked
 
-    def test_names_the_blocking_entry_and_its_fix(self) -> None:
-        assert Blocked(Path("/p/a"), "is a pipe; remove it").absence("is missing") == (
-            "cannot be read, since /p/a is a pipe; remove it"
+    def test_reads_a_path_two_folders_below_a_file_as_blocked(self) -> None:
+        tree = Tree(Path("/p"), frozendict({PurePosixPath("a"): File(b"x")}))
+        assert tree.read(PurePosixPath("a/b/c")) == Blocked(
+            Path("/p/a"),
+            "is a file where a folder belongs; move the file, then add the folder",
         )
 
 
 class TestSnapshot:
-    """The checks read only what the disk handed over, never the disk itself."""
+    """The checks read only what the disk handed over, never the disk itself.
 
-    def test_reads_a_file_it_holds_and_misses_the_rest(self) -> None:
-        snapshot = Snapshot(
-            Path("/r"),
-            Tree(Path("/r/plugin"), frozendict()),
-            frozendict({PurePosixPath("LICENSE"): File(b"MIT")}),
-            (),
-            (),
-            frozendict(),
-        )
+    A file the disk was never asked for is a bug in the caller, so reading it fails.
+    """
+
+    SNAPSHOT = Snapshot(
+        Path("/r"),
+        Tree(Path("/r/plugin"), frozendict()),
+        frozendict(
+            {
+                PurePosixPath("LICENSE"): File(b"MIT"),
+                PurePosixPath("README.md"): Missing(),
+            }
+        ),
+        (),
+        (),
+        frozendict(),
+    )
+
+    def test_reads_each_file_the_disk_handed_over(self) -> None:
         assert (
-            snapshot.read(PurePosixPath("LICENSE")),
-            snapshot.read(PurePosixPath("README.md")),
+            self.SNAPSHOT.read(PurePosixPath("LICENSE")),
+            self.SNAPSHOT.read(PurePosixPath("README.md")),
         ) == (File(b"MIT"), Missing())
+
+    def test_fails_on_a_file_the_disk_was_never_asked_for(self) -> None:
+        with pytest.raises(KeyError):
+            self.SNAPSHOT.read(PurePosixPath("NOTICE"))

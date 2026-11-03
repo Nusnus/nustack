@@ -1,20 +1,23 @@
 """Git, run on one repository whatever Git hook variables the caller exports.
 
-Paths never read as options or patterns. A command that fails, or that Git cannot
-start, stops with a Problem naming the fix beside the message Git printed.
+Paths never read as options or patterns. A command that fails, that Git cannot
+start, or that outlasts its time limit stops with a Problem naming the fix beside
+the message Git printed.
 """
 
 import os
 import subprocess
 from dataclasses import dataclass
 from functools import cached_property
+from typing import ClassVar
 lazy from pathlib import Path
 
+from nustack import process_group
 from nustack.problem import Problem
 
 
 class GitError(Exception):
-    """A Git command failed; Git's own message names why."""
+    """A Git command failed or outlasted its time limit; the problem says what to do."""
 
     def __init__(self, problem: Problem) -> None:
         super().__init__(problem)
@@ -25,19 +28,40 @@ class GitError(Exception):
 class Git:
     """Runs Git on one repository, reading paths as paths, never as patterns."""
 
+    # These commands always reach a remote, so their stall points at it.
+    REMOTE_COMMANDS: ClassVar[frozenset[str]] = frozenset(
+        {"fetch", "ls-remote", "push"}
+    )
+    # Of the other commands nustack runs, only a blob read can reach a remote, and
+    # only in a partial clone, such as the sync's blob:none clone of upstream, which
+    # fetches each missing object from its promisor remote; logs and tree listings
+    # read commits and trees, which such a clone holds:
+    # https://git-scm.com/docs/partial-clone
+    FETCHING_COMMANDS: ClassVar[frozenset[str]] = frozenset({"cat-file"})
+
     root: Path
+    # The slowest command, a fetch or push of one small branch, takes seconds when
+    # the network is healthy; a minute leaves room for a slow one and still stops a
+    # stalled one.
+    timeout: float = 60
 
     # A Git hook exports variables such as GIT_DIR that point Git at another
     # repository; Git lists them all:
     # https://git-scm.com/docs/git-rev-parse#Documentation/git-rev-parse.txt---local-env-vars
+    # rev-parse starts no process of its own, so subprocess.run's kill stops all of
+    # it.
     @cached_property
     def environment(self) -> frozendict[str, str]:
-        listing = subprocess.run(
-            ["git", "rev-parse", "--local-env-vars"],  # noqa: S607 -- runner's Git
-            stdout=subprocess.PIPE,
-            check=True,
-            text=True,
-        ).stdout
+        try:
+            listing = subprocess.run(
+                ["git", "rev-parse", "--local-env-vars"],  # noqa: S607 -- runner's Git
+                stdout=subprocess.PIPE,
+                check=True,
+                text=True,
+                timeout=self.timeout,
+            ).stdout
+        except subprocess.TimeoutExpired as error:
+            raise GitError(self.stall("rev-parse")) from error
         local = set(listing.split())
         return frozendict(
             (name, value) for name, value in os.environ.items() if name not in local
@@ -62,9 +86,7 @@ class Git:
         self,
         command: str,
         *args: str,
-        # Only the commands given input read it, so no test tells the default from
-        # another value.
-        stdin: bytes = b"",  # pragma: no mutate
+        stdin: bytes = b"",
         environment: frozendict[str, str] = frozendict(),
     ) -> bytes:
         completed = self.complete(command, args, stdin, environment)
@@ -73,32 +95,45 @@ class Git:
         return completed.stdout
 
     def status(self, command: str, *args: str) -> int:
-        # The commands it runs read no input, so no test tells one input from another.
-        completed = self.complete(command, args, b"", frozendict())  # pragma: no mutate
+        completed = self.complete(command, args)
         return completed.returncode
 
     def complete(
         self,
         command: str,
         args: tuple[str, ...],
-        stdin: bytes,
-        environment: frozendict[str, str],
+        stdin: bytes = b"",
+        environment: frozendict[str, str] = frozendict(),
     ) -> subprocess.CompletedProcess[bytes]:
         try:
-            return subprocess.run(  # noqa: S603 -- argv only, no shell
-                ["git", "--literal-pathspecs", command, *args],  # noqa: S607 -- runner's Git
+            return process_group.run(
+                ["git", "--literal-pathspecs", command, *args],
+                timeout=self.timeout,
+                stdin=stdin,
+                stderr=None,
                 cwd=self.root,
                 env=self.environment | environment,
-                input=stdin,
-                stdout=subprocess.PIPE,
-                # Ruff asks for check, and the caller reads the exit status; False is
-                # subprocess.run's default, so no mutant of it acts differently:
-                # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-                check=False,  # pragma: no mutate
             )
         except OSError as error:
             what = f"cannot run Git ({error.strerror}); check the clone path and Git"
             raise GitError(Problem(self.root, what)) from error
+        except subprocess.TimeoutExpired as error:
+            raise GitError(self.stall(command)) from error
+
+    def stall(self, command: str) -> Problem:
+        if command in self.REMOTE_COMMANDS:
+            check = "check that the remote answers"
+        elif command in self.FETCHING_COMMANDS:
+            check = (
+                "check what Git waits on, such as its disk or, in a partial clone,"
+                " the remote it fetches from"
+            )
+        else:
+            check = "check what Git waits on, such as its disk or a hook"
+        return Problem(
+            self.root,
+            f"git {command} took over {self.timeout:g} seconds; {check}, then rerun",
+        )
 
     def failure(self, command: str, status: int) -> Problem:
         return Problem(

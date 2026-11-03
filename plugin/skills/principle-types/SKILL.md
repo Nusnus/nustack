@@ -1,6 +1,6 @@
 ---
 name: principle-types
-description: "Types, a nus-mode principle."
+description: "Types that hold the contract, so an invalid value cannot exist."
 disable-model-invocation: true
 triggers:
   - user

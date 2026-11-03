@@ -42,7 +42,7 @@
 
 </details>
 
-**Links:** net new destinations per file that the CommonMark parser recognizes as links or images. Check raw HTML, bare URLs and rejected URI schemes in the diff.
+**Links:** net new destinations per file that the CommonMark parser recognizes as links or images. Check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff.
 
 **Lines:** edits in `SKILL.md` frontmatter and `agents/`, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs. Both scans skip binary comparisons.
 

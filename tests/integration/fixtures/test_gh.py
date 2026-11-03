@@ -11,8 +11,9 @@ lazy from tests.fixtures.gh import FakeGh
 class TestFakeGh:
     """A test reads what gh printed and exited with, and the calls the harness made.
 
-    A call no reply matches succeeds silently, the last reply repeats once the
-    others are used, and no call is logged before the first.
+    A call no reply matches succeeds silently, a departure from gh kept for the
+    commands that change GitHub, whose output the harness never reads, and the last
+    reply repeats once the others are used.
     """
 
     @pytest.mark.usefixtures("gh")
@@ -83,6 +84,3 @@ class TestFakeGh:
                 check=True,
             )
         assert gh.calls == [(("a",), "one"), (("b", "c"), "")]
-
-    def test_has_logged_no_call_before_the_first(self, gh: FakeGh) -> None:
-        assert gh.calls == []

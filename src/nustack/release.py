@@ -6,10 +6,12 @@ as it is.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
+from typing import assert_never
+lazy from pathlib import Path
 
 from nustack.github import GitHub
 from nustack.github import GitHubError
+from nustack.github import ReleaseState
 from nustack.problem import Problem
 
 
@@ -24,7 +26,7 @@ class Tag:
         if not on_main:
             problems.append(
                 Problem(
-                    Path(self.name),
+                    self.name,
                     "is not on main; delete it and tag the commit the squash merge made"
                     " on main",
                 )
@@ -32,7 +34,7 @@ class Tag:
         if self.name != f"v{version}":
             problems.append(
                 Problem(
-                    Path(self.name),
+                    self.name,
                     f"does not match plugin version {version}; delete it and tag"
                     f" v{version}, or set the version as AGENTS.md's Releases section"
                     " says",
@@ -47,27 +49,34 @@ class Publication:
 
     tag: str
     commit: str
-    folder: Path
+    zip_folder: Path
 
     def publish(self, github: GitHub) -> str | Problem:
         try:
             if (moved := self.moved(github)) is not None:
                 return moved
-            draft = github.release_draft(self.tag)
-            if draft is None:
-                github.create_draft(self.tag)
-            elif not draft:
-                return f"Release {self.tag} is already published, so it stays as it is"
-            github.upload(self.tag, tuple(sorted(self.folder.glob("*.zip"))))
+            state = github.release_state(self.tag)
+            match state:
+                case ReleaseState.MISSING:
+                    github.create_draft(self.tag)
+                case ReleaseState.PUBLISHED:
+                    return (
+                        f"Release {self.tag} is already published, so it stays as it is"
+                    )
+                case ReleaseState.DRAFT:
+                    pass
+                case unexpected:
+                    assert_never(unexpected)
+            github.upload(self.tag, tuple(sorted(self.zip_folder.glob("*.zip"))))
             if (moved := self.moved(github)) is not None:
                 return moved
             github.publish(
                 self.tag,
                 f"nustack {self.tag.removeprefix('v')}",
-                self.folder / "notes.md",
+                self.zip_folder / "notes.md",
             )
         except GitHubError as error:
-            return Problem(Path(self.tag), error.what)
+            return Problem(self.tag, error.what)
         return f"Published release {self.tag}"
 
     def moved(self, github: GitHub) -> Problem | None:
@@ -75,14 +84,14 @@ class Publication:
             tagged = github.tag_commit(self.tag)
         except GitHubError as error:
             return Problem(
-                Path(self.tag),
+                self.tag,
                 f"cannot be read ({error.what}); push it again if it was deleted, then"
                 " rerun",
             )
         if tagged == self.commit:
             return None
         return Problem(
-            Path(self.tag),
+            self.tag,
             "has moved off the commit CI passed on; the run the move started"
             " publishes it",
         )

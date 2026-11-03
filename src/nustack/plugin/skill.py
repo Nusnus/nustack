@@ -23,15 +23,16 @@ from pydantic import ValidationError
 from pydantic import field_validator
 
 from nustack.markdown.document import Document
-from nustack.markdown.document import Lines
 from nustack.markdown.frontmatter import FrontmatterBlock
 from nustack.markdown.frontmatter import InvalidFrontmatterError
 from nustack.problem import Problem
+from nustack.tree import Blocked
 from nustack.tree import File
 from nustack.tree import Folder
 from nustack.tree import Missing
 from nustack.tree import Read
 from nustack.tree import Special
+from nustack.tree import Unreadable
 from nustack.validation import Pattern
 from nustack.validation import Schema
 
@@ -84,7 +85,7 @@ class Kind(StrEnum):
 
 
 class Frontmatter(BaseModel):
-    """The YAML header of a `SKILL.md`, as every host reads it."""
+    """The frontmatter of a `SKILL.md`, as every host reads it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -154,20 +155,27 @@ class Skill:
         match self.read:
             case File(text=str() as text):
                 return Document(self.path, text)
-            case _:
+            case File() | Folder() | Special() | Missing() | Blocked() | Unreadable():
                 return None
+            case unexpected:
+                assert_never(unexpected)
 
     def problems(self) -> list[Problem]:
         problems = self.name_problems()
-        if isinstance(self.read, Folder | Special):
-            return [*problems, Problem(self.path, self.read.IN_A_FILES_PLACE)]
-        if isinstance(self.read, Missing):
-            return [
-                *problems,
-                Problem(
-                    self.folder, f"has no {self.FILE}; add one or remove the folder"
-                ),
-            ]
+        match self.read:
+            case Folder() | Special():
+                return [*problems, Problem(self.path, self.read.IN_A_FILES_PLACE)]
+            case Missing():
+                return [
+                    *problems,
+                    Problem(
+                        self.folder, f"has no {self.FILE}; add one or remove the folder"
+                    ),
+                ]
+            case File() | Blocked() | Unreadable():
+                pass
+            case unexpected:
+                assert_never(unexpected)
         if self.document is None:
             return problems
         match self.read_frontmatter(self.document):
@@ -183,7 +191,7 @@ class Skill:
                         )
                     )
                 problems += self.invocation_problems(frontmatter)
-        lines = len(Lines(self.document.text).lines)
+        lines = len(self.document.text_lines)
         if lines >= self.MAX_LINES:
             problems.append(
                 Problem(

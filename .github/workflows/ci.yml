@@ -45,19 +45,17 @@ jobs:
       # force-push the old head is no longer in the checkout, so a range from it
       # can't be read
       # (https://docs.github.com/en/webhooks/webhook-events-and-payloads#push).
-      # A workflow that release calls may run under release's push event or as
-      # workflow_call
-      # (https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows),
-      # so both check every commit up to the tagged one.
-      - if: github.event_name == 'push' || github.event_name == 'workflow_call'
+      # A workflow that release calls runs under release's push event, since a
+      # called workflow takes its caller's github context
+      # (https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#github-context),
+      # so it checks every commit up to the tagged one too.
+      - if: github.event_name == 'push'
         name: Every commit up to the pushed one
         run: uv run --locked cz check --allowed-prefixes --rev-range "$GITHUB_SHA"
-      - if: >-
-          github.event_name != 'pull_request' && github.event_name != 'push'
-          && github.event_name != 'workflow_call'
+      - if: github.event_name != 'pull_request' && github.event_name != 'push'
         name: An event with no commit check
         run: |
-          echo "::error::CI checks commits on pull_request, push and workflow_call, not $EVENT; add a step for it"
+          echo "::error::CI checks commits on pull_request and push, not $EVENT; add a step for it"
           exit 1
         env:
           EVENT: ${{ github.event_name }}
@@ -120,7 +118,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      - name: Build the zip and the release notes
+      - name: Build the zip and the release page
         run: |
           make bundle
           uv run --locked nustack notes > dist/notes.md
@@ -144,6 +142,6 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
       - name: make smoke
         run: make smoke
-    # The smoke tests may each take their two-minute limit, after the hosts'
-    # uncached install.
+    # The smoke tests may each take make smoke's --timeout (Makefile), after the
+    # hosts' uncached install.
     timeout-minutes: 30

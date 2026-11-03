@@ -1,4 +1,4 @@
-# Rules: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+# Rules: https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/Rules.md
 config:
   # Each paragraph and list entry keeps to one line, so a diff shows the
   # sentence that changed instead of a rewrapped block.
@@ -7,11 +7,17 @@ config:
   # names, such as Added: https://keepachangelog.com/en/1.1.0/
   MD024:
     siblings_only: true
-  # CLAUDE.md is a single import line, and the PR template opens on the
-  # comments and table a description starts from; a title in either would be
-  # text no reader needs. The rule names no files to skip
-  # (https://github.com/DavidAnson/markdownlint/blob/main/doc/md041.md), and an
-  # inline disable comment would land in every description and host session.
-  MD041: false
   MD060:
     style: compact
+# The first-line title rule skips only the files that cannot open on a title:
+# https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
+# CLAUDE.md is a single import line, and the PR template opens on the comments and
+# table a description starts from, where an inline disable comment would land in
+# every description: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
+overrides:
+  - filter:
+      - CLAUDE.md
+      - .github/pull_request_template.md
+    config:
+      MD041: false
+    combine: merge

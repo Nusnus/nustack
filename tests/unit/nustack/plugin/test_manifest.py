@@ -25,11 +25,13 @@ from nustack.plugin.manifest import Person
 class TestManifest:
     """Each manifest holds only what hosts accept; a disagreement names its field.
 
-    A file JSON cannot read, or nested too deep for the stack, is refused.
+    A manifest nested too deep for the stack is refused, each field parses, and a
+    manifest can key a set, since it never changes. A value hosts reject and a file
+    JSON cannot read are refused. Two manifests that agree name no field, and a
+    disagreement names each field.
     """
 
     SMALL_STACK: ClassVar[int] = 1 << 20
-
     FIELDS = frozendict(
         {
             "name": "kit",
@@ -111,6 +113,10 @@ class TestManifest:
             (
                 {"homepage": "https://user:canary@exa mple.com"},
                 "homepage: use a full http or https URL, such as https://example.com",
+            ),
+            (
+                {"repository": "example.com/kit"},
+                "repository: use a full http or https URL, such as https://example.com",
             ),
             (
                 {"name": "Not A Name", "version": "x"},

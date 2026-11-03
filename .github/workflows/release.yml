@@ -65,7 +65,7 @@ jobs:
         run: |
           export GH_HOST=${GITHUB_SERVER_URL#https://}
           uv run --locked nustack publish "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
-            --repository "$GITHUB_REPOSITORY"
+            --name-with-owner "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}
     timeout-minutes: 5

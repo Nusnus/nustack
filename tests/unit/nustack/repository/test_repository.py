@@ -2,10 +2,10 @@
 
 Each required file is present and readable, every source and test folder lists, the
 marketplaces, versions, package and license agree with the plugin, the README activates
-nus-mode as its playbook says and holds the install and use steps the release page
-copies, those steps and the changelog entry resolve each reference label the same on the
-page that joins them as on their own, and only a repository every check passes yields a
-release.
+nus-mode as its playbook says, its skills table lists each skill under its link and
+description, it holds the install and use steps the release page copies, those steps and
+the changelog entry resolve each reference label the same on the page that joins them as
+on their own, and only a repository every check passes yields a release.
 """
 
 import json
@@ -465,8 +465,9 @@ class TestRepositoryVersions:
         assert repository.problems() == [
             Problem(
                 repository.where("CHANGELOG.md"),
-                "does not open with the entry for 1.2.3; retitle its [Unreleased]"
-                " section '[1.2.3] - <release date>'",
+                "does not open with the entry for 1.2.3; set the newest entry's"
+                " version in every file whose version nustack check compares, or"
+                " remove the entries newer than 1.2.3",
             ),
             Problem(
                 repository.where("CHANGELOG.md"),
@@ -786,6 +787,388 @@ class TestRepositoryActivation:
         )
         repository.edit("README.md", "```markdown\nWork in nus-mode.\n```\n", "")
         assert repository.problems() == []
+
+
+class TestRepositorySkillTable:
+    """README's skills table gives each skill hidden from the model its description.
+
+    Every table headed Skill and What it holds counts, read as it renders, so one in
+    the frontmatter does not, and each such skill's row links its SKILL.md, by the
+    path the link reaches past any query or fragment, under the skill's name. When
+    some skill needs a row and no such table exists, one Problem asks for the table.
+    A row linking anything but a skill's SKILL.md file, and a second row for one
+    skill, are Problems naming their lines in the whole file, as are a row's link text
+    other than its skill's name and a description other than its skill's. The mode,
+    which the model may load, and a skill whose frontmatter or SKILL.md cannot be
+    read, need no row, and the skills after it still need theirs.
+    """
+
+    ROW = "| [language-python](plugin/skills/language-python/SKILL.md) | Python. |\n"
+
+    def test_reports_a_missing_row_beside_a_differing_activation_line(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", "Work in nus-mode.", "Use nus-mode.")
+        repository.edit("README.md", " Python. |", " Go. |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has an activation line that differs from the new-project playbook's;"
+                " copy the playbook's markdown block into it",
+            ),
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 20 whose description differs from"
+                " language-python's; copy the description from"
+                " plugin/skills/language-python/SKILL.md into it",
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "wrapped",
+        ["\n```\n| Skill | What it holds |\n| --- | --- |\n{}```\n", "\n<!--\n{}-->\n"],
+    )
+    def test_reads_no_row_that_never_renders(
+        self, repository: ModelRepository, wrapped: str
+    ) -> None:
+        repository.edit("README.md", self.ROW, "")
+        repository.edit(
+            "README.md", " Naming. |\n", " Naming. |\n" + wrapped.format(self.ROW)
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no skills table row for language-python; add one that links"
+                " plugin/skills/language-python/SKILL.md under its name and copies its"
+                " description",
+            )
+        ]
+
+    def test_reads_the_body_row_beside_a_table_in_the_frontmatter(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "README.md",
+            "# kit\n",
+            "---\nx: |\n  | Skill | What it holds |\n  | --- | --- |\n  "
+            + self.ROW
+            + "---\n# kit\n",
+        )
+        assert repository.problems() == []
+
+    def test_reads_no_row_in_the_frontmatter(self, repository: ModelRepository) -> None:
+        repository.edit("README.md", self.ROW, "")
+        repository.edit(
+            "README.md",
+            "# kit\n",
+            "---\nx: |\n  | Skill | What it holds |\n  | --- | --- |\n  "
+            + self.ROW
+            + "---\n# kit\n",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no skills table row for language-python; add one that links"
+                " plugin/skills/language-python/SKILL.md under its name and copies its"
+                " description",
+            )
+        ]
+
+    def test_reads_the_rows_of_every_table_headed_its_way(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", self.ROW, "")
+        repository.edit(
+            "README.md",
+            " Naming. |\n",
+            " Naming. |\n\n| Skill | What it holds |\n| --- | --- |\n" + self.ROW,
+        )
+        assert repository.problems() == []
+
+    def test_reads_no_table_headed_another_way(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", "| Skill | What it holds |", "| Skill | Holds |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no table headed Skill and What it holds; add one with a row"
+                " giving each principle and language skill's description",
+            )
+        ]
+
+    def test_asks_no_row_of_a_skill_whose_skill_file_cannot_be_read(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", " Python. |", " Go. |")
+        repository.edit("README.md", " Naming. |", " Names. |")
+        repository.put(
+            "plugin/skills/language-python/SKILL.md",
+            Unreadable("cannot be read (Permission denied); make it readable"),
+        )
+        assert Repository(repository.snapshot()).skill_table_problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 whose description differs from"
+                " principle-naming's; copy the description from"
+                " plugin/skills/principle-naming/SKILL.md into it",
+            ),
+        ]
+
+    def test_asks_no_row_of_a_skill_whose_frontmatter_is_refused(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", " Python. |", " Go. |")
+        repository.edit("README.md", " Naming. |", " Names. |")
+        repository.edit(
+            "plugin/skills/language-python/SKILL.md", "name: language-python\n", ""
+        )
+        assert Repository(repository.snapshot()).skill_table_problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 whose description differs from"
+                " principle-naming's; copy the description from"
+                " plugin/skills/principle-naming/SKILL.md into it",
+            ),
+        ]
+
+    def test_asks_no_table_when_no_skill_needs_a_row(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", "| Skill | What it holds |", "| Skill | Holds |")
+        repository.write("plugin/skills/language-python/SKILL.md", b"\xff")
+        repository.write("plugin/skills/principle-naming/SKILL.md", b"\xff")
+        assert Repository(repository.snapshot()).skill_table_problems() == []
+
+    def test_reports_a_row_linking_a_skill_folder_without_its_skill_file(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.write("plugin/skills/principle-gone/notes.md", b"Gone.\n")
+        repository.edit(
+            "README.md",
+            self.ROW,
+            self.ROW
+            + "| [principle-gone](plugin/skills/principle-gone/SKILL.md) | Gone. |\n",
+        )
+        assert Repository(repository.snapshot()).skill_table_problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 21 linking"
+                " plugin/skills/principle-gone/SKILL.md, which is no skill's"
+                " SKILL.md; link a skill's SKILL.md, or remove the row",
+            )
+        ]
+
+    @pytest.mark.parametrize("entry", [Folder(), Special()])
+    def test_reports_a_row_linking_a_skill_file_that_is_no_file(
+        self, repository: ModelRepository, entry: Folder | Special
+    ) -> None:
+        repository.put("plugin/skills/language-python/SKILL.md", entry)
+        assert Repository(repository.snapshot()).skill_table_problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 20 linking"
+                " plugin/skills/language-python/SKILL.md, which is no skill's"
+                " SKILL.md; link a skill's SKILL.md, or remove the row",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "href",
+        [
+            "./plugin/skills/language-python/SKILL.md",
+            "plugin/skills/language-python/SKILL.md#python",
+            "plugin/skills/language-python/SKILL.md?plain=1",
+            "plugin/skills/language%2Dpython/SKILL.md",
+        ],
+    )
+    def test_reads_a_link_by_the_path_it_reaches(
+        self, repository: ModelRepository, href: str
+    ) -> None:
+        repository.edit(
+            "README.md", "](plugin/skills/language-python/SKILL.md)", f"]({href})"
+        )
+        assert repository.problems() == []
+
+    @pytest.mark.parametrize(
+        ("row", "what"),
+        [
+            (
+                ROW + "| Gone | Gone. |\n",
+                (
+                    "has a skills table row on line 24 whose first cell links no skill;"
+                    " start it with a link to the skill's SKILL.md, or remove the row"
+                ),
+            ),
+            (
+                ROW + "| [gone](plugin/skills/principle-gone/SKILL.md) | Gone. |\n",
+                (
+                    "has a skills table row on line 24 linking"
+                    " plugin/skills/principle-gone/SKILL.md, which is no skill's"
+                    " SKILL.md; link a skill's SKILL.md, or remove the row"
+                ),
+            ),
+            (
+                ROW + ROW,
+                (
+                    "has more than one skills table row for language-python, on"
+                    " lines 23, 24; keep the first and remove the rest"
+                ),
+            ),
+            (
+                ROW.replace("[language-python]", "[language-go]"),
+                (
+                    "has a skills table row on line 23 whose link text is not"
+                    " language-python; make it language-python"
+                ),
+            ),
+            (
+                ROW.replace("Python.", "Go."),
+                (
+                    "has a skills table row on line 23 whose description differs from"
+                    " language-python's; copy the description from"
+                    " plugin/skills/language-python/SKILL.md into it"
+                ),
+            ),
+        ],
+        ids=["no link", "no skill", "second row", "link text", "description"],
+    )
+    def test_counts_a_rows_line_past_the_frontmatter(
+        self, repository: ModelRepository, row: str, what: str
+    ) -> None:
+        repository.edit("README.md", "# kit\n", "---\nx: 1\n---\n# kit\n")
+        repository.edit("README.md", self.ROW, row)
+        assert repository.problems() == [Problem(repository.where("README.md"), what)]
+
+    @pytest.mark.parametrize(
+        ("row", "what"),
+        [
+            (
+                "| [gone](plugin/skills/principle-gone/SKILL.md) | Gone. |\n",
+                (
+                    "has a skills table row on line 21 linking"
+                    " plugin/skills/principle-gone/SKILL.md, which is no skill's"
+                    " SKILL.md; link a skill's SKILL.md, or remove the row"
+                ),
+            ),
+            (
+                "| Gone | Gone. |\n",
+                (
+                    "has a skills table row on line 21 whose first cell links no"
+                    " skill; start it with a link to the skill's SKILL.md, or remove"
+                    " the row"
+                ),
+            ),
+        ],
+    )
+    def test_reports_a_row_that_links_no_skill(
+        self, repository: ModelRepository, row: str, what: str
+    ) -> None:
+        repository.edit("README.md", self.ROW, self.ROW + row)
+        assert repository.problems() == [Problem(repository.where("README.md"), what)]
+
+    @pytest.mark.parametrize("second", ["Python.", "Go."])
+    def test_reports_a_second_row_for_one_skill(
+        self, repository: ModelRepository, second: str
+    ) -> None:
+        repository.edit(
+            "README.md", self.ROW, self.ROW + self.ROW.replace("Python.", second)
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has more than one skills table row for language-python, on lines 20,"
+                " 21; keep the first and remove the rest",
+            )
+        ]
+
+    def test_reports_each_skills_row_after_one_with_no_row(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", self.ROW, "")
+        repository.edit("README.md", " Naming. |", " Names. |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no skills table row for language-python; add one that links"
+                " plugin/skills/language-python/SKILL.md under its name and copies its"
+                " description",
+            ),
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 whose description differs from"
+                " principle-naming's; copy the description from"
+                " plugin/skills/principle-naming/SKILL.md into it",
+            ),
+        ]
+
+    def test_reports_a_row_whose_link_text_is_not_the_skills_name(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", "[language-python](plugin", "[language-go](plugin")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 20 whose link text is not"
+                " language-python; make it language-python",
+            ),
+        ]
+
+    def test_reads_an_escaped_pipe_as_part_of_the_description(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "plugin/skills/language-python/SKILL.md",
+            "description: Python.",
+            "description: Python | uv.",
+        )
+        repository.edit("README.md", " Python. |", " Python \\| uv. |")
+        assert repository.problems() == []
+
+    def test_reports_a_row_whose_description_differs(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("README.md", " Naming. |", " Names. |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 whose description differs from"
+                " principle-naming's; copy the description from"
+                " plugin/skills/principle-naming/SKILL.md into it",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "cell", ["Python \\*and\\* more.", "Python &#42;and&#42; more."]
+    )
+    def test_takes_a_description_by_the_text_its_cell_renders(
+        self, repository: ModelRepository, cell: str
+    ) -> None:
+        repository.edit(
+            "plugin/skills/language-python/SKILL.md",
+            "description: Python.",
+            "description: Python *and* more.",
+        )
+        repository.edit("README.md", " Python. |", f" {cell} |")
+        assert repository.problems() == []
+
+    def test_reports_a_description_cell_that_renders_other_text(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "plugin/skills/language-python/SKILL.md",
+            "description: Python.",
+            "description: Python *and* more.",
+        )
+        repository.edit("README.md", " Python. |", " Python *and* more. |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 20 whose description differs from"
+                " language-python's; copy the description from"
+                " plugin/skills/language-python/SKILL.md into it",
+            ),
+        ]
 
 
 class TestRepositoryPageSteps:

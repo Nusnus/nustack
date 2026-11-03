@@ -1,6 +1,6 @@
 ---
 name: principle-long-term
-description: "Long term, a nus-mode principle."
+description: "Changes built to last, so they are done once."
 disable-model-invocation: true
 triggers:
   - user

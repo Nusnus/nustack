@@ -4,6 +4,7 @@ The sync workflow names the folder it writes the copy to, and every commit hook 
 rewrites files, and Ruff, must skip that folder.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -27,16 +28,19 @@ class InvalidConfigError(ValueError):
 class YamlConfig(BaseModel):
     """A YAML config file, down to what the check reads from it."""
 
+    FIRST_LINE: ClassVar[int] = 1
     SHAPE: ClassVar[str] = "holds a value the check cannot read; fix its shape"
     model_config = ConfigDict(frozen=True)
 
     @classmethod
     def parse(cls, content: bytes) -> Self:
         try:
-            return cls.model_validate(read_yaml(content))
-        except YamlError as error:
-            msg = "it is not valid YAML; fix it"
+            return cls.model_validate(read_yaml(content.decode()))
+        except UnicodeDecodeError as error:
+            msg = f"it {Problem.NOT_UTF8}"
             raise InvalidConfigError(msg) from error
+        except YamlError as error:
+            raise InvalidConfigError(error.reason(cls.FIRST_LINE)) from error
         except ValidationError as error:
             raise InvalidConfigError(cls.SHAPE) from error
 
@@ -77,14 +81,18 @@ class Job(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    env: frozendict[str, str] = frozendict()
+    # GitHub reads a null, a number or a boolean in env as text, a null as "":
+    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/workflow-v1.0.json#L2016-L2031
+    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/template-reader.ts#L411-L441
+    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/tokens/null-token.ts#L21-L23
+    env: frozendict[str, str | int | float | bool | None] = frozendict()
 
 
 class Workflow(YamlConfig):
     """A GitHub Actions workflow, down to its jobs' environments."""
 
     SHAPE: ClassVar[str] = (
-        "needs a jobs mapping, each job with any env a mapping of strings; "
+        "needs a jobs mapping, each job with any env a mapping of scalars; "
         "fix its shape"
     )
     jobs: frozendict[str, Job]
@@ -116,27 +124,58 @@ class VendoredCopy:
     pyproject: Pyproject
 
     @property
-    def destination(self) -> str | None:
+    def folder(self) -> str | int | float | bool | None:
         job = self.workflow.jobs.get(self.JOB)
-        return None if job is None else job.env.get("DESTINATION")
+        if job is None or "FOLDER" not in job.env:
+            return None
+        value = job.env["FOLDER"]
+        return "" if value is None else value
 
     def problems(self) -> list[Problem]:
-        destination = self.destination
-        if destination is None:
+        folder = self.folder
+        if folder is None:
             return [
                 Problem(
                     self.root / self.WORKFLOW,
-                    f"has no DESTINATION in its {self.JOB} job's env; "
+                    f"has no FOLDER in its {self.JOB} job's env; "
                     "set it to the folder the sync copies into",
                 )
             ]
-        exclude = "^" + destination.removesuffix("/").replace(".", r"\.") + "/"
-        hooks = {hook.id: hook for hook in self.hooks.hooks}
+        if not isinstance(folder, str):
+            return [
+                Problem(
+                    self.root / self.WORKFLOW,
+                    f"has a FOLDER in its {self.JOB} job's env that YAML reads as "
+                    "a number or a boolean; quote it",
+                )
+            ]
+        path = PurePosixPath(folder)
+        if path.is_absolute() or not path.parts or ".." in path.parts:
+            return [
+                Problem(
+                    self.root / self.WORKFLOW,
+                    f"has a FOLDER in its {self.JOB} job's env that names no "
+                    "folder inside the repository; set it to the folder the sync "
+                    "copies into",
+                )
+            ]
+        # pre-commit matches the paths git ls-files prints, which are always plain.
+        if folder.removesuffix("/") != str(path):
+            return [
+                Problem(
+                    self.root / self.WORKFLOW,
+                    f"has a FOLDER in its {self.JOB} job's env that is not a "
+                    "plain path; write it with no . part, no //, and no more than one "
+                    "/ at its end",
+                )
+            ]
+        exclude = "^" + re.escape(str(path)) + "/"
+        hooks = {hook.id for hook in self.hooks.hooks}
         problems = [
             Problem(
                 self.root / self.HOOKS,
-                f"has no {name} hook; restore it, with an exclude of the sync "
-                "workflow's DESTINATION folder",
+                f"has no {name} hook; restore it, with an exclude of the folder the "
+                "sync workflow's FOLDER env var names",
             )
             for name in self.REWRITERS
             if name not in hooks
@@ -144,22 +183,22 @@ class VendoredCopy:
         problems += [
             Problem(
                 self.root / self.HOOKS,
-                f"has the {name} hook skip a folder other than the sync workflow's "
-                "DESTINATION; set its exclude to ^, that folder with each . escaped, "
-                "and /",
+                f"has the {name} hook skip a folder other than the one the sync "
+                "workflow's FOLDER env var names; set its exclude to ^, that folder "
+                "passed through Python's re.escape, and /",
             )
             for name in self.REWRITERS
-            if name in hooks and hooks[name].exclude != exclude
+            if any(
+                hook.id == name and hook.exclude != exclude for hook in self.hooks.hooks
+            )
         ]
         skipped = self.pyproject.tool.ruff.extend_exclude
-        if destination.removesuffix("/") not in {
-            folder.removesuffix("/") for folder in skipped
-        }:
+        if folder.removesuffix("/") not in {skip.removesuffix("/") for skip in skipped}:
             problems.append(
                 Problem(
                     self.root / self.PYPROJECT,
-                    "has a [tool.ruff] extend-exclude that leaves out the sync "
-                    "workflow's DESTINATION; add that folder to it",
+                    "has a [tool.ruff] extend-exclude that leaves out the folder the "
+                    "sync workflow's FOLDER env var names; add that folder to it",
                 )
             )
         return problems

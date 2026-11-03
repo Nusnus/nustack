@@ -27,7 +27,6 @@ const claude = join(
 
 describe("reload-nus-mode.sh in Claude Code", () => {
   let bundle: Bundle
-  let base: string
   let model: FakeModel
   let home: string
 
@@ -62,15 +61,13 @@ describe("reload-nus-mode.sh in Claude Code", () => {
       },
     )
     const { code, stdout, stderr } = await finished(run)
-    if (code !== 0) throw new Error(`claude exited with ${code}: ${stderr}${stdout}`)
+    if (code !== 0)
+      throw new Error(`claude exited with ${code}\nstderr: ${stderr}\nstdout: ${stdout}`)
     return JSON.parse(stdout).session_id
   }
 
   beforeAll(async () => {
     bundle = await Bundle.unpacked()
-    base = JSON.stringify(
-      `Base directory for this skill: ${join(bundle.root, "skills", "nus-mode")}`,
-    ).slice(1, -1)
     model = new FakeModel("claude-code")
     home = await mkdtemp(join(tmpdir(), "nustack-claude-"))
     // Another plugin, installed beside nustack, whose skill shares the mode's name and title.
@@ -88,67 +85,57 @@ describe("reload-nus-mode.sh in Claude Code", () => {
   })
 
   afterAll(async () => {
-    await Promise.all([bundle.remove(), model.stop(), rm(home, { recursive: true })])
+    // beforeAll may stop before it sets each of these.
+    await Promise.all([bundle?.remove(), model?.stop(), home && rm(home, { recursive: true })])
   })
 
-  test(
-    "sends nus-mode again after /compact",
-    async () => {
-      const session = await ask(null, FakeModel.LOAD)
-      await ask(session, "/compact")
-      await ask(session, FakeModel.AFTER)
-      const sent = model.sentWith(FakeModel.AFTER)
-      expect([
-        sent.includes(bundle.needle),
-        sent.includes(base),
-        sent.includes(FakeModel.LOAD),
-      ]).toEqual([true, true, false])
-    },
-    FakeModel.PATIENCE,
-  )
+  test("sends nus-mode again after /compact", async () => {
+    const session = await ask(null, FakeModel.LOAD)
+    await ask(session, "/compact")
+    await ask(session, FakeModel.AFTER)
+    const sent = model.sentWith(FakeModel.AFTER)
+    expect([
+      sent.includes(bundle.needle),
+      sent.includes(bundle.base),
+      sent.includes(FakeModel.LOAD),
+    ]).toEqual([true, true, false])
+  })
 
-  test(
-    "sends nus-mode again after an automatic summarization",
-    async () => {
-      const session = await ask(null, FakeModel.LOAD)
-      await ask(session, FakeModel.FILL)
-      await ask(session, FakeModel.AFTER)
-      const sent = model.sentWith(FakeModel.AFTER)
-      expect([
-        sent.includes(bundle.needle),
-        sent.includes(base),
-        sent.includes(FakeModel.LOAD),
-      ]).toEqual([true, true, false])
-    },
-    FakeModel.PATIENCE,
-  )
+  test("sends nus-mode again after an automatic summarization", async () => {
+    const session = await ask(null, FakeModel.LOAD)
+    await ask(session, FakeModel.FILL)
+    await ask(session, FakeModel.AFTER)
+    const sent = model.sentWith(FakeModel.AFTER)
+    expect([
+      sent.includes(bundle.needle),
+      sent.includes(bundle.base),
+      sent.includes(FakeModel.LOAD),
+    ]).toEqual([true, true, false])
+  })
 
-  test(
-    "leaves nus-mode out after summarizing a session that invoked another plugin's nus-mode",
-    async () => {
-      const session = await ask(null, "/other:nus-mode")
-      await ask(session, "/compact")
-      await ask(session, FakeModel.AFTER)
-      const sent = model.sentWith(FakeModel.AFTER)
-      expect([sent.includes(bundle.needle), sent.includes(base)]).toEqual([false, false])
-    },
-    FakeModel.PATIENCE,
-  )
+  test("leaves nus-mode out after summarizing a session that invoked another plugin's nus-mode", async () => {
+    const first = "/other:nus-mode"
+    const session = await ask(null, first)
+    await ask(session, "/compact")
+    await ask(session, FakeModel.AFTER)
+    const sent = model.sentWith(FakeModel.AFTER)
+    expect([
+      sent.includes(bundle.needle),
+      sent.includes(bundle.base),
+      sent.includes(first),
+    ]).toEqual([false, false, false])
+  })
 
-  test(
-    "leaves nus-mode out after summarizing a session that never loaded it",
-    async () => {
-      const first = FakeModel.UNLOADED
-      const session = await ask(null, first)
-      await ask(session, "/compact")
-      await ask(session, FakeModel.AFTER)
-      const sent = model.sentWith(FakeModel.AFTER)
-      expect([sent.includes(bundle.needle), sent.includes(base), sent.includes(first)]).toEqual([
-        false,
-        false,
-        false,
-      ])
-    },
-    FakeModel.PATIENCE,
-  )
+  test("leaves nus-mode out after summarizing a session that never loaded it", async () => {
+    const first = FakeModel.UNLOADED
+    const session = await ask(null, first)
+    await ask(session, "/compact")
+    await ask(session, FakeModel.AFTER)
+    const sent = model.sentWith(FakeModel.AFTER)
+    expect([
+      sent.includes(bundle.needle),
+      sent.includes(bundle.base),
+      sent.includes(first),
+    ]).toEqual([false, false, false])
+  })
 })

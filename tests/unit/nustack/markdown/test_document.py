@@ -124,7 +124,7 @@ class TestDocumentAnchors:
     def test_name_each_heading_as_github_does(self) -> None:
         text = (
             "# Top\n\n## 🔀 How it works\n\n### `make check` runs\n\n"
-            "## Top\n\n## Top\n\n## A, b & c!\n"
+            "## Top\n\n## Top\n\n## A, b & c!\n\n## a ![b](c.png) d\n"
         )
         assert Document(Path("/a.md"), text).anchors == {
             "top",
@@ -133,6 +133,7 @@ class TestDocumentAnchors:
             "top-1",
             "top-2",
             "a-b--c",
+            "a--d",
         }
 
 
@@ -166,7 +167,7 @@ class TestDocumentLinks:
     and frontmatter holds no link.
     """
 
-    def test_hold_each_link_and_image_outside_code(self) -> None:
+    def test_hold_each_link_target_and_each_image_outside_code(self) -> None:
         text = (
             "[b](b.md#part) [web](https://x.io) [top](#top)\n"
             "`[inline](inline.md)`\n\n"
@@ -340,6 +341,24 @@ class TestDocumentLineAt:
         self, index: int, line: int
     ) -> None:
         assert Document(Path("/a.md"), "ab\ncd\nef\n").line_at(index) == line
+
+
+class TestDocumentFileLine:
+    """Where a body line sits in the whole text, past any frontmatter's lines.
+
+    The lines split where an editor breaks lines: at a lone CR, but not at a line
+    separator.
+    """
+
+    @pytest.mark.parametrize(
+        ("text", "line"),
+        [("---\nx: 1\ry: 2\u2028\n---\n| a |\n", 5), ("| a |\n", 1)],
+        ids=["frontmatter with a lone CR and a line separator", "no frontmatter"],
+    )
+    def test_counts_a_body_lines_line_in_the_text_from_one(
+        self, text: str, line: int
+    ) -> None:
+        assert Document(Path("/a.md"), text).file_line(0) == line
 
 
 class TestDocumentRelativeHrefs:

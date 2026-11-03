@@ -69,7 +69,7 @@ class Pyproject(BaseModel):
             msg = f"it {Problem.NOT_UTF8}"
             raise InvalidPyprojectError(msg) from error
         except ValueError as error:
-            msg = "it holds a number too long to read; shorten it"
+            msg = f"it {Problem.NUMBER_TOO_LONG}; shorten it"
             raise InvalidPyprojectError(msg) from error
         except RecursionError as error:
             msg = f"it {Problem.TOO_DEEP}"

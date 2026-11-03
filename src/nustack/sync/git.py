@@ -2,7 +2,8 @@
 
 It stages the copy from upstream's objects, byte for byte with each file's mode,
 says whether the staged copy differs from the checkout's or from the one already
-proposed on a branch, and commits and pushes it.
+proposed on a branch, commits and pushes it, and deletes the branch of a proposal
+it withdraws.
 """
 
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from nustack.sync.tree import GitEntry
 
 @dataclass(frozen=True)
 class CopyGit(Git):
-    """Reads both copies' Git objects, and stages, commits and pushes a new copy."""
+    """Reads both copies' Git objects; stages, commits, pushes and withdraws a copy."""
 
     # These variables set the commit's author and committer over any the caller
     # exports or configures:
@@ -36,13 +37,13 @@ class CopyGit(Git):
         }
     )
 
-    def history(self, tip: str, source: str, base: CopyTree) -> History:
-        paths = ("--", f"{source}/", CopyTree.LICENSE)
+    def history(self, tip: str, source_folder: str, base: CopyTree) -> History:
+        paths = ("--", f"{source_folder}/", CopyTree.LICENSE)
         log = self.run("log", "--first-parent", "--format=%H", tip, *paths)
         revisions = log.decode().splitlines()
         copied = revisions[0] if revisions else tip
         baseline = base.newest_match(
-            (sha, self.tree(sha, source, CopyTree.LICENSE)) for sha in revisions
+            (sha, self.tree(sha, source_folder, CopyTree.LICENSE)) for sha in revisions
         )
         commits = ()
         if baseline is not None:
@@ -55,13 +56,13 @@ class CopyGit(Git):
         return CopyTree.from_listing(listing, folder)
 
     def changes(
-        self, base: CopyTree, upstream: CopyGit, proposed: CopyTree
+        self, base: CopyTree, upstream_git: CopyGit, proposed: CopyTree
     ) -> tuple[FileChange, ...]:
         return tuple(
             FileChange(
                 path,
                 self.blob(base.files.get(path)),
-                upstream.blob(proposed.files.get(path)),
+                upstream_git.blob(proposed.files.get(path)),
             )
             for path in base.changed_paths(proposed)
         )
@@ -76,10 +77,10 @@ class CopyGit(Git):
     # hash-object stores standard input as given, with no attribute or filter, and
     # update-index stages the object without a checkout, so no byte changes:
     # https://git-scm.com/docs/git-hash-object#Documentation/git-hash-object.txt---no-filters
-    def stage(self, folder: str, upstream: CopyGit, copy: CopyTree) -> None:
+    def stage(self, folder: str, upstream_git: CopyGit, copy_tree: CopyTree) -> None:
         self.run("rm", "-r", "--cached", "--ignore-unmatch", "--", f"{folder}/")
-        for path, entry in copy.files.items():
-            blob = upstream.run("cat-file", "blob", entry.oid)
+        for path, entry in copy_tree.files.items():
+            blob = upstream_git.run("cat-file", "blob", entry.oid)
             stored = self.run("hash-object", "-w", "--stdin", stdin=blob)
             oid = stored.decode().strip()
             self.run(
@@ -89,14 +90,26 @@ class CopyGit(Git):
                 f"{entry.mode},{oid},{folder}/{path}",
             )
 
-    def proposes(self, remote: str, branch: str) -> bool:
-        self.run("fetch", remote, branch)
+    def proposes(self, remote_url: str, branch: str) -> bool:
+        self.run("fetch", remote_url, branch)
         parents = self.run("log", "-1", "--format=%P", "FETCH_HEAD").decode().split()
         return parents == [self.head] and not self.staged("FETCH_HEAD")
 
-    def push(self, remote: str, branch: str, title: str, body: str) -> None:
+    def push(self, remote_url: str, branch: str, title: str, body: str) -> None:
         self.run("commit", "-m", title, "-m", body, environment=self.BOT)
-        self.run("push", "--force", remote, f"HEAD:refs/heads/{branch}")
+        self.run("push", "--force", remote_url, f"HEAD:refs/heads/{branch}")
+
+    # ls-remote --exit-code exits 2 when no ref matches:
+    # https://git-scm.com/docs/git-ls-remote
+    def withdraw(self, remote_url: str, branch: str) -> None:
+        ref = f"refs/heads/{branch}"
+        match self.status("ls-remote", "--exit-code", remote_url, ref):
+            case 0:
+                self.run("push", remote_url, "--delete", ref)
+            case 2:
+                pass
+            case status:
+                raise GitError(self.failure("ls-remote", status))
 
     # diff --quiet exits 1 when the trees differ: https://git-scm.com/docs/git-diff
     def staged(self, against: str = "HEAD") -> bool:

@@ -5,6 +5,9 @@
 # https://code.claude.com/docs/en/hooks#common-input-fields
 # POSIX sh has no JSON parser, so the script reads the two string fields it needs, and fails on an escape it cannot
 # undo.
+# It reads its input, the transcript and SKILL.md in milliseconds, so hooks.json stops it after 10 seconds, not Claude
+# Code's 600-second default:
+# https://code.claude.com/docs/en/hooks#common-fields
 set -eu
 
 fail() {
@@ -26,7 +29,8 @@ case $(printf '%s' "$raw" | sed -E 's/\\["\\/]//g') in
   *\\*) fail "transcript_path holds a JSON escape other than \\\", \\\\ or \\/; move the session to a path without one" ;;
 esac
 transcript=$(printf '%s' "$raw" | sed -E 's/\\(["\\/])/\1/g')
-[ -f "$transcript" ] && [ -r "$transcript" ] || fail "the transcript that transcript_path names is no readable file; check that the file exists"
+[ -f "$transcript" ] || fail "the transcript that transcript_path names is no file; check that the file exists"
+[ -r "$transcript" ] || fail "the transcript that transcript_path names cannot be read; make it readable"
 [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || fail "CLAUDE_PLUGIN_ROOT is unset; run the hook from Claude Code, which sets it"
 folder="$CLAUDE_PLUGIN_ROOT/skills/nus-mode"
 skill="$folder/SKILL.md"
@@ -38,12 +42,12 @@ body=$(tr -d '\r' <"$skill" | awk 'fences >= 2 { print; next } /^---$/ { fences+
 title=$(printf '%s\n' "$body" | head -n 1)
 [ "$title" = "# nus-mode" ] || fail "nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin"
 # A skill load leaves a meta record whose text gives the skill's folder, then its body, title first; a prompt, a tool
-# result, another skill's body that quotes the mode, or another plugin's skill of the same name leaves no record that
-# names this plugin's folder, as tests/fixtures/claude-code/transcripts records. JSON escapes a folder's \ and ", and
-# writes each line break as \n, or \r\n from a CRLF file.
+# result, another skill's body that quotes the mode, or another plugin's skill of the same name leaves no meta record
+# that names this plugin's folder, as tests/fixtures/claude-code/transcripts records. JSON escapes a folder's \ and ",
+# and writes each line break as \n; a CRLF SKILL.md's body keeps its \r\n after the \n\n that ends the folder line.
 named=$(printf '%s' "$folder" | sed 's/\\/\\\\/g; s/"/\\"/g')
 lf="\"text\":\"Base directory for this skill: $named\\n\\n$title\\n"
-crlf="\"text\":\"Base directory for this skill: $named\\r\\n\\r\\n$title\\r\\n"
+crlf="\"text\":\"Base directory for this skill: $named\\n\\n$title\\r\\n"
 if grep -F -e "$lf" -e "$crlf" -- "$transcript" | grep -qF '"isMeta":true'; then
   # The mode's links are relative to its folder, so the folder leads its body, as Claude Code's own skill load gives it
   # in tests/fixtures/claude-code/transcripts/invoked.jsonl.

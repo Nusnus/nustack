@@ -1,87 +1,68 @@
-"""The sync reads its evidence from real repositories, unswayed by the caller's Git.
+"""The sync reads, stages, commits, pushes and withdraws in real repositories.
 
-A failed command or a missing clone stops with a Problem naming the fix.
+The caller's Git settings sway none of it, and a failed command stops with a Problem
+naming the fix.
 """
 
-lazy from pathlib import Path
+from pathlib import Path
 
 import pytest
 
 from nustack.git import GitError
+from nustack.problem import Problem
 from nustack.sync.change import Blob
 from nustack.sync.git import CopyGit
 from nustack.sync.history import Commit
 from nustack.sync.tree import Mode
-lazy from tests.fixtures.sync.git_repository import GitRepository
+from tests.fixtures.sync.git_repository import GitRepository
 lazy from tests.fixtures.sync.git_repository import Sync
 
 
-class TestGit:
+class TestCopyGit:
     """Answers from its own repository; the base is the newest first-parent copy.
 
     Without a match there is no commit range, a match only on a side branch is no
     base, a locally edited base reads from the checkout, and option-like or magic
-    paths stay literal. A failed command, a missing clone or a revision it cannot
-    read stops with a Problem naming the fix.
+    paths stay literal. Withdrawing deletes the branch once, and nothing where it is
+    absent. A failed command, or a remote or revision it cannot read, stops with a
+    Problem naming the fix.
     """
-
-    @pytest.mark.usefixtures("template")
-    def test_finds_the_staged_copy_proposed_on_a_branch_from_the_base_alone(
-        self, sync: Sync, remote: str
-    ) -> None:
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        copy = upstream.tree("HEAD", sync.SOURCE, "LICENSE")
-        checkout.stage(sync.FOLDER, upstream, copy)
-        checkout.push(remote, "sync/w", "docs: sync", "Copies it.")
-        sync.checkout.git("reset", "-q", "--soft", "HEAD~1")
-        proposed = checkout.proposes(remote, "sync/w")
-        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "newer\n")
-        sync.checkout.git("add", f"{sync.FOLDER}/SKILL.md")
-        restaged = checkout.proposes(remote, "sync/w")
-        sync.checkout.git("commit", "-qm", "moved on")
-        checkout.stage(sync.FOLDER, upstream, copy)
-        rebased = checkout.proposes(remote, "sync/w")
-        assert (proposed, restaged, rebased) == (True, False, False)
 
     def test_finds_the_base_revision_and_reads_both_object_stores(
         self, sync: Sync
     ) -> None:
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        base = checkout.tree("HEAD", sync.FOLDER)
-        history = upstream.history(upstream.head, sync.SOURCE, base)
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
+        )
+        base = checkout_git.tree("HEAD", sync.FOLDER)
+        history = upstream_git.history(upstream_git.head, sync.SOURCE_FOLDER, base)
         assert (history.copied, history.baseline, history.commits) == (
             sync.second,
             sync.first,
             (Commit(sync.second, "second"),),
         )
-        changes = checkout.changes(
-            base, upstream, upstream.tree(sync.second, sync.SOURCE, "LICENSE")
+        changes = checkout_git.changes(
+            base,
+            upstream_git,
+            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert [(change.path, change.before, change.after) for change in changes] == [
             ("SKILL.md", Blob(b"old\n", Mode.REGULAR), Blob(b"new\n", Mode.REGULAR)),
             ("tool", None, Blob(b"", Mode.EXECUTABLE)),
         ]
 
-    def test_reads_a_locally_edited_base_from_the_checkout(self, sync: Sync) -> None:
-        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "local\n")
-        sync.checkout.commit("edit")
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        changes = checkout.changes(
-            checkout.tree("HEAD", sync.FOLDER),
-            upstream,
-            upstream.tree(sync.second, sync.SOURCE, "LICENSE"),
-        )
-        assert [(change.path, change.before) for change in changes] == [
-            ("SKILL.md", Blob(b"local\n", Mode.REGULAR)),
-            ("tool", None),
-        ]
-
     def test_names_the_newest_revision_that_changed_the_copy(self, sync: Sync) -> None:
         sync.upstream.write("elsewhere", "not copied")
         sync.upstream.commit("unrelated")
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        history = upstream.history(
-            upstream.head, sync.SOURCE, checkout.tree("HEAD", sync.FOLDER)
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
+        )
+        history = upstream_git.history(
+            upstream_git.head,
+            sync.SOURCE_FOLDER,
+            checkout_git.tree("HEAD", sync.FOLDER),
         )
         assert (history.copied, history.baseline, history.commits) == (
             sync.second,
@@ -95,16 +76,19 @@ class TestGit:
         repo = GitRepository.init(tmp_path / "upstream")
         repo.write("elsewhere", "not copied")
         head = repo.commit("unrelated")
-        upstream = CopyGit(repo.root)
-        history = upstream.history(head, "missing", upstream.tree(head, "missing"))
+        upstream_git = CopyGit(repo.root)
+        history = upstream_git.history(
+            head, "missing", upstream_git.tree(head, "missing")
+        )
         assert (history.copied, history.baseline, history.commits) == (head, None, ())
 
-    def test_without_a_match_it_does_not_invent_a_commit_range(
-        self, sync: Sync
-    ) -> None:
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        history = upstream.history(
-            upstream.head, sync.SOURCE, checkout.tree("HEAD", "missing")
+    def test_gives_no_range_when_no_upstream_tree_matches(self, sync: Sync) -> None:
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
+        )
+        history = upstream_git.history(
+            upstream_git.head, sync.SOURCE_FOLDER, checkout_git.tree("HEAD", "missing")
         )
         assert (history.copied, history.baseline, history.commits) == (
             sync.second,
@@ -115,17 +99,17 @@ class TestGit:
     def test_takes_a_match_on_main_before_a_merge_as_the_base(self, sync: Sync) -> None:
         repo = sync.upstream
         repo.git("switch", "-qc", "side", sync.first)
-        repo.write(f"{sync.SOURCE}/SKILL.md", "only on side\n")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "only on side\n")
         side = repo.commit("side")
         repo.git("switch", "-q", "main")
         repo.git("merge", "--no-commit", "-s", "ours", "side")
-        repo.write(f"{sync.SOURCE}/SKILL.md", "different from both parents\n")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "different from both parents\n")
         merge = repo.commit("merge")
-        upstream = CopyGit(repo.root)
-        history = upstream.history(
-            upstream.head,
-            sync.SOURCE,
-            upstream.tree(sync.second, sync.SOURCE, "LICENSE"),
+        upstream_git = CopyGit(repo.root)
+        history = upstream_git.history(
+            upstream_git.head,
+            sync.SOURCE_FOLDER,
+            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (
             merge,
@@ -138,15 +122,17 @@ class TestGit:
     ) -> None:
         repo = sync.upstream
         repo.git("switch", "-qc", "side", sync.first)
-        repo.write(f"{sync.SOURCE}/SKILL.md", "only on side\n")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "only on side\n")
         side = repo.commit("side")
         repo.git("switch", "-q", "main")
         repo.git("merge", "--no-commit", "-s", "ours", "side")
-        repo.write(f"{sync.SOURCE}/SKILL.md", "different from both parents\n")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "different from both parents\n")
         merge = repo.commit("merge")
-        upstream = CopyGit(repo.root)
-        history = upstream.history(
-            upstream.head, sync.SOURCE, upstream.tree(side, sync.SOURCE, "LICENSE")
+        upstream_git = CopyGit(repo.root)
+        history = upstream_git.history(
+            upstream_git.head,
+            sync.SOURCE_FOLDER,
+            upstream_git.tree(side, sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (merge, None, ())
 
@@ -154,14 +140,16 @@ class TestGit:
         self, sync: Sync
     ) -> None:
         repo = sync.upstream
-        repo.write(f"{sync.SOURCE}/SKILL.md", "old\n")
-        repo.git("rm", "-q", f"{sync.SOURCE}/tool")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "old\n")
+        repo.git("rm", "-q", f"{sync.SOURCE_FOLDER}/tool")
         reverted = repo.commit("revert")
-        repo.write(f"{sync.SOURCE}/SKILL.md", "newer\n")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "newer\n")
         tip = repo.commit("newer")
-        upstream = CopyGit(repo.root)
-        history = upstream.history(
-            tip, sync.SOURCE, upstream.tree(sync.first, sync.SOURCE, "LICENSE")
+        upstream_git = CopyGit(repo.root)
+        history = upstream_git.history(
+            tip,
+            sync.SOURCE_FOLDER,
+            upstream_git.tree(sync.first, sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.baseline, history.commits) == (
             reverted,
@@ -180,9 +168,11 @@ class TestGit:
         tip = repo.commit("proposed license")
         repo.write("LICENSE", "first license change\n")
         repo.commit("future revert")
-        upstream = CopyGit(repo.root)
-        history = upstream.history(
-            tip, sync.SOURCE, upstream.tree(baseline, sync.SOURCE, "LICENSE")
+        upstream_git = CopyGit(repo.root)
+        history = upstream_git.history(
+            tip,
+            sync.SOURCE_FOLDER,
+            upstream_git.tree(baseline, sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (
             tip,
@@ -196,9 +186,9 @@ class TestGit:
         repo = sync.upstream
         repo.write(":(exclude)skill/LICENSE", "only for the skill\n")
         revision = repo.commit("skill license")
-        upstream = CopyGit(repo.root)
-        tree = upstream.tree(revision, ":(exclude)skill", "LICENSE")
-        assert upstream.blob(tree.files["LICENSE"]) == Blob(
+        upstream_git = CopyGit(repo.root)
+        tree = upstream_git.tree(revision, ":(exclude)skill", "LICENSE")
+        assert upstream_git.blob(tree.files["LICENSE"]) == Blob(
             b"only for the skill\n", Mode.REGULAR
         )
 
@@ -207,26 +197,50 @@ class TestGit:
     ) -> None:
         sync.upstream.write("-skill/agents/settings", "policy\n")
         revision = sync.upstream.commit("nested settings")
-        upstream = CopyGit(sync.upstream.root)
-        tree = upstream.tree(revision, "-skill")
-        assert upstream.blob(tree.files["agents/settings"]) == Blob(
+        upstream_git = CopyGit(sync.upstream.root)
+        tree = upstream_git.tree(revision, "-skill")
+        assert upstream_git.blob(tree.files["agents/settings"]) == Blob(
             b"policy\n", Mode.REGULAR
         )
+
+    def test_reads_a_locally_edited_base_from_the_checkout(self, sync: Sync) -> None:
+        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "local\n")
+        sync.checkout.commit("edit")
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
+        )
+        changes = checkout_git.changes(
+            checkout_git.tree("HEAD", sync.FOLDER),
+            upstream_git,
+            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
+        )
+        assert [(change.path, change.before) for change in changes] == [
+            ("SKILL.md", Blob(b"local\n", Mode.REGULAR)),
+            ("tool", None),
+        ]
 
     def test_stages_upstreams_copy_byte_for_byte_in_place_of_the_old_one(
         self, sync: Sync
     ) -> None:
         sync.checkout.write(f"{sync.FOLDER}/stale", "gone\n")
         sync.checkout.commit("stale")
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        checkout.stage(
-            sync.FOLDER, upstream, upstream.tree("HEAD", sync.SOURCE, "LICENSE")
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
         )
-        checkout.stage(
-            "-fresh", upstream, upstream.tree("HEAD", sync.SOURCE, "LICENSE")
+        checkout_git.stage(
+            sync.FOLDER,
+            upstream_git,
+            upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE"),
+        )
+        checkout_git.stage(
+            "-fresh",
+            upstream_git,
+            upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (
-            checkout.run("ls-files", "-s").decode(),
+            checkout_git.run("ls-files", "-s").decode(),
             (sync.checkout.root / sync.FOLDER / "SKILL.md").read_text(),
         ) == (
             (
@@ -240,38 +254,44 @@ class TestGit:
             "old\n",
         )
 
-    def test_says_whether_the_staged_copy_differs_from_a_revision(
-        self, sync: Sync
+    @pytest.mark.usefixtures("template")
+    def test_finds_the_staged_copy_proposed_on_a_branch_from_the_base_alone(
+        self, sync: Sync, remote_url: str
     ) -> None:
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        unchanged = checkout.staged()
-        checkout.stage(
-            sync.FOLDER, upstream, upstream.tree("HEAD", sync.SOURCE, "LICENSE")
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
         )
-        assert (unchanged, checkout.staged()) == (False, True)
-
-    def test_fails_to_compare_with_a_revision_it_cannot_read(self, sync: Sync) -> None:
-        with pytest.raises(GitError) as failed:
-            CopyGit(sync.checkout.root).staged("missing")
-        assert str(failed.value) == (
-            f"{sync.checkout.root}: git diff exited 128; fix the cause Git printed"
-            " above, such as a missing clone or revision"
-        )
+        copy_tree = upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE")
+        checkout_git.stage(sync.FOLDER, upstream_git, copy_tree)
+        checkout_git.push(remote_url, "sync/w", "docs: sync", "Copies it.")
+        sync.checkout.git("reset", "-q", "--soft", "HEAD~1")
+        proposed = checkout_git.proposes(remote_url, "sync/w")
+        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "newer\n")
+        sync.checkout.git("add", f"{sync.FOLDER}/SKILL.md")
+        restaged = checkout_git.proposes(remote_url, "sync/w")
+        sync.checkout.git("commit", "-qm", "moved on")
+        checkout_git.stage(sync.FOLDER, upstream_git, copy_tree)
+        rebased = checkout_git.proposes(remote_url, "sync/w")
+        assert (proposed, restaged, rebased) == (True, False, False)
 
     def test_pushes_the_staged_copy_as_the_bots_commit_on_the_base(
-        self, sync: Sync, remote: str
+        self, sync: Sync, remote_url: str
     ) -> None:
-        checkout, upstream = CopyGit(sync.checkout.root), CopyGit(sync.upstream.root)
-        base = checkout.head
-        checkout.stage(
-            sync.FOLDER, upstream, upstream.tree("HEAD", sync.SOURCE, "LICENSE")
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
         )
-        checkout.push(remote, "sync/w", "docs: sync", "Copies it.")
-        pushed = CopyGit(sync.checkout.root).run(
-            "log", "-1", "--format=%P%n%an <%ae>%n%B", "HEAD"
+        base = checkout_git.head
+        checkout_git.stage(
+            sync.FOLDER,
+            upstream_git,
+            upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE"),
         )
+        checkout_git.push(remote_url, "sync/w", "docs: sync", "Copies it.")
+        pushed = checkout_git.run("log", "-1", "--format=%P%n%an <%ae>%n%B", "HEAD")
         remote_head = sync.checkout.git(
-            "--git-dir", remote, "rev-parse", "refs/heads/sync/w"
+            "--git-dir", remote_url, "rev-parse", "refs/heads/sync/w"
         )
         assert (pushed.decode(), remote_head) == (
             (
@@ -279,5 +299,62 @@ class TestGit:
                 " <41898282+github-actions[bot]@users.noreply.github.com>\n"
                 "docs: sync\n\nCopies it.\n\n"
             ),
-            f"{checkout.head}\n",
+            f"{checkout_git.head}\n",
+        )
+
+    def test_deletes_the_branch_from_the_remote_once(
+        self, sync: Sync, remote_url: str
+    ) -> None:
+        checkout_git = CopyGit(sync.checkout.root)
+        _ = checkout_git.run("push", remote_url, "HEAD:refs/heads/sync/w")
+        checkout_git.withdraw(remote_url, "sync/w")
+        checkout_git.withdraw(remote_url, "sync/w")
+        assert checkout_git.run("ls-remote", remote_url) == b""
+
+    def test_pushes_nothing_to_a_remote_without_the_branch(
+        self, sync: Sync, remote_url: str
+    ) -> None:
+        checkout_git = CopyGit(sync.checkout.root)
+        _ = checkout_git.run("push", remote_url, "HEAD:refs/heads/main")
+        refusal = Path(remote_url) / "hooks" / "pre-receive"
+        refusal.write_text("#!/bin/sh\nexit 1\n")
+        refusal.chmod(0o755)
+        checkout_git.withdraw(remote_url, "sync/w")
+        assert checkout_git.run("ls-remote", remote_url) == (
+            f"{checkout_git.head}\trefs/heads/main\n".encode()
+        )
+
+    def test_fails_to_delete_a_branch_from_a_remote_it_cannot_read(
+        self, sync: Sync, tmp_path: Path
+    ) -> None:
+        with pytest.raises(GitError) as failed:
+            CopyGit(sync.checkout.root).withdraw(str(tmp_path / "none"), "sync/w")
+        assert failed.value.problem == Problem(
+            sync.checkout.root,
+            "git ls-remote exited 128; fix the cause Git"
+            " printed above, such as a missing clone or revision",
+        )
+
+    def test_says_whether_the_staged_copy_differs_from_a_revision(
+        self, sync: Sync
+    ) -> None:
+        checkout_git, upstream_git = (
+            CopyGit(sync.checkout.root),
+            CopyGit(sync.upstream.root),
+        )
+        unchanged = checkout_git.staged()
+        checkout_git.stage(
+            sync.FOLDER,
+            upstream_git,
+            upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE"),
+        )
+        assert (unchanged, checkout_git.staged()) == (False, True)
+
+    def test_fails_to_compare_with_a_revision_it_cannot_read(self, sync: Sync) -> None:
+        with pytest.raises(GitError) as failed:
+            CopyGit(sync.checkout.root).staged("missing")
+        assert failed.value.problem == Problem(
+            sync.checkout.root,
+            "git diff exited 128; fix the cause Git printed"
+            " above, such as a missing clone or revision",
         )

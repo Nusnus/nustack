@@ -1,6 +1,6 @@
 ---
 name: language-python
-description: "Python, a nus-mode language skill."
+description: "Python's tools, and where Python changes how a principle applies."
 disable-model-invocation: true
 triggers:
   - user
@@ -8,26 +8,28 @@ triggers:
 
 # Python
 
-A Python project's tools, and the form the principles take in Python. Every principle still holds in full.
+A Python project's tools, and the form a principle takes where Python changes it. Every principle still holds in full.
 
 ## Tools
 
-- **Astral's toolchain** does every job it has a tool for, now or once it gains one, such as installing Python, managing the environment and dependencies, building, formatting, linting and type checking. **import-linter** enforces import contracts, and **mutmut** runs mutation testing; where it does not mutate code, such as a module- or class-level value, break that code by hand, as [long term](../principle-long-term/SKILL.md) says.
+- **Astral's toolchain** does every job it has a tool for, now or once it gains one, such as installing Python, managing the environment and dependencies, building, formatting, linting and type checking. **import-linter** enforces import contracts, **pytest** runs the tests with the plugins **pytest-randomly**, **pytest-timeout** and **pytest-cov**, which measures them with **coverage**, and **mutmut** runs mutation testing; where it does not mutate code, such as a module- or class-level value, break that code by hand, as [long term](../principle-long-term/SKILL.md) says.
 - **Typer** builds command-line interfaces, **pydantic** parses outside data, and **pydantic-settings** reads settings.
 
 ## Code
 
-- [Long term](../principle-long-term/SKILL.md): imports are absolute, one per line, at the top of the module.
-- [Dependencies](../principle-dependencies/SKILL.md): an import-linter contract keeps pure modules from importing I/O modules. Where it cannot forbid an outside subpackage alone, such as `urllib.request` while `urllib.parse` stays allowed, the project's linter config lists that subpackage as a banned API. Neither sees I/O builtins such as `open`, which need no import, so review keeps them out.
+- [Long term](../principle-long-term/SKILL.md): imports are absolute, one per line, at the top of the module; the project's linter config bans relative imports.
+- [Dependencies](../principle-dependencies/SKILL.md): an import-linter contract keeps pure modules from importing I/O modules. Where it cannot forbid an outside subpackage alone, such as `urllib.request` while `urllib.parse` stays allowed, the project's linter config lists that subpackage as a banned API. Neither sees I/O builtins such as `open`, which need no import, or the I/O methods of an imported type, such as `Path.read_text`, so review keeps them out.
 - [Types](../principle-types/SKILL.md): branching on each member of an enum or `Literal` is a `match` that ends in `assert_never`. Data of unknown type is `object` until `isinstance`, `match` or a `TypeIs` function narrows it, never `cast`: the project's linter config lists `typing.cast` and `typing_extensions.cast` as banned APIs and selects the banned-API rule, so each use fails the check. Past the boundary the code states its types instead of using `Any` or a type-ignore. A record that never changes is a dataclass with `frozen=True` or a pydantic model with `frozen=True` in its config, and every collection it holds is immutable, such as a tuple or frozenset.
 - [Fail fast](../principle-fail-fast/SKILL.md): `.get(key, default)` and every `is not None` check, such as `x if x is not None else default`, appear only where the type declares the absence, as `X | None` or `NotRequired`, or where a mapping lookup's key may validly be missing.
+- [Resilience](../principle-resilience/SKILL.md): `subprocess.run`, `urllib.request.urlopen` and a socket wait without limit by default, so each such call that no enclosing limit bounds sets its own: `timeout=` on `subprocess.run`, `urlopen` or `socket.create_connection`, or `settimeout` on a socket; `urlopen`'s `timeout` bounds each blocking step, such as connecting or one read, not the whole request. On a timeout, `subprocess.run` kills the child and raises `subprocess.TimeoutExpired`. It kills no process the child started, such as the ssh Git starts, so on POSIX a command that starts its own runs in `subprocess.Popen` with `start_new_session=True` and its limit on `communicate(timeout=)`, and on a stall or an interrupt `os.killpg` signals the child's process group, which holds every process the command started unless one left it: SIGTERM first, then a bounded wait for the whole group to end, since the child can end before a process it started finishes cleaning up, such as Git removing its lock files, then SIGKILL for what is left and a wait that reaps the child, which Popen's own exit skips after an interrupt; both still run when a second interrupt cuts the bounded wait short. A file lands whole for every other process, and for a run that stops, when it is written to a temporary file from `tempfile.mkstemp(dir=folder, suffix=".partial")`, given the mode its readers need, and moved over its target with `Path.replace`, which POSIX makes atomic. Where the file must also survive a machine crash, such as a power loss, `os.fsync` flushes the temporary file before the move, and the folder, opened with `os.open(folder, os.O_RDONLY)` and closed with `os.close` once flushed, after it, since without both the new name can point at data that never reached the disk ([Ensuring data reaches disk](https://lwn.net/Articles/457667/)). `folder` is the target's own folder, since `Path.replace` cannot cross file systems, and the mode is set because `mkstemp` makes the file readable by its owner alone. On any exception before the move, including an interrupt, the temporary file is removed, so only a run killed by a signal Python does not handle, such as SIGKILL or SIGTERM, can leave a partial file, and its suffix marks it as one.
 
 ## Tests
 
-[Long term](../principle-long-term/SKILL.md)'s and [layout](../principle-layout/SKILL.md)'s rules for tests, in Python:
+The principles' rules for tests, in Python:
 
 - The tiers are the folders `tests/unit`, `tests/integration` and `tests/smoke`, never pytest markers.
 - Every test is a method of a `Test<Term>` class named for the domain term whose promises it checks, as in `TestManifest.test_rejects_missing_version`, and a test module holds only those classes. A test file is named `test_<module>.py`, as in `tests/unit/fixtures/test_<module>.py` for a shared helper. A test class holds only data, fixtures and tests, in that order, with any setup in an autouse fixture.
 - A fixture lives in the class that uses it, or in the nearest `conftest.py` above all its users; one shared across tiers lives in a plugin module in the shared helpers folder instead, and registering those modules is all the root `conftest.py` does. pytest imports that folder through the project root on its `pythonpath` setting. A fixture that would return a closure returns a small object with methods instead.
 - pytest's `filterwarnings` setting turns every warning into an error, every test that runs reports its own pass or fail, with no `xfail` marker, and each skip names its environment condition in its `reason`.
+- [Resilience](../principle-resilience/SKILL.md): pytest stops no single test at a time limit, since its `faulthandler_timeout` only dumps tracebacks or ends the whole run, so pytest-timeout's `timeout` setting bounds every test, and a test that guards against a slow path, such as a loop that must end, sets a tighter limit with `@pytest.mark.timeout`.
 - Coverage excludes only `...` stubs, `if TYPE_CHECKING:` blocks and the `assert_never` arms the type checker proves unreachable; its config replaces the tool's default exclusions and partial-branch patterns, so neither `# pragma: no cover` nor `# pragma: no branch` excludes anything.

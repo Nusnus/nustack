@@ -7,9 +7,11 @@ class Rule(StrEnum):
     """One structural rule `nustack check` enforces."""
 
     METADATA = (
-        "the manifests, both marketplaces, plugin/package.json and pyproject.toml "
-        "agree on the plugin's name, version, description and author, and the "
-        "marketplaces on their own name and description"
+        "the host manifests agree in every field, plugin/package.json holds their "
+        "name and version, and pyproject.toml their version; each marketplace "
+        "lists only the plugin, with the manifests' name and description and its "
+        "host's source, and names the manifests' author as its owner; and both "
+        "marketplaces have one name and one description"
     )
     PLUGIN_FILES = (
         "plugin/ holds only the host manifests, skills, playbooks, the OpenCode "
@@ -50,6 +52,12 @@ class Rule(StrEnum):
         "folder the writing-for-agents sync copies into"
     )
     ACTIVATION = "README.md's activation line is the new-project playbook's"
+    SKILL_TABLE = (
+        "README.md's tables headed 'Skill' and 'What it holds' give each principle and "
+        "language skill a row that links its SKILL.md under the skill's name and "
+        "holds the description its SKILL.md holds, and every row links a skill's "
+        "SKILL.md, no skill's twice"
+    )
     PAGE_STEPS = (
         "README.md holds one ### 1️⃣ Install and one ### 2️⃣ Use section for the "
         "release page, each of which shows something, gives each link and image a "

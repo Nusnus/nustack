@@ -6,7 +6,7 @@
  * by hand.
  */
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { TemporaryFolders } from "../../../fixtures/folders.ts"
@@ -20,15 +20,21 @@ const compact = JSON.parse(await readFile(join(inputs, "compact.json"), "utf8"))
 // Claude Code's SessionStart input when a session starts: an input without a summarization.
 const startup = await readFile(join(inputs, "startup.json"), "utf8")
 const record = await readFile(join(claudeCode, "transcripts", "invoked.jsonl"), "utf8")
+// The load record of a session that invoked a nus-mode whose SKILL.md has CRLF lines: Claude Code ends the folder line
+// with an LF of its own and keeps the body's CRLF ones.
+const crlf = await readFile(join(claudeCode, "transcripts", "invoked-crlf.jsonl"), "utf8")
 
 /**
  * Only a compaction's input is acted on. Of transcript_path's JSON escapes, only \", \\ and \/ are undone; any other
  * input it cannot read stops it with exit code 1 and the fix on stderr, which Claude Code shows the user. Claude Code
  * passes one JSON line naming the session's transcript and the input's source
- * (https://code.claude.com/docs/en/hooks#common-input-fields; https://code.claude.com/docs/en/hooks#sessionstart-input),
- * so an input that breaks that stands for another host or a run from outside Claude Code. An input without a source,
- * or a session that only listed the mode or invoked another plugin's nus-mode, gets nothing; of two transcript paths
- * the first counts, and a mode loaded from a CRLF SKILL.md is found.
+ * (https://code.claude.com/docs/en/hooks#common-input-fields;
+ * https://code.claude.com/docs/en/hooks#sessionstart-input),
+ * so an input that breaks that stands for another host or a run from outside Claude Code. An input without a source
+ * gets nothing; of two transcript paths the first counts, and a mode loaded from a plugin folder holding \ and " or
+ * from a CRLF SKILL.md is found. A session that only listed the mode, invoked another plugin's nus-mode, pasted the
+ * mode's load text into a prompt, as a string or as text parts, mentioned its SKILL.md, or loaded a skill whose title
+ * starts with the mode's or whose body quotes it, gets nothing.
  */
 describe("reload-nus-mode.sh", () => {
   const plugin = join(import.meta.dirname, "..", "..", "..", "..", "plugin")
@@ -55,6 +61,20 @@ describe("reload-nus-mode.sh", () => {
     return path
   }
 
+  // What the hook prints for a session that invoked the mode, read from SKILL.md itself rather than from a run.
+  async function reloaded(root = plugin): Promise<string> {
+    const text = await readFile(join(root, "skills", "nus-mode", "SKILL.md"), "utf8")
+    const body = text
+      .split("\n")
+      .slice(text.split("\n").indexOf("---", 1) + 1)
+      .join("\n")
+      .replace(/^\n+/, "")
+    return (
+      "This session worked in nus-mode before its context was summarized. nus-mode follows; keep working in it.\n\n" +
+      `Base directory for this skill: ${root}/skills/nus-mode\n\n${body}`
+    )
+  }
+
   /** One run of the hook on the input Claude Code would pass it. */
   class Run {
     readonly code: number
@@ -65,6 +85,7 @@ describe("reload-nus-mode.sh", () => {
       this.code = code
       this.stdout = stdout
       this.stderr = stderr
+      Object.freeze(this)
     }
 
     static after(transcript: string, root = plugin): Promise<Run> {
@@ -87,6 +108,22 @@ describe("reload-nus-mode.sh", () => {
 
   afterEach(() => folders.clear())
 
+  async function stopsOn(input: string, problem: string): Promise<void> {
+    const run = await Run.of(input)
+    expect([run.code, run.stdout, run.stderr]).toEqual([1, "", problem])
+  }
+
+  async function stopsAt(edit: ((text: string) => string) | null, problem: string): Promise<void> {
+    const root = await folders.make()
+    await mkdir(join(root, "skills", "nus-mode"), { recursive: true })
+    if (edit !== null) {
+      const text = await readFile(join(plugin, "skills", "nus-mode", "SKILL.md"), "utf8")
+      await writeFile(join(root, "skills", "nus-mode", "SKILL.md"), edit(text))
+    }
+    const run = await Run.after(invoked, root)
+    expect([run.code, run.stdout, run.stderr]).toEqual([1, "", problem])
+  }
+
   test("prints nothing at a session start without a summarization", async () => {
     const run = await Run.of(startup)
     expect([run.code, run.stdout, run.stderr]).toEqual([0, "", ""])
@@ -105,7 +142,7 @@ describe("reload-nus-mode.sh", () => {
     const transcript = await written(local(record))
     const input = `${JSON.stringify({ ...compact, transcript_path: transcript })}\n${JSON.stringify({ transcript_path: "/nonexistent/session.jsonl" })}`
     const run = await Run.of(input)
-    expect([run.code, run.stdout]).toEqual([0, (await Run.after(transcript)).stdout])
+    expect([run.code, run.stdout]).toEqual([0, await reloaded()])
   })
 
   test.each([
@@ -121,21 +158,8 @@ describe("reload-nus-mode.sh", () => {
       JSON.stringify({ ...compact, transcript_path: "/tmp/\u0001/session.jsonl" }),
       'nustack reload-nus-mode: transcript_path holds a JSON escape other than \\", \\\\ or \\/; move the session to a path without one\n',
     ],
-    [
-      // Claude Code names the session's transcript; this stands for one deleted before the hook reads it.
-      "names a transcript that is missing",
-      JSON.stringify({ ...compact, transcript_path: "/nonexistent/session.jsonl" }),
-      "nustack reload-nus-mode: the transcript that transcript_path names is no readable file; check that the file exists\n",
-    ],
-    [
-      // Claude Code names the session's transcript file; this stands for a folder in its place.
-      "names a folder",
-      JSON.stringify({ ...compact, transcript_path: tmpdir() }),
-      "nustack reload-nus-mode: the transcript that transcript_path names is no readable file; check that the file exists\n",
-    ],
   ])("stops with the fix on an input that %s", async (_case, input, problem) => {
-    const run = await Run.of(input)
-    expect([run.code, run.stdout, run.stderr]).toEqual([1, "", problem])
+    await stopsOn(input, problem)
   })
 
   test("reads a transcript path holding an escaped backslash as the path it names", async () => {
@@ -143,10 +167,7 @@ describe("reload-nus-mode.sh", () => {
     await mkdir(join(folder, "a\\b"))
     await writeFile(join(folder, "a\\b", "session.jsonl"), local(record))
     const run = await Run.after(join(folder, "a\\b", "session.jsonl"))
-    expect([run.code, run.stdout]).toEqual([
-      0,
-      (await Run.after(await written(local(record)))).stdout,
-    ])
+    expect([run.code, run.stdout]).toEqual([0, await reloaded()])
   })
 
   test("reads a transcript path holding an escaped quote as the path it names", async () => {
@@ -154,10 +175,7 @@ describe("reload-nus-mode.sh", () => {
     await mkdir(join(folder, 'a"b'))
     await writeFile(join(folder, 'a"b', "session.jsonl"), local(record))
     const run = await Run.after(join(folder, 'a"b', "session.jsonl"))
-    expect([run.code, run.stdout]).toEqual([
-      0,
-      (await Run.after(await written(local(record)))).stdout,
-    ])
+    expect([run.code, run.stdout]).toEqual([0, await reloaded()])
   })
 
   test("reads a transcript path whose slashes JSON escapes as \\/ as the path it names", async () => {
@@ -166,8 +184,37 @@ describe("reload-nus-mode.sh", () => {
     const transcript = await written(local(record))
     const input = JSON.stringify({ ...compact, transcript_path: transcript }).replaceAll("/", "\\/")
     const run = await Run.of(input)
-    expect([run.code, run.stdout]).toEqual([0, (await Run.after(transcript)).stdout])
+    expect([run.code, run.stdout]).toEqual([0, await reloaded()])
   })
+
+  test.each([
+    [
+      // Claude Code names the session's transcript; this stands for one deleted before the hook reads it.
+      "names a transcript that is missing",
+      JSON.stringify({ ...compact, transcript_path: "/nonexistent/session.jsonl" }),
+      "nustack reload-nus-mode: the transcript that transcript_path names is no file; check that the file exists\n",
+    ],
+    [
+      // Claude Code names the session's transcript file; this stands for a folder in its place.
+      "names a folder",
+      JSON.stringify({ ...compact, transcript_path: tmpdir() }),
+      "nustack reload-nus-mode: the transcript that transcript_path names is no file; check that the file exists\n",
+    ],
+  ])("stops with the fix on an input whose transcript_path %s", async (_case, input, problem) => {
+    await stopsOn(input, problem)
+  })
+
+  test.skipIf(process.getuid?.() === 0)(
+    "stops with the fix when the transcript cannot be read; root reads every file, so it skips as root",
+    async () => {
+      const transcript = await written(local(record))
+      await chmod(transcript, 0o000)
+      await stopsOn(
+        JSON.stringify({ ...compact, transcript_path: transcript }),
+        "nustack reload-nus-mode: the transcript that transcript_path names cannot be read; make it readable\n",
+      )
+    },
+  )
 
   test("stops with the fix when CLAUDE_PLUGIN_ROOT is unset", async () => {
     const run = await Run.of(JSON.stringify({ ...compact, transcript_path: invoked }), null)
@@ -178,57 +225,11 @@ describe("reload-nus-mode.sh", () => {
     ])
   })
 
-  test.each([
-    [
-      "is missing",
+  test("stops with the fix when the installed SKILL.md is missing", async () => {
+    await stopsAt(
       null,
       "nustack reload-nus-mode: nus-mode's SKILL.md cannot be read; reinstall the nustack plugin\n",
-    ],
-    [
-      "does not open with its title",
-      (text: string) => text.replace("\n# nus-mode\n", "\n# The mode\n"),
-      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
-    ],
-    [
-      "has no frontmatter",
-      (text: string) => text.slice(text.indexOf("# nus-mode\n")),
-      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
-    ],
-    [
-      "has one frontmatter fence",
-      (text: string) => `---\n${text.slice(text.indexOf("# nus-mode\n"))}`,
-      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
-    ],
-    [
-      "has a blank body",
-      (text: string) => text.slice(0, text.indexOf("\n# nus-mode\n")),
-      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
-    ],
-  ])("stops with the fix when an installed SKILL.md %s", async (_case, edit, problem) => {
-    const root = await folders.make()
-    await mkdir(join(root, "skills", "nus-mode"), { recursive: true })
-    if (edit !== null) {
-      const text = await readFile(join(plugin, "skills", "nus-mode", "SKILL.md"), "utf8")
-      await writeFile(join(root, "skills", "nus-mode", "SKILL.md"), edit(text))
-    }
-    const run = await Run.after(invoked, root)
-    expect([run.code, run.stdout, run.stderr]).toEqual([1, "", problem])
-  })
-
-  test("prints nus-mode's folder and body, without its frontmatter, for a session that invoked it", async () => {
-    const run = await Run.after(await written(local(record)))
-    const text = await readFile(join(plugin, "skills", "nus-mode", "SKILL.md"), "utf8")
-    const body = text
-      .split("\n")
-      .slice(text.split("\n").indexOf("---", 1) + 1)
-      .join("\n")
-      .replace(/^\n+/, "")
-    expect([run.code, run.stdout, run.stderr]).toEqual([
-      0,
-      "This session worked in nus-mode before its context was summarized. nus-mode follows; keep working in it.\n\n" +
-        `Base directory for this skill: ${plugin}/skills/nus-mode\n\n${body}`,
-      "",
-    ])
+    )
   })
 
   test.each([
@@ -253,14 +254,45 @@ describe("reload-nus-mode.sh", () => {
     },
   )
 
+  test.each([
+    [
+      "does not open with its title",
+      (text: string) => text.replace("\n# nus-mode\n", "\n# The mode\n"),
+      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
+    ],
+    [
+      "has no frontmatter",
+      (text: string) => text.slice(text.indexOf("# nus-mode\n")),
+      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
+    ],
+    [
+      "has one frontmatter fence",
+      (text: string) => `---\n${text.slice(text.indexOf("# nus-mode\n"))}`,
+      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
+    ],
+    [
+      "has a blank body",
+      (text: string) => text.slice(0, text.indexOf("\n# nus-mode\n")),
+      "nustack reload-nus-mode: nus-mode's SKILL.md does not open with its title; reinstall the nustack plugin\n",
+    ],
+  ])("stops with the fix when an installed SKILL.md %s", async (_case, edit, problem) => {
+    await stopsAt(edit, problem)
+  })
+
+  test("finds the mode of a plugin whose folder holds a backslash and a quote", async () => {
+    const root = join(await folders.make(), 'a\\b"c')
+    await mkdir(join(root, "skills", "nus-mode"), { recursive: true })
+    await copyFile(
+      join(plugin, "skills", "nus-mode", "SKILL.md"),
+      join(root, "skills", "nus-mode", "SKILL.md"),
+    )
+    const run = await Run.after(await written(local(record, root)), root)
+    expect([run.code, run.stdout, run.stderr]).toEqual([0, await reloaded(root), ""])
+  })
+
   test("finds a mode a session loaded from a CRLF SKILL.md", async () => {
-    // No recorded session loaded a CRLF SKILL.md; this one turns the recorded load's line breaks into CRLF ones, as
-    // JSON writes them.
-    const run = await Run.after(await written(local(record).replaceAll("\\n", "\\r\\n")))
-    expect([run.code, run.stdout]).toEqual([
-      0,
-      (await Run.after(await written(local(record)))).stdout,
-    ])
+    const run = await Run.after(await written(local(crlf)))
+    expect([run.code, run.stdout]).toEqual([0, await reloaded()])
   })
 
   test("prints nothing for a session that only listed nus-mode among its skills", async () => {
@@ -274,37 +306,30 @@ describe("reload-nus-mode.sh", () => {
   })
 
   test.each([
+    // A prompt the user typed that pastes the load's folder line and the mode's body, stored as one string, so no line
+    // holds the text field a load writes.
+    ["pasted the mode's load text into a prompt", "pasted.jsonl"],
+    // The same paste sent through claude -p --input-format stream-json, stored as text parts: one part holds the text
+    // field a load writes, and only the missing meta flag tells it from a load.
+    ["pasted the mode's load text into a prompt as text parts", "pasted-parts.jsonl"],
+    // A prompt that mentions SKILL.md, which Claude Code reads into an attachment without the folder line a load gives.
+    ["mentioned the mode's SKILL.md in a prompt", "mentioned.jsonl"],
+    // The load of a nus-mode whose SKILL.md is titled # nus-modes, past the mode's title.
+    ["loaded a skill whose title starts with the mode's", "title-past-the-mode.jsonl"],
+    // The load of another plugin's sample-mode, whose body quotes the mode's folder line and title.
     [
-      // No recorded session quoted the mode in a prompt; this one drops the load record's meta flag, which a prompt the
-      // user types lacks.
-      "quoted the mode in a prompt",
-      (line: string) => line.replace('"isMeta":true,', ""),
-    ],
-    [
-      // No recorded session read SKILL.md through a tool; this one drops the folder line a skill load opens with, which
-      // a tool result that quotes the file lacks.
-      "quoted the mode without the folder a load gives",
-      (line: string) => line.replace(/Base directory for this skill: [^"]*?\\n\\n/, ""),
-    ],
-    [
-      // No recorded session loaded a skill titled past the mode's title; this one adds a letter to the recorded load's
-      // title.
-      "loaded a skill whose title starts with the mode's",
-      (line: string) => line.replace("# nus-mode\\n", "# nus-modes\\n"),
-    ],
-    [
-      // No recorded session loaded a skill whose body quotes the mode; this one renames the recorded load's skill and
-      // opens its body with the mode's folder line and title.
       "loaded another skill whose body quotes the mode's folder line and title",
-      (line: string) =>
-        line.replace(
-          "/skills/nus-mode\\n\\n# nus-mode\\n",
-          "/skills/sample-mode\\n\\nIt quotes: Base directory for this skill: /plugin/skills/nus-mode\\n\\n# nus-mode\\n",
-        ),
+      "quoting-skill.jsonl",
     ],
-  ])("prints nothing for a session that only %s", async (_case, edit) => {
-    expect(edit(local(record))).not.toBe(local(record))
-    const run = await Run.after(await written(edit(local(record))))
+  ])("prints nothing for a session that only %s", async (_case, name) => {
+    const run = await Run.after(
+      await written(local(await readFile(join(transcripts, name), "utf8"))),
+    )
     expect([run.code, run.stdout, run.stderr]).toEqual([0, "", ""])
+  })
+
+  test("prints nus-mode's folder and body, without its frontmatter, for a session that invoked it", async () => {
+    const run = await Run.after(await written(local(record)))
+    expect([run.code, run.stdout, run.stderr]).toEqual([0, await reloaded(), ""])
   })
 })

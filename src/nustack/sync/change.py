@@ -22,7 +22,7 @@ from nustack.markdown.document import Document
 from nustack.markdown.document import local_path
 from nustack.markdown.frontmatter import FrontmatterBlock
 from nustack.plugin.skill import Skill
-lazy from nustack.sync.tree import Mode
+from nustack.sync.tree import Mode
 
 
 @dataclass(frozen=True)
@@ -67,6 +67,7 @@ class FileChange:
         r"git (?:push|commit)|curl|sudo)\b|\bhttps?://",
         re.IGNORECASE,
     )
+    # Git ends a line only at LF, so a lone CR stays inside the line it sits in.
     LINE: ClassVar[re.Pattern[str]] = re.compile(r"[^\n]*\n|[^\n]+\Z")
     path: str
     before: Blob | None
@@ -113,6 +114,14 @@ class FileChange:
         )
         return Comparison.UNCHANGED if same else Comparison.CHANGED
 
+    # The list holds CommonMark's link and image targets, as its heading says. A bare
+    # URL or email address links only under GFM's autolink extension, and
+    # mdit-py-plugins' parser for it hangs on link text holding `www.`
+    # (https://github.com/executablebooks/mdit-py-plugins/issues/160). linkify-it-py
+    # with fuzzy_link=False links a URL that opens with a scheme and a bare email
+    # address, but still misses the `www.` links GitHub makes, and it adds a runtime
+    # dependency. The list leaves out a bare URL or email address, which the pull
+    # request's diff still shows.
     @cached_property
     def outside_links(self) -> tuple[tuple[str, int], ...]:
         if self.texts is None:
@@ -150,7 +159,7 @@ class FileChange:
     def loading_lines(self) -> tuple[Edit, ...]:
         if self.texts is None:
             return ()
-        headers = {
+        frontmatter_lines = {
             side: len(self.lines_of(FrontmatterBlock.fenced_of(text.text)))
             for side, text in zip(("-", "+"), self.texts, strict=True)
         }
@@ -158,7 +167,7 @@ class FileChange:
             line
             for line in self.edits
             if self.policy
-            or (self.path == Skill.FILE and line.number <= headers[line.side])
+            or (self.path == Skill.FILE and line.number <= frontmatter_lines[line.side])
         )
 
     @property

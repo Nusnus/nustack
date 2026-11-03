@@ -1,13 +1,15 @@
-/** A child process's exit code and all it printed, read once it exits. */
+/**
+ * A child process's exit code and all it printed, read once it exits, both streams at once, so neither fills and stalls
+ * the child.
+ */
 
 /** What a finished child process gave back. */
 export interface Finished {
-  code: number
-  stdout: string
-  stderr: string
+  readonly code: number
+  readonly stdout: string
+  readonly stderr: string
 }
 
-/** Waits for the child to exit while reading both of its output streams, so neither fills and stalls it. */
 export async function finished(child: {
   exited: Promise<number>
   stdout: ReadableStream
@@ -18,5 +20,5 @@ export async function finished(child: {
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ])
-  return { code, stdout, stderr }
+  return Object.freeze({ code, stdout, stderr })
 }

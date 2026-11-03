@@ -1,12 +1,15 @@
 /**
  * A stand-in for Anthropic's Messages API that Claude Code and OpenCode call instead of a model, so the smoke tests run
- * both hosts without an API key. It keeps each request it answers and answers it with a streamed reply the real API
- * sent, recorded once in tests/fixtures/messages as `<name>.reply` beside the `<name>.request.json` that drew it, in a
- * folder named for the host where only one host sends it: the host's skill tool call when a prompt asks it to load
- * nus-mode, or OpenCode's for sample-mode when one asks for that, the host's summary when it asks for one, and OK to
- * anything else. Claude Code's /api/hello check draws the real API's reply too. It refuses a request with no user
- * message, as the real API does, and a path it does not serve, with the Messages API's error body, so a host stops
- * instead of retrying.
+ * both hosts without an API key. It keeps each Messages API request it answers and answers it with a streamed reply the
+ * real API sent, recorded once in tests/fixtures/messages as `<name>.reply`, in a folder named for the host where only
+ * one host sends it: the host's summary when it asks for one, the host's skill tool call when a request that offers a
+ * skill tool asks it to load nus-mode, OpenCode's for sample-mode when one asks for that, `full.reply` to the prompt
+ * that fills the context window, and OK, `text.reply`, to anything else. Each `<name>.request.json` beside its
+ * `<name>.reply` drew that reply; OpenCode's `title.request.json` quotes the load prompt but offers no skill tool, so
+ * it draws `text.reply`, as does Claude Code's `skill-result.request.json`, whose last user message, a skill load's
+ * result, holds no load prompt. Claude Code's /api/hello check draws the real API's reply too. It refuses a request
+ * with no user message, as the real API does, and a path it does not serve, with the Messages API's error body, so a
+ * host stops instead of retrying.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -20,24 +23,30 @@ export interface Sent {
 /** The host whose skill tool and summary request the fake answers. */
 export type Host = "claude-code" | "opencode"
 
-/** A local Messages API server that answers each host request and keeps it for the tests to read. */
+/**
+ * A local Messages API server that answers the hosts' requests and keeps each Messages API request for the tests to
+ * read.
+ */
 export class FakeModel {
   static readonly LOAD = "Load nus-mode with the skill tool."
   static readonly LOAD_SAMPLE = "Load sample-mode with the skill tool."
   static readonly AFTER = "Reply OK after the summary."
   static readonly UNLOADED = "Reply OK without loading a skill."
   static readonly PROOFREAD = "Proofread this text; reply OK."
-  static readonly PATIENCE = 120_000
   static readonly FILL = "This prompt fills the context window."
   static readonly WINDOW = 200_000
   static readonly MESSAGES = join(import.meta.dirname, "messages")
-  static readonly LOADS = { [FakeModel.LOAD]: "skill", [FakeModel.LOAD_SAMPLE]: "sample-skill" }
+  // Only OpenCode's smoke tests load sample-mode, so only OpenCode has a recorded reply that loads it.
+  static readonly LOADS = Object.freeze({
+    "claude-code": Object.freeze({ [FakeModel.LOAD]: "skill" }),
+    opencode: Object.freeze({ [FakeModel.LOAD]: "skill", [FakeModel.LOAD_SAMPLE]: "sample-skill" }),
+  })
   // Claude Code's summary request ends by asking for these two blocks; OpenCode's holds its summary template, as
   // tests/fixtures/messages/<host>/summary.request.json records.
-  static readonly SUMMARIES = {
+  static readonly SUMMARIES = Object.freeze({
     "claude-code": "an <analysis> block followed by a <summary> block",
     opencode: "<template>",
-  }
+  })
   readonly host: Host
   readonly requests: string[] = []
   readonly server: Bun.Server<undefined>
@@ -88,14 +97,15 @@ export class FakeModel {
     const asked = FakeModel.prompt(sent)
     this.requests.push(raw)
     const skill = sent.tools?.some((tool) => tool.name.toLowerCase() === "skill") ?? false
-    const load = Object.entries(FakeModel.LOADS).find(([prompt]) => asked.includes(prompt))
+    const load = Object.entries(FakeModel.LOADS[this.host]).find(([prompt]) =>
+      asked.includes(prompt),
+    )
     let reply = FakeModel.recorded("text")
     if (asked.includes(FakeModel.SUMMARIES[this.host]))
       reply = FakeModel.recorded(`${this.host}/summary`)
-    else if (skill && load !== undefined && !asked.includes("tool_result"))
-      reply = FakeModel.recorded(`${this.host}/${load[1]}`)
+    else if (skill && load !== undefined) reply = FakeModel.recorded(`${this.host}/${load[1]}`)
     // full.reply is the real reply to "Reply OK. " followed by "OK " 99,496 times, 199,006 tokens, which makes a host
-    // summarize on its own; that 300 KB request is not kept.
+    // summarize on its own; that 300 KB request is not recorded.
     else if (asked.includes(FakeModel.FILL)) reply = FakeModel.recorded("full")
     return new Response(reply, { headers: { "content-type": "text/event-stream" } })
   }
@@ -108,6 +118,6 @@ export class FakeModel {
     const message = sent.messages.findLast((each) => each.role === "user")
     if (message === undefined)
       throw new Error("the request holds no user message, which the Messages API requires")
-    return JSON.stringify(message.content).replaceAll("\\n", "\n")
+    return JSON.stringify(message.content)
   }
 }

@@ -1,8 +1,8 @@
 """Git answers from the repository it was given, whatever the caller's Git points at.
 
 It says whether one commit is an ancestor of another, passes input and options
-through, and a failed command or a missing repository stops with a Problem naming
-the fix.
+through, and a failed command, a command that outlasts its time limit or a missing
+repository stops with a Problem naming the fix.
 """
 
 lazy from pathlib import Path
@@ -18,15 +18,27 @@ lazy from tests.fixtures.sync.git_repository import Sync
 class TestGit:
     """Answers from its own repository, and fails with a Problem naming the fix.
 
-    The caller's Git variables never redirect it; a missing repository, a failed
-    command or a revision an ancestry check cannot read fails naming the fix.
+    A listing of the variables Git calls local that outlasts its time limit stops,
+    and the caller's other variables reach Git. Git tells an ancestor from a
+    commit that is not one, and a revision an ancestry check cannot read fails. run
+    gives Git no input by default, passes input and variables, and fails naming the
+    next step; status returns the exit status, also giving no input by default. A
+    missing repository, and a fetch, push, remote listing, blob read or commit that
+    outlasts its time limit, fails naming the fix.
     """
 
-    def test_reads_its_own_repository_when_the_caller_points_git_elsewhere(
-        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.usefixtures("stalling")
+    @pytest.mark.timeout(5)
+    def test_stops_a_listing_of_local_variables_that_outlasts_its_time_limit(
+        self, tmp_path: Path
     ) -> None:
-        monkeypatch.setenv("GIT_DIR", str(sync.checkout.root / ".git"))
-        assert Git(sync.upstream.root).head == sync.second
+        with pytest.raises(GitError) as failed:
+            _ = Git(tmp_path, timeout=0.1).environment
+        assert failed.value.problem == Problem(
+            tmp_path,
+            "git rev-parse took over 0.1 seconds; check what Git waits on, such as"
+            " its disk or a hook, then rerun",
+        )
 
     def test_keeps_each_variable_git_does_not_list_as_local(
         self, sync: Sync, monkeypatch: pytest.MonkeyPatch
@@ -40,24 +52,11 @@ class TestGit:
             environment["NUSTACK_CANARY"],
         ) == (set(), "kept")
 
-    def test_names_a_missing_repository_and_the_fix(self, tmp_path: Path) -> None:
-        missing = tmp_path / "missing"
-        with pytest.raises(GitError) as failed:
-            Git(missing).run("rev-parse", "HEAD")
-        assert failed.value.problem == Problem(
-            missing,
-            "cannot run Git (No such file or directory); check the clone path and Git",
-        )
-
-    def test_names_the_repository_and_the_next_step_of_a_failed_command(
-        self, tmp_path: Path
+    def test_reads_its_own_repository_when_the_caller_points_git_elsewhere(
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        with pytest.raises(GitError) as failed:
-            Git(tmp_path).run("rev-parse", "HEAD")
-        assert str(failed.value) == (
-            f"{tmp_path}: git rev-parse exited 128; fix the cause Git printed above, "
-            "such as a missing clone or revision"
-        )
+        monkeypatch.setenv("GIT_DIR", str(sync.checkout.root / ".git"))
+        assert Git(sync.upstream.root).head == sync.second
 
     def test_tells_an_ancestor_from_a_commit_that_is_not_one(self, sync: Sync) -> None:
         git = Git(sync.upstream.root)
@@ -70,11 +69,16 @@ class TestGit:
         self, sync: Sync
     ) -> None:
         with pytest.raises(GitError) as failed:
-            Git(sync.upstream.root).is_ancestor("HEAD", "origin/main")
-        assert str(failed.value) == (
-            f"{sync.upstream.root}: git merge-base exited 128; fix the cause Git"
-            " printed above, such as a missing clone or revision"
+            _ = Git(sync.upstream.root).is_ancestor("HEAD", "origin/main")
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git merge-base exited 128; fix the cause Git"
+            " printed above, such as a missing clone or revision",
         )
+
+    def test_gives_run_no_input_by_default(self, sync: Sync) -> None:
+        output = Git(sync.upstream.root).run("hash-object", "--stdin")
+        assert output == b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n"
 
     def test_passes_input_and_variables_to_git(self, sync: Sync) -> None:
         git = Git(sync.upstream.root)
@@ -83,13 +87,115 @@ class TestGit:
             git.run(
                 "var",
                 "GIT_AUTHOR_IDENT",
-                environment=frozendict({"GIT_AUTHOR_NAME": "Ada"}),
+                environment=frozendict(
+                    {"GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.com"}
+                ),
             ).split(b" <")[0],
         ) == (b"3367afdbbf91e638efe983616377c60477cc6612\n", b"Ada")
+
+    def test_names_the_repository_and_the_next_step_of_a_failed_command(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(GitError) as failed:
+            _ = Git(tmp_path).run("rev-parse", "HEAD")
+        assert failed.value.problem == Problem(
+            tmp_path,
+            "git rev-parse exited 128; fix the cause Git printed above, "
+            "such as a missing clone or revision",
+        )
 
     def test_reports_the_exit_status_of_a_command(self, sync: Sync) -> None:
         git = Git(sync.upstream.root)
         assert (git.status("rev-parse", "HEAD"), git.status("rev-parse", "x")) == (
             0,
             128,
+        )
+
+    def test_gives_status_no_input_by_default(self, sync: Sync) -> None:
+        assert Git(sync.upstream.root).status("check-ignore", "--stdin") == 1
+
+    def test_names_a_missing_repository_and_the_fix(self, tmp_path: Path) -> None:
+        missing = tmp_path / "missing"
+        with pytest.raises(GitError) as failed:
+            _ = Git(missing).run("rev-parse", "HEAD")
+        assert failed.value.problem == Problem(
+            missing,
+            "cannot run Git (No such file or directory); check the clone path and Git",
+        )
+
+    @pytest.mark.timeout(5)
+    def test_stops_a_fetch_that_outlasts_its_time_limit(
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        with pytest.raises(GitError) as failed:
+            _ = Git(sync.upstream.root, timeout=0.1).run("fetch", "ssh://remote/r")
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git fetch took over 0.1 seconds; check that the"
+            " remote answers, then rerun",
+        )
+
+    @pytest.mark.timeout(5)
+    def test_stops_a_push_that_outlasts_its_time_limit(
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        with pytest.raises(GitError) as failed:
+            _ = Git(sync.upstream.root, timeout=0.1).run(
+                "push", "ssh://remote/r", "HEAD:refs/heads/b"
+            )
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git push took over 0.1 seconds; check that the remote answers, then rerun",
+        )
+
+    @pytest.mark.timeout(5)
+    def test_stops_a_remote_listing_that_outlasts_its_time_limit(
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        with pytest.raises(GitError) as failed:
+            _ = Git(sync.upstream.root, timeout=0.1).run("ls-remote", "ssh://remote/r")
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git ls-remote took over 0.1 seconds; check that"
+            " the remote answers, then rerun",
+        )
+
+    @pytest.mark.timeout(5)
+    def test_stops_a_blob_read_a_partial_clone_fetches_that_outlasts_its_time_limit(
+        self, sync: Sync, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_SSH_COMMAND", "sleep 10; :")
+        setup = Git(sync.upstream.root)
+        _ = setup.run("remote", "add", "promisor", "ssh://remote/r")
+        _ = setup.run("config", "remote.promisor.promisor", "true")
+        _ = setup.run("config", "extensions.partialClone", "promisor")
+        with pytest.raises(GitError) as failed:
+            _ = Git(sync.upstream.root, timeout=0.1).run("cat-file", "blob", "1" * 40)
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git cat-file took over 0.1 seconds; check what Git waits on, such as"
+            " its disk or, in a partial clone, the remote it fetches from, then rerun",
+        )
+
+    @pytest.mark.timeout(5)
+    def test_stops_a_commit_a_hook_holds_past_its_time_limit(self, sync: Sync) -> None:
+        hook = sync.upstream.root / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexec sleep 10\n")
+        hook.chmod(0o755)
+        setup = Git(sync.upstream.root)
+        # A global core.hooksPath would skip the repository's own hooks.
+        _ = setup.run("config", "core.hooksPath", str(hook.parent))
+        _ = setup.run("config", "user.name", "Ada")
+        _ = setup.run("config", "user.email", "ada@example.com")
+        with pytest.raises(GitError) as failed:
+            _ = Git(sync.upstream.root, timeout=0.1).run(
+                "commit", "--allow-empty", "-m", "x"
+            )
+        assert failed.value.problem == Problem(
+            sync.upstream.root,
+            "git commit took over 0.1 seconds; check what Git waits on, such as its"
+            " disk or a hook, then rerun",
         )

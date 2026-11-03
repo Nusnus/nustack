@@ -11,13 +11,9 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
 from typing import ClassVar
+from typing import assert_never
 lazy from pathlib import Path
 lazy from pathlib import PurePosixPath
-
-type Entry = (
-    File | Folder | Symlink | Special | NotAFolder | Missing | Unreadable | Unopened
-)
-type Read = File | Folder | Special | Missing | Blocked | Unreadable
 
 
 class Absent(ABC):
@@ -95,7 +91,7 @@ class Blocked(Absent):
     what: str
 
     def absence(self, missing: str) -> str:  # noqa: ARG002 -- Absent.absence's form
-        return f"cannot be read, since {self.place} {self.what}"
+        return unreadable_since(self.place, self.what)
 
 
 @dataclass(frozen=True)
@@ -123,6 +119,12 @@ class Unopened:
         )
 
 
+type Entry = (
+    File | Folder | Symlink | Special | NotAFolder | Missing | Unreadable | Unopened
+)
+type Read = File | Folder | Special | Missing | Blocked | Unreadable
+
+
 @dataclass(frozen=True)
 class Tree:
     """A folder and every entry under it, keyed by its path inside the folder.
@@ -147,14 +149,29 @@ class Tree:
         match self.entries.get(path):
             case File() | Folder() | Special() | Unreadable() as found:
                 return found
-            case _:
+            case Symlink() | NotAFolder() | Missing() | Unopened() | None:
                 for parent in reversed(path.parents[:-1]):
-                    entry = self.entries.get(parent)
-                    if isinstance(entry, File | Unreadable):
-                        return Blocked(self.root / parent, File.IN_A_FOLDERS_PLACE)
-                    if isinstance(entry, Special):
-                        return Blocked(self.root / parent, Special.IN_A_FOLDERS_PLACE)
+                    match self.entries.get(parent):
+                        case File() | Unreadable():
+                            return Blocked(self.root / parent, File.IN_A_FOLDERS_PLACE)
+                        case Special():
+                            return Blocked(
+                                self.root / parent, Special.IN_A_FOLDERS_PLACE
+                            )
+                        case (
+                            Folder()
+                            | Symlink()
+                            | NotAFolder()
+                            | Missing()
+                            | Unopened()
+                            | None
+                        ):
+                            pass
+                        case unexpected:
+                            assert_never(unexpected)
                 return Missing()
+            case unexpected:
+                assert_never(unexpected)
 
 
 @dataclass(frozen=True)
@@ -173,4 +190,8 @@ class Snapshot:
     unlisted: frozendict[PurePosixPath, Unopened]
 
     def read(self, path: PurePosixPath) -> Read:
-        return self.files.get(path, Missing())
+        return self.files[path]
+
+
+def unreadable_since(place: Path, what: str) -> str:
+    return f"cannot be read, since {place} {what}"

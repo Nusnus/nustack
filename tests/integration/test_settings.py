@@ -1,20 +1,99 @@
-"""The suite's settings enforce how Python's tests run, measure coverage and lint.
+"""The suite's settings set how Python's code lints, its tests run and coverage counts.
 
-No test relies on order, an ignored warning or a stale xfail, no pragma hides
-code from coverage, data of unknown type is narrowed, and pure modules import no I/O.
+Data of unknown type is narrowed, imports are absolute and the standard library's HTTP
+clients are banned, since nustack reaches the network only by running Git or gh. No
+test relies on order, an ignored warning, a stale xfail, an unknown setting, marker or
+repeated parametrization id; a test or fixture that hangs fails at its time limit, and
+no pragma or unimported module hides code from coverage.
 """
 
 import json
-import subprocess
-import sys
 import tomllib
 lazy from pathlib import Path
 
 import pytest
 
+from tests.fixtures.processes import run_module
+
+
+class TestRuff:
+    """Unknown data is narrowed, imports are absolute, and HTTP clients are banned."""
+
+    @pytest.mark.parametrize(
+        ("rule", "source", "line"),
+        [
+            (
+                "TID252",
+                "from . import b\n",
+                (
+                    "src/nustack/a.py:1:1: TID252 Prefer absolute imports over"
+                    " relative imports"
+                ),
+            ),
+            ("TID252", "from nustack import b\n", "All checks passed!"),
+            (
+                "TID251",
+                "from http import client\n",
+                (
+                    "src/nustack/a.py:1:18: TID251 `http.client` is banned: nustack"
+                    " reaches the network only by running Git or gh, through"
+                    " nustack.git or nustack.github."
+                ),
+            ),
+            ("TID251", "from http import HTTPStatus\n", "All checks passed!"),
+            (
+                "TID251",
+                "from typing import cast\n",
+                (
+                    "src/nustack/a.py:1:20: TID251 `typing.cast` is banned: Narrow the"
+                    " value with isinstance, match or a TypeIs function instead."
+                ),
+            ),
+            ("TID251", "from typing import TypeIs\n", "All checks passed!"),
+            (
+                "TID251",
+                "from typing_extensions import cast\n",
+                (
+                    "src/nustack/a.py:1:31: TID251 `typing_extensions.cast` is banned:"
+                    " Narrow the value with isinstance, match or a TypeIs function"
+                    " instead."
+                ),
+            ),
+            ("TID251", "from typing_extensions import TypeIs\n", "All checks passed!"),
+            (
+                "TID251",
+                "import urllib.request\n",
+                (
+                    "src/nustack/a.py:1:8: TID251 `urllib.request` is banned: nustack"
+                    " reaches the network only by running Git or gh, through"
+                    " nustack.git or nustack.github."
+                ),
+            ),
+            ("TID251", "import urllib.parse\n", "All checks passed!"),
+        ],
+    )
+    def test_bans_relative_imports_cast_and_each_io_subpackage_alone(
+        self, pyproject: Path, rule: str, source: str, line: str
+    ) -> None:
+        output = run_module(
+            "ruff",
+            "check",
+            f"--config={pyproject}",
+            f"--select={rule}",
+            "--output-format=concise",
+            "--stdin-filename=src/nustack/a.py",
+            "-",
+            source=source,
+        )
+        assert output.splitlines()[0] == line
+
 
 class TestPytest:
-    """A passing suite relies on no test order, ignored warning or stale xfail."""
+    """A passing suite relies on no test order, ignored warning or stale xfail.
+
+    An unknown setting, marker or repeated parametrization id stops the suite, and a
+    hung test or fixture fails under a time limit instead of stalling the suite.
+    """
 
     @pytest.fixture
     def suite(self, pytester: pytest.Pytester, pyproject: Path) -> pytest.Pytester:
@@ -40,6 +119,63 @@ class TestPytest:
         result = suite.runpytest_subprocess()
         assert result.parseoutcomes() == {"failed": 1}
 
+    def test_passes_a_test_that_warns_nothing(self, suite: pytest.Pytester) -> None:
+        suite.makepyfile(test_a="def test_a():\n    assert True\n")
+        result = suite.runpytest_subprocess()
+        assert result.parseoutcomes() == {"passed": 1}
+
+    def test_refuses_an_unknown_setting(self, suite: pytest.Pytester) -> None:
+        suite.makepyfile(test_a="def test_a():\n    pass\n")
+        result = suite.runpytest_subprocess("-o", "no_such_setting=1")
+        result.stderr.fnmatch_lines(["*Unknown config option: no_such_setting*"])
+        assert result.ret == pytest.ExitCode.USAGE_ERROR
+
+    def test_refuses_an_unregistered_marker(self, suite: pytest.Pytester) -> None:
+        suite.makepyfile(
+            test_a=(
+                "import pytest\n\n\n@pytest.mark.no_such_mark\n"
+                "def test_a():\n    pass\n"
+            )
+        )
+        result = suite.runpytest_subprocess()
+        result.stdout.fnmatch_lines(["*'no_such_mark' not found in `markers`*"])
+        assert result.parseoutcomes() == {"errors": 1}
+
+    def test_accepts_a_registered_marker(self, suite: pytest.Pytester) -> None:
+        suite.makepyfile(
+            test_a=(
+                "import pytest\n\n\n@pytest.mark.timeout(5)\ndef test_a():\n    pass\n"
+            )
+        )
+        result = suite.runpytest_subprocess()
+        assert result.parseoutcomes() == {"passed": 1}
+
+    def test_refuses_parametrization_ids_that_repeat(
+        self, suite: pytest.Pytester
+    ) -> None:
+        suite.makepyfile(
+            test_a=(
+                "import pytest\n\n\n"
+                "@pytest.mark.parametrize('x', [1, 2], ids=['a', 'a'])\n"
+                "def test_a(x):\n    pass\n"
+            )
+        )
+        result = suite.runpytest_subprocess()
+        assert result.parseoutcomes() == {"errors": 1}
+
+    def test_accepts_parametrization_ids_that_differ(
+        self, suite: pytest.Pytester
+    ) -> None:
+        suite.makepyfile(
+            test_a=(
+                "import pytest\n\n\n"
+                "@pytest.mark.parametrize('x', [1, 2], ids=['a', 'b'])\n"
+                "def test_a(x):\n    pass\n"
+            )
+        )
+        result = suite.runpytest_subprocess()
+        assert result.parseoutcomes() == {"passed": 2}
+
     def test_fails_an_expected_failure_that_passes(
         self, suite: pytest.Pytester
     ) -> None:
@@ -49,9 +185,44 @@ class TestPytest:
         result = suite.runpytest_subprocess()
         assert result.parseoutcomes() == {"failed": 1}
 
+    def test_counts_an_expected_failure_that_fails(
+        self, suite: pytest.Pytester
+    ) -> None:
+        suite.makepyfile(
+            test_a=(
+                "import pytest\n\n\n@pytest.mark.xfail\n"
+                "def test_a():\n    assert False\n"
+            )
+        )
+        result = suite.runpytest_subprocess()
+        assert result.parseoutcomes() == {"xfailed": 1}
+
+    def test_bounds_each_test_with_a_time_limit(self, suite: pytest.Pytester) -> None:
+        suite.makepyfile(test_a="def test_a():\n    pass\n")
+        result = suite.runpytest_subprocess()
+        result.stdout.fnmatch_lines(["timeout: 60.0s"])
+
+    def test_fails_a_test_or_fixture_that_outlasts_the_time_limit(
+        self, suite: pytest.Pytester
+    ) -> None:
+        suite.makepyfile(
+            test_a="import time\n\nimport pytest\n\n\n@pytest.fixture\n"
+            "def hung():\n    time.sleep(30)\n\n\n"
+            "def test_a():\n    time.sleep(30)\n\n\n"
+            "def test_b(hung):\n    pass\n\n\n"
+            "def test_c():\n    pass\n"
+        )
+        result = suite.runpytest_subprocess("-o", "timeout=0.5")
+        assert result.parseoutcomes() == {"failed": 1, "errors": 1, "passed": 1}
+        result.stdout.fnmatch_lines(["*Timeout (>0.5s) from pytest-timeout*"])
+
 
 class TestCoverage:
-    """No pragma can hide code from coverage."""
+    """No pragma can hide code from coverage, and no module can go unmeasured.
+
+    Coverage reads every module in the package and the tests, namespace packages
+    included, run or not.
+    """
 
     MODULE = (
         "import typing\n"
@@ -214,18 +385,58 @@ class TestCoverage:
     @pytest.fixture
     def report(self, tmp_path: Path, pyproject: Path) -> str:
         (tmp_path / "mod.py").write_text(self.MODULE)
-        for command in (
-            ["run", f"--rcfile={pyproject}", "--source=.", "mod.py"],
-            ["report", f"--rcfile={pyproject}", "--fail-under=0"],
-        ):
-            run = subprocess.run(  # noqa: S603 -- the test's own interpreter, with fixed arguments
-                [sys.executable, "-m", "coverage", *command],
-                cwd=tmp_path,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        return run.stdout
+        _ = run_module(
+            "coverage",
+            "run",
+            f"--rcfile={pyproject}",
+            "--source=.",
+            "mod.py",
+            cwd=tmp_path,
+            check=True,
+        )
+        return run_module(
+            "coverage",
+            "report",
+            f"--rcfile={pyproject}",
+            "--fail-under=0",
+            cwd=tmp_path,
+            check=True,
+        )
+
+    def test_counts_every_unrun_module_in_the_package_and_tests(
+        self, tmp_path: Path, pyproject: Path
+    ) -> None:
+        for name, text in {
+            "nustack/__init__.py": "",
+            "nustack/unrun.py": "x = 1\n",
+            "tests/unit/unrun.py": "x = 1\n",
+            "main.py": "import nustack\n",
+        }.items():
+            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / name).write_text(text)
+        _ = run_module(
+            "coverage",
+            "run",
+            f"--rcfile={pyproject}",
+            "main.py",
+            cwd=tmp_path,
+            check=True,
+        )
+        output = run_module(
+            "coverage",
+            "json",
+            f"--rcfile={pyproject}",
+            "--fail-under=0",
+            "-o",
+            "-",
+            cwd=tmp_path,
+            check=True,
+        )
+        assert sorted(json.loads(output)["files"]) == [
+            "nustack/__init__.py",
+            "nustack/unrun.py",
+            "tests/unit/unrun.py",
+        ]
 
     def test_excludes_only_stubs_type_checking_and_assert_never_arms_without_pragmas(
         self, report: str
@@ -264,66 +475,3 @@ class TestCoverage:
             "147,",
             "151",
         ]
-
-
-class TestRuff:
-    """Data of unknown type is narrowed, and pure modules import no I/O subpackage."""
-
-    @pytest.mark.parametrize(
-        ("source", "line"),
-        [
-            (
-                "from typing import cast\n",
-                (
-                    "src/nustack/a.py:1:20: TID251 `typing.cast` is banned: Narrow the"
-                    " value with isinstance, match or a TypeIs function instead."
-                ),
-            ),
-            (
-                "from typing_extensions import cast\n",
-                (
-                    "src/nustack/a.py:1:31: TID251 `typing_extensions.cast` is banned:"
-                    " Narrow the value with isinstance, match or a TypeIs function"
-                    " instead."
-                ),
-            ),
-            (
-                "import urllib.request\n",
-                (
-                    "src/nustack/a.py:1:8: TID251 `urllib.request` is banned: Do I/O in"
-                    " the modules import-linter allows it in."
-                ),
-            ),
-            ("import urllib.parse\n", "All checks passed!"),
-            (
-                "from http import client\n",
-                (
-                    "src/nustack/a.py:1:18: TID251 `http.client` is banned: Do I/O in"
-                    " the modules import-linter allows it in."
-                ),
-            ),
-        ],
-    )
-    def test_bans_cast_and_each_io_subpackage_alone(
-        self, pyproject: Path, source: str, line: str
-    ) -> None:
-        run = subprocess.run(  # noqa: S603 -- the test's own interpreter, with fixed arguments
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "check",
-                f"--config={pyproject}",
-                "--select=TID251",
-                "--output-format=concise",
-                "--stdin-filename=src/nustack/a.py",
-                "-",
-            ],
-            input=source,
-            capture_output=True,
-            text=True,
-            # Ruff asks for check; the test reads the exit status itself:
-            # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-            check=False,
-        )
-        assert run.stdout.splitlines()[0] == line

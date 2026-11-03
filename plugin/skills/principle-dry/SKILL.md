@@ -1,6 +1,6 @@
 ---
 name: principle-dry
-description: "DRY, a nus-mode principle."
+description: "One home for every piece of knowledge."
 disable-model-invocation: true
 triggers:
   - user

@@ -1,7 +1,5 @@
 """A release tag publishes only from main and only when it names the plugin version."""
 
-from pathlib import Path
-
 import pytest
 
 from nustack.problem import Problem
@@ -20,7 +18,7 @@ class TestTag:
                 False,
                 [
                     Problem(
-                        Path("v1.2.3"),
+                        "v1.2.3",
                         "is not on main; delete it and tag the commit the squash"
                         " merge made on main",
                     )
@@ -31,7 +29,7 @@ class TestTag:
                 True,
                 [
                     Problem(
-                        Path("v9.9.9"),
+                        "v9.9.9",
                         "does not match plugin version 1.2.3; delete it and tag"
                         " v1.2.3, or set the version as AGENTS.md's Releases section"
                         " says",
