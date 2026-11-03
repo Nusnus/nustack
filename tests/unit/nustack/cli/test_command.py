@@ -530,7 +530,7 @@ class TestNotes:
     )
     NOTES = (
         "> **[kit](https://example.com/kit)** · A kit.\n\n"
-        "## 🆕 What changed\n\n### Added\n\n- Adds the kit.\n\n" + PAGE_END
+        "## 🆕 What's new\n\n### Added\n\n- Adds the kit.\n\n" + PAGE_END
     )
 
     @pytest.mark.usefixtures("elsewhere")
@@ -578,7 +578,7 @@ class TestNotes:
             _ = app(["notes", "--root", str(repository.save())])
         assert capsys.readouterr().out == (
             "> **[kit](https://example.com/kit)** · A kit.\n\n"
-            "## 🆕 What changed\n\n### Added\n\n"
+            "## 🆕 What's new\n\n### Added\n\n"
             "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n\n"
             + self.PAGE_END
         )

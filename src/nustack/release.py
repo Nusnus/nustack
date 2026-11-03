@@ -1,8 +1,8 @@
 """A release: its tag held to main and the plugin version, then published on GitHub.
 
-Publishing drafts the release, uploads the zip and publishes it with the notes,
-only while the tag still names the commit CI passed on; a published release stays
-as it is.
+Publishing drafts the release, uploads the zip and publishes it with the notes, as a
+pre-release before v0.1.0, only while the tag still names the commit CI passed on; a
+published release stays as it is.
 """
 
 from dataclasses import dataclass
@@ -51,6 +51,10 @@ class Publication:
     commit: str
     zip_folder: Path
 
+    @property
+    def prerelease(self) -> bool:
+        return self.tag.startswith("v0.0.")
+
     def publish(self, github: GitHub) -> str | Problem:
         try:
             if (moved := self.moved(github)) is not None:
@@ -74,6 +78,7 @@ class Publication:
                 self.tag,
                 f"nustack {self.tag.removeprefix('v')}",
                 self.zip_folder / "notes.md",
+                prerelease=self.prerelease,
             )
         except GitHubError as error:
             return Problem(self.tag, error.what)

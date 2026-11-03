@@ -1,7 +1,7 @@
 # nustack
 
 [![CI](https://github.com/Nusnus/nustack/actions/workflows/ci.yml/badge.svg)](https://github.com/Nusnus/nustack/actions/workflows/ci.yml)
-[![Download](https://img.shields.io/badge/download-latest%20release-blue?logo=github)](https://github.com/Nusnus/nustack/releases/latest)
+[![Download](https://img.shields.io/badge/download-releases-blue?logo=github)](https://github.com/Nusnus/nustack/releases)
 [![Devin plugin](https://img.shields.io/badge/Devin-plugin-1f6feb)](https://devin.ai)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757?logo=claude&logoColor=white)](https://claude.com/claude-code)
 [![Cursor plugin](https://img.shields.io/badge/Cursor-plugin-000000)](https://cursor.com)

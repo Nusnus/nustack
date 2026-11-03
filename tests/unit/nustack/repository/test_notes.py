@@ -23,7 +23,7 @@ class TestReleaseNotes:
         assert isinstance(release, Release)
         assert release.notes == (
             "> **[kit](https://example.com/kit)** · A kit.\n\nLead.\n\n"
-            "## 🆕 What changed\n\n### Added\n\n- Adds the kit.\n\n"
+            "## 🆕 What's new\n\n### Added\n\n- Adds the kit.\n\n"
             "## 🚀 Quick start\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
             "### 2️⃣ Use\n\nRun `kit`."
         )

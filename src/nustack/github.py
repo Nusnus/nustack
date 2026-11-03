@@ -177,7 +177,7 @@ class GitHub:
             "--clobber",
         )
 
-    def publish(self, tag: str, title: str, notes: Path) -> None:
+    def publish(self, tag: str, title: str, notes: Path, *, prerelease: bool) -> None:
         self.run(
             "release",
             "edit",
@@ -185,6 +185,7 @@ class GitHub:
             "-R",
             self.name_with_owner,
             "--draft=false",
+            "--prerelease" if prerelease else "--prerelease=false",
             "--title",
             title,
             "--notes-file",
