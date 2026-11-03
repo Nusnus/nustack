@@ -1,6 +1,5 @@
 {
   "name": "nustack",
-  "description": "Tomer Nosrati's plugin to trust a coding agent to work like a senior engineer while you're away.",
   "owner": {
     "name": "Tomer Nosrati"
   },
@@ -10,5 +9,6 @@
       "source": "./plugin",
       "description": "Trust a coding agent to work like a senior engineer while you're away: Tomer's way of building software, as a mode for coding agents."
     }
-  ]
+  ],
+  "description": "Tomer Nosrati's plugin to trust a coding agent to work like a senior engineer while you're away."
 }

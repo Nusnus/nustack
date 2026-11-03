@@ -1,8 +1,15 @@
-# The Devin environment for nustack. AGENTS.md › Environment says how it works and how to change it.
+# The Devin environment for nustack. AGENTS.md › Environment says how it works
+# and how to change it.
+# The installs and the Bun check sit in maintenance, which runs on every build,
+# so each build checks the uv and Bun the shared machine holds then
+# (https://docs.devin.ai/onboard-devin/environment/blueprint-reference#maintenance).
 maintenance:
   - name: uv and Bun where the machine lacks them, and a Bun at least package.json's pin
     run: |
-      set -euo pipefail
+      # A failed command already stops a multiline step
+      # (https://docs.devin.ai/onboard-devin/environment/blueprint-reference);
+      # -u and pipefail also stop it on an unset variable or a failed curl.
+      set -uo pipefail
       if ! command -v uv >/dev/null; then
         curl -LsSf https://astral.sh/uv/install.sh | sh
         sudo ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv
@@ -10,20 +17,18 @@ maintenance:
       if ! command -v bun >/dev/null; then
         curl -fsSL https://bun.sh/install | bash
         sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
-        sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bunx
       fi
-      if ! bun test tests/loader/toolchain.test.ts; then
+      if ! bun test ./tests/unit/settings.test.ts; then
         echo "nustack needs Bun at least the version package.json pins, and found Bun $(bun --version) at $(command -v bun)." >&2
         echo "If another repository's blueprint installs that Bun, raise its pin to nustack's. Otherwise install Bun from https://bun.sh/docs/installation." >&2
         exit 1
       fi
   - name: The harness, the loader's tools, the commit hooks and their environments
     run: |
-      set -euo pipefail
       make install
-      uv run pre-commit install-hooks
+      uv run --locked pre-commit install-hooks
 knowledge:
-  - name: check
-    contents: make check
+  - name: test
+    contents: make check, then make smoke; AGENTS.md › Checks says what each runs
   - name: build
     contents: make bundle

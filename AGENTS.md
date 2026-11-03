@@ -4,81 +4,68 @@ The rules for changing nustack. [README.md](README.md) shows the layout and how 
 
 Work in this repository in nus-mode: load `plugin/skills/nus-mode/SKILL.md` before you start.
 
-Choose quality over session cost: when a choice trades one for the other, such as another review round or a slower but stronger check, take the one that raises quality.
+nustack keeps its own rules. Every file nustack's authors write follows nus-mode, the skills it reads and this file, whether code, scripts such as bash scripts, tests, workflows or docs; a vendored copy and a file a tool generates, such as a lockfile, are not theirs, and a released changelog entry stays as released. A break of any of those rules blocks the pull request under review like a failing check, even when that pull request leaves the file unchanged, unless a reason that holds is stated where nus-mode's *strong defaults* rule puts a departure's reason. In a stack, a break that a pull request higher up fixes, or will fix once it opens, blocks that higher pull request instead of the one below it; the lower one's description lists each such break, and it merges only together with the higher one.
+
+Word skill text, this file, REVIEW.md and the PR template by Matt Pocock's [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md). It governs only how a text is worded, never what nustack does or where things live, and where it and this file differ, this file wins. A scheduled workflow proposes his repository's newest version as a pull request that replaces the copy here, so propose any change to it upstream, through the owner.
 
 ## Where things live
 
-- `plugin/` is what installs: a manifest for each host, `skills/`, a copy of the repository's `LICENSE`, and the OpenCode loader, `opencode.ts` with its `package.json`. Everything else in the repository is for working on nustack and never reaches a user's session.
-- A principle is a skill of its own, `plugin/skills/principle-<name>/`, stated in its `SKILL.md` alone. nus-mode's `SKILL.md` and its playbooks name it and never restate it.
-- A playbook holds one task as numbered steps, and ends each step on a done condition an agent can check.
-- `plugin/skills/` holds exactly one mode, nus-mode, beside the principle skills.
-- nus-mode's `SKILL.md` states the goal every principle serves, and lists every playbook and principle skill, each with when it applies.
-- `plugin/` holds instructions, and code only in the OpenCode loader, since OpenCode loads plugins only as code. What a tool generates or its docs own, such as config files, a playbook tells the agent to produce from the tool itself.
+- `plugin/` is what installs. It holds only what `nustack check` allows there, and the check's problem names each file that does not belong. Nothing outside `plugin/` reaches a user's session.
+- A principle is a skill of its own, `plugin/skills/principle-<name>/`, stated in its `SKILL.md` alone. Every other file that needs it links it instead of restating it.
+- A language skill, `plugin/skills/language-<name>/`, holds what the principles leave to one language: its tools, and the form a principle takes where that language changes it, under a link to that principle.
+- A playbook holds one task as numbered steps. Each step ends on a done condition that an agent can check and that names everything the step covers, not only what it outputs. Where a tool can create a file, such as a config file, a playbook has the agent create it with that tool; where no tool creates the file, the agent writes it as its format's documentation defines it.
+- `plugin/skills/` holds exactly one mode, nus-mode, beside the principle and language skills. nus-mode's `SKILL.md` states the goal every principle serves, and lists every playbook, principle and language skill with when it applies.
+- Where a file's ecosystem defines no order, config keeps its keys, and each entry whose order changes nothing that runs, in the order its format's documentation shows them, each key, by its full path, at its first place there, then the rest alphabetically; other entries, and entries that depend on one another, keep the order they run in. A format's documentation is that of whoever defines it, whether a tool, a service or a spec, such as npm's for `package.json`. Where it has a reference, a field table or one section per key, each key takes the place of its own row or section in the reference, even where its examples order keys differently. A doc keeps its sections in the order a reader needs them.
+- `plugin/` holds instructions, and code only in the OpenCode loader, since OpenCode loads plugins only as code, and in the Claude Code hook in `hooks/`, since only a hook runs after Claude Code summarizes a session. Both put nus-mode's text back in a session that loaded it, once a summarization drops it.
 
 ## Writing skill text
 
-- State the target behaviour. A prohibition earns its place only as a guardrail with no positive phrasing, paired with its target.
+- State the target behaviour. A prohibition earns its place only as a guardrail with no positive phrasing, paired with its target. This file holds that rule itself, since each sync can change the copy of writing-for-agents.
 - Write for every host: name no agent host, model, host-specific path or date.
-- Write for a reader who never saw the conversation that produced the text: state each rule in general terms and in your own words, and keep an example from the conversation only when it generalises.
-- Frontmatter holds `name` and `description`. A principle skill also holds `disable-model-invocation: true`, which Claude Code and Cursor read and the OpenCode loader follows, and `triggers: [user]`, which Devin reads, so the model never invokes it as a skill and nus-mode reads it as a file. nus-mode leaves both at their defaults, so the user can invoke it and the model can load it when a project's `AGENTS.md` asks. Each field and list entry keeps to one line, and no value holds `---`, since some hosts then drop every field.
+- Frontmatter holds `name` and `description`. A principle or language skill also holds `disable-model-invocation: true` and `triggers: [user]`, which between them hide it from the model on every host, so nus-mode reads it as a file. nus-mode leaves both at their defaults, so the user can invoke it and the model can load it when a project's `AGENTS.md` asks. Each field and list entry keeps to one line, and no value holds `---`, since some hosts then drop every field.
 - Keep each `SKILL.md` under the line limit `nustack check` enforces.
 
 ## Harness code
 
-The OpenCode loader and its tests are held to the same principles in TypeScript.
+A `Problem` names the file, the field and the fix. It repeats no value read from a file, since the harness cannot tell a secret from any other value. It may repeat a changelog title, version or date, or a link's target, since each names the entry or link to fix.
 
-A problem names the file, the field and the fix. It never repeats a value read from a file, since the harness cannot tell a secret from any other value. The exceptions are a changelog title, version or date, and a link's target, since each says which entry or link to fix.
+The linter settings in `pyproject.toml` decide which docstrings code needs.
 
-Ruff enforces a docstring on every public module and class. Every file follows one order, which no tool enforces. State reads up from what it is built on, and behaviour reads down from where it starts:
-
-- A module holds its docstring, its imports and its module-level objects, then its classes, each before the classes that use it, then its functions, each before the functions it calls.
-- A class holds its class constants, its fields, its properties and cached properties, each after the ones it reads, then its methods, each before the methods it calls.
-- A test module holds its helpers, then its tests in the order of the code they test.
+Tests sit in the tier folders [language-python](plugin/skills/language-python/SKILL.md) names, tiered and mirrored as [long term](plugin/skills/principle-long-term/SKILL.md) says.
 
 ## Pull requests
 
-PR descriptions start from the PR template. A pull request is squash-merged, so it lands on `main` as one commit named by its title.
+PR descriptions start from the PR template. A pull request is squash-merged, so it lands on its base branch as one commit named by its title. Whoever merges writes that commit's message, with no `Co-authored-by` line, since GitHub's default message joins the commits' messages, trailers included, and adds one for each commit author other than the pull request's. A stack lands together: once every pull request in it is approved, they merge into `main` one after another, lowest first. Commits follow Conventional Commits, and the commit-msg hook checks each message.
 
-A pull request is done once Devin Review has reviewed its head commit and left no open finding. Fix each finding in a new commit, which Devin Review then reviews, or answer it in its thread, and resolve the thread.
+A pull request is done once Devin Review has reviewed its head commit and left no open finding. Fix each finding in a new commit or answer it in its thread, then resolve the thread.
+
+Until v0.1.0, the first version the owner holds to a stable interface, a change replaces an old form outright. This departs from [long term](plugin/skills/principle-long-term/SKILL.md)'s rule to keep old callers working.
 
 ## Checks
 
-`make install` sets up the harness and the commit hooks. `make check` runs every pre-commit hook in `.pre-commit-config.yaml` over every file, and fixes what the tools can fix. Both first stop with the fix when Bun is missing. `bun test` fails when Bun is older than the version `package.json` pins, and uv refuses to run below the `required-version` in `pyproject.toml`. On each commit, the pre-commit hook runs the same hooks.
+`make install` sets up the harness and the commit hooks. `make smoke` runs the release zip in Claude Code and OpenCode, at the versions `tests/fixtures/smoke/bun.lock` locks, against a fake model, and checks that nus-mode comes back after each kind of summarization. Of the hosts' install scripts, `tests/fixtures/smoke/package.json` trusts only OpenCode's, which copies its native binary into place; Bun links Claude Code's native binary itself, so its script need not run. `make check` runs every pre-commit-stage hook in `.pre-commit-config.yaml` over every file and fixes what the tools can; each commit runs the same hooks. In `make check` and at each commit, a missing or stale `bun.lock` stops the run before the Bun hooks, and an older Bun fails it. `make mutate` runs mutmut over the harness and fails on each mutant the tests leave alive. Each make target stops when a tool it needs is missing or uv is older than the repository requires, and `make install` also stops when `bun.lock` is missing or stale.
 
-`nustack check`, one of those hooks, enforces the structural rules above:
+`nustack check`, one of those hooks, enforces the rules its `--help` lists, each with a test in the harness's tests. Review holds the rest, as [REVIEW.md](REVIEW.md) says.
 
-- the manifests and versions agree;
-- `plugin/` holds only the host manifests, skills, playbooks, the OpenCode loader with its `package.json`, and a `LICENSE` equal to the repository's;
-- `plugin/` holds no symlink and no folder the check cannot open, and either stops the check before it reads anything else, since every later check would read through the symlink or see only part of the plugin;
-- each skill's frontmatter and triggers follow Writing skill text, and its `SKILL.md` stays under the line limit;
-- the mode indexes every principle and playbook;
-- every relative link in `plugin/` reaches a file.
-
-Review holds the rest, and [REVIEW.md](REVIEW.md) says how.
-
-CI runs `make check` and checks commit messages. On a pull request, it checks each commit and the title, which a squash merge makes the commit on `main`, and lets through the commits `cz check` exempts by default, such as `fixup!` and `Merge` commits, since the squash drops them. Each commit pushed to `main` must be a Conventional Commit, with no exemptions. The release workflow builds the zip on every pull request, and publishes a release only from a tag.
+CI runs `make check`, `make mutate` and `make smoke`, holds commit messages to Conventional Commits and builds the release zip. On a pull request it checks each commit, letting through only the commits `cz check` exempts by default, such as `fixup!` and `Merge`, which the squash merge drops. The PR title workflow checks the title, and checks it again on each edit of the pull request. On `main` CI checks every commit, with no exemptions. The release workflow publishes only from a `v<version>` tag on `main`, once CI passes on it. `.github/workflows/` says what triggers each workflow.
 
 ## Environment
 
-`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where the machine lacks them, then runs `make install` and installs the commit hooks' environments. Where the uv it finds is older than `pyproject.toml` requires, the build stops at `make install` with the fix. Where the Bun it finds is older than `package.json` pins, the build stops before `make install` and names the fix: when another repository's blueprint installs that Bun, raise its pin to nustack's. A change to the blueprint goes through review like any other file, and its merge starts the build.
+`.devin/blueprint.yaml` sets up the machine each Devin session on nustack starts from. Other repositories share that machine, so the blueprint installs uv and Bun only where missing, then runs `make install` and installs the commit hooks' environments. A uv or Bun older than the repository requires stops the build with the fix; when the older Bun comes from another repository's blueprint, raise that blueprint's Bun pin to nustack's. Change the blueprint by pull request, like any other file; its merge to `main` starts a build.
 
 ### Onboarding a Devin organization
 
-nustack is onboarded once all four of these hold. When a session finds one missing, set it up where your tools can, and walk the user through the rest one step at a time, each with a link to its page in the Devin web app:
+nustack is onboarded once every item below holds; each item about the repository's blueprint is a setting the [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) guide describes. Set up each missing one yourself where your tools allow; otherwise walk the user through it one step at a time, linking the Devin web app page that sets it:
 
-1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, so the session lists `/nustack:nus-mode`. Install it at the organization's scope, which the user approves, or have the user add it at `/customize?tab=plugins&scope=organization`, under **Add plugin** › **From repository**.
-2. On the repository's blueprint page, `/settings/environment/blueprints/Nusnus/nustack`, **Include in environment** is on. Turning it on starts a build.
-3. The blueprint's source is GitHub, so it reads `.devin/blueprint.yaml` from `main`, as [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) describes.
-4. Under the same page's **Advanced** tab, **Run on every commit to default branch** is on, so each merge to `main` builds from the blueprint in that commit.
+1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, so the session lists `/nustack:nus-mode`. Install it at organization scope, with the user's approval, or have the user add it, as the [Plugins guide](https://docs.devin.ai/product-guides/plugins) describes.
+2. The repository's blueprint is included in the organization's environment. Including it starts a build.
+3. The blueprint's source is GitHub, so it reads `.devin/blueprint.yaml` from `main`.
+4. The blueprint's setting to build on every commit to the default branch is on, so each commit to `main` starts a build from the blueprint in that commit.
 
-Onboarding is done when a session that starts after the latest build has nustack cloned, and `make check` passes there.
+Onboarding is done when the session lists `/nustack:nus-mode` from an organization-scope install of `plugin` on `main`, the blueprint shows each of those settings in place, and a session that starts after the latest build has nustack cloned and passes `make check`.
 
 ## Releases
 
-1. Set the new version in every manifest under `plugin/`, in `plugin/package.json` and in `pyproject.toml`, run `uv lock`, and add the version's entry at the top of `CHANGELOG.md`, titled `[<version>] - <YYYY-MM-DD>` with the release day, as [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) does. `make check` fails until all of them agree.
-2. Run `make check`, then squash-merge the pull request into `main`.
-3. Tag `v<version>` on the commit the merge makes on `main`, and push the tag. The release workflow checks the tag against the manifests, builds `nustack-<version>.zip`, and publishes the GitHub release with the zip and the changelog entry.
-
-## Commits
-
-Commits follow Conventional Commits, and the commit-msg hook checks each message.
+1. Set the new version in every file whose version `nustack check` compares, and run `uv lock`. In `CHANGELOG.md`, in the format its header names, retitle the `[Unreleased]` section `[<version>] - <YYYY-MM-DD>` with the release day, add each change since the last release that it misses, and start an empty `[Unreleased]` section above it. Above the first `##` heading, beside `[Unreleased]`'s link, link the version to its release tag's page, `…/releases/tag/v<version>`, and point `[Unreleased]` at `…/compare/v<version>...HEAD`, since `nustack notes` counts a link below an entry as part of that entry's notes. `make check` names each file that still disagrees; the step is done when it names none, the version's entry is dated with the release day and holds every change since the last release, an empty `[Unreleased]` section sits above it, and both links sit above the first `##` heading with those targets.
+2. Run `make check`, then squash-merge the pull request into `main`. The step is done when `make check` passes and the merge commit is on `main`.
+3. Tag `v<version>` on the commit the merge makes on `main`, and push the tag. The release workflow publishes the release from the tag. The step is done when its run passes and the release is published.

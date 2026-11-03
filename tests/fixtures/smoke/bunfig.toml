@@ -1,0 +1,8 @@
+[test]
+root = "tests/smoke"
+# bun test has no setting that fails on a warning
+# (https://bun.com/docs/runtime/bunfig#test-runner), so this file fails the
+# test that warns.
+preload = [ "./tests/fixtures/warnings.ts" ]
+# Prints the seed of each run; rerun one order with bun test --seed=<seed>.
+randomize = true

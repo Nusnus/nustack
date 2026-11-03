@@ -1,0 +1,630 @@
+"""Each command's arguments, help, output and exit status, which make and CI rely on."""
+
+import os
+import tomllib
+from pathlib import Path
+from zipfile import ZipFile
+
+import pytest
+
+from nustack.cli.command import app
+from nustack.cli.command import sync_description
+from nustack.sync.description import SyncLinks
+from tests.fixtures.terminal import plain
+lazy from tests.fixtures.repository import ModelRepository
+
+
+class TestEmptyValues:
+    """No command reads an empty value as a default or the folder it runs in."""
+
+    @pytest.mark.parametrize(
+        ("arguments", "usage", "error"),
+        [
+            (
+                ["check", "--root", ""],
+                "Usage: nustack check [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["bundle", "--root", ""],
+                "Usage: nustack bundle [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["bundle", "--out", ""],
+                "Usage: nustack bundle [OPTIONS]",
+                "Invalid value for '--out': give a path, not an empty string",
+            ),
+            (
+                ["notes", "--root", ""],
+                "Usage: nustack notes [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["sync-description", "--clone", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--clone': give a path, not an empty string",
+            ),
+            (
+                ["sync-description", "--root", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["sync-description", "--upstream", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--upstream': give a value, not an empty string",
+            ),
+            (
+                ["sync-description", "--run", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--run': give a value, not an empty string",
+            ),
+            (
+                ["sync-description", "--checks", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--checks': give a value, not an empty string",
+            ),
+            (
+                ["sync-description", "--source", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--source': give a path, not an empty string",
+            ),
+            (
+                ["sync-description", "--folder", ""],
+                "Usage: nustack sync-description [OPTIONS]",
+                "Invalid value for '--folder': give a path, not an empty string",
+            ),
+            (
+                ["sync", "--clone", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--clone': give a path, not an empty string",
+            ),
+            (
+                ["sync", "--root", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["sync", "--upstream", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--upstream': give a value, not an empty string",
+            ),
+            (
+                ["sync", "--run", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--run': give a value, not an empty string",
+            ),
+            (
+                ["sync", "--checks", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--checks': give a value, not an empty string",
+            ),
+            (
+                ["sync", "--source", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--source': give a path, not an empty string",
+            ),
+            (
+                ["sync", "--folder", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--folder': give a path, not an empty string",
+            ),
+            (
+                ["sync", "--branch", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--branch': give a value, not an empty string",
+            ),
+            (
+                ["sync", "--remote", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--remote': give a value, not an empty string",
+            ),
+            (
+                ["sync", "--repository", ""],
+                "Usage: nustack sync [OPTIONS]",
+                "Invalid value for '--repository': give a value, not an empty string",
+            ),
+            (
+                ["release-tag", "v1", "--root", ""],
+                "Usage: nustack release-tag [OPTIONS] {tag}",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["release-tag", ""],
+                "Usage: nustack release-tag [OPTIONS] {tag}",
+                "Invalid value for 'tag': give a value, not an empty string",
+            ),
+            (
+                ["publish", "v1", "--folder", ""],
+                "Usage: nustack publish [OPTIONS] {tag}",
+                "Invalid value for '--folder': give a path, not an empty string",
+            ),
+            (
+                ["publish", ""],
+                "Usage: nustack publish [OPTIONS] {tag}",
+                "Invalid value for 'tag': give a value, not an empty string",
+            ),
+            (
+                ["publish", "v1", "--commit", ""],
+                "Usage: nustack publish [OPTIONS] {tag}",
+                "Invalid value for '--commit': give a value, not an empty string",
+            ),
+            (
+                ["publish", "v1", "--repository", ""],
+                "Usage: nustack publish [OPTIONS] {tag}",
+                "Invalid value for '--repository': give a value, not an empty string",
+            ),
+        ],
+    )
+    @pytest.mark.usefixtures("elsewhere")
+    def test_are_refused_by_every_command(
+        self,
+        arguments: list[str],
+        usage: str,
+        error: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "80")
+        with pytest.raises(SystemExit) as caught:
+            app(arguments, prog_name="nustack")
+        lines = plain(capsys.readouterr().err).splitlines()
+        assert (caught.value.code, lines[0], lines[3].strip("│ ")) == (2, usage, error)
+
+
+class TestHelp:
+    """-h, and nustack alone, show how to call nustack and each command."""
+
+    @pytest.mark.parametrize(
+        ("arguments", "usage"),
+        [
+            ([], "Usage: nustack [OPTIONS] COMMAND [ARGS]..."),
+            (["-h"], "Usage: nustack [OPTIONS] COMMAND [ARGS]..."),
+            (["--help"], "Usage: nustack [OPTIONS] COMMAND [ARGS]..."),
+            (["check", "-h"], "Usage: nustack check [OPTIONS]"),
+            (["bundle", "-h"], "Usage: nustack bundle [OPTIONS]"),
+            (["notes", "-h"], "Usage: nustack notes [OPTIONS]"),
+            (["sync-description", "-h"], "Usage: nustack sync-description [OPTIONS]"),
+            (["sync", "-h"], "Usage: nustack sync [OPTIONS]"),
+            (["release-tag", "-h"], "Usage: nustack release-tag [OPTIONS] {tag}"),
+            (["publish", "-h"], "Usage: nustack publish [OPTIONS] {tag}"),
+        ],
+    )
+    def test_prints_the_usage_and_exits_0(
+        self,
+        arguments: list[str],
+        usage: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "80")
+        with pytest.raises(SystemExit) as caught:
+            app(arguments, prog_name="nustack")
+        output = capsys.readouterr()
+        lines = plain(output.out).splitlines()
+        assert (caught.value.code, lines[1].strip(), output.err) == (0, usage, "")
+
+    @pytest.mark.parametrize(
+        ("arguments", "line"),
+        [
+            (
+                ["check", "-h"],
+                "--root          <path>  The nustack repository's folder. [default: .]",
+            ),
+            (
+                ["bundle", "-h"],
+                (
+                    "--out           <path>  The folder to write the zip into."
+                    " [default: dist]"
+                ),
+            ),
+            (
+                ["notes", "-h"],
+                "--root          <path>  The nustack repository's folder. [default: .]",
+            ),
+            (
+                ["sync-description", "-h"],
+                (
+                    "--root              <path>  The nustack repository's folder."
+                    " [default: .]"
+                ),
+            ),
+            (
+                ["sync-description", "-h"],
+                (
+                    "*  --upstream          <text>  The upstream repository's URL."
+                    " [required]"
+                ),
+            ),
+            (
+                ["sync-description", "-h"],
+                (
+                    "*  --source            <path>  The skill's folder in upstream."
+                    " [required]"
+                ),
+            ),
+            (
+                ["release-tag", "-h"],
+                "*    tag      <text>  The release's tag. [required]",
+            ),
+        ],
+    )
+    def test_describes_each_option_and_its_default(
+        self,
+        arguments: list[str],
+        line: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "80")
+        with pytest.raises(SystemExit):
+            app(arguments, prog_name="nustack")
+        output = plain(capsys.readouterr().out)
+        rows = [row.strip("│ ") for row in output.splitlines()]
+        assert line in rows
+
+
+class TestVersion:
+    """The release workflow tags a release only with the declared version."""
+
+    @pytest.mark.parametrize("arguments", [["--version"], ["--version", "--help"]])
+    def test_prints_the_one_pyproject_declares(
+        self,
+        arguments: list[str],
+        pyproject: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        version = tomllib.loads(pyproject.read_text())["project"]["version"]
+        with pytest.raises(SystemExit) as caught:
+            app(arguments)
+        assert (caught.value.code, capsys.readouterr()) == (0, (f"{version}\n", ""))
+
+
+class TestCheck:
+    """make check and CI fail exactly when a rule breaks, naming each place to fix.
+
+    A root it cannot stat, that is gone or that is a file stops it with the reason,
+    and a relative root's problems name full paths.
+    """
+
+    @pytest.mark.usefixtures("elsewhere")
+    def test_takes_its_root_as_an_option(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as caught:
+            app(["check", "--root", str(repository.save())])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("nustack check: no problems\n", ""),
+        )
+
+    def test_exits_1_with_each_problem_on_stderr(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.remove("README.md")
+        repository.write("plugin/notes.txt", "x")
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            app(["check", "--root", str(root)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{root}/plugin/notes.txt: is not Markdown; remove it or move it"
+                    " out of the plugin\n"
+                    f"{root}/README.md: is missing; add it with the plugin's guide\n"
+                ),
+            ),
+        )
+
+    def test_names_each_problem_by_its_full_path_from_a_relative_root(
+        self,
+        repository: ModelRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repository.remove("README.md")
+        root = repository.save()
+        monkeypatch.chdir(root.parent)
+        with pytest.raises(SystemExit):
+            app(["check", "--root", root.name])
+        assert capsys.readouterr().err == (
+            f"{root}/README.md: is missing; add it with the plugin's guide\n"
+        )
+
+    @pytest.mark.skipif(
+        os.geteuid() == 0, reason="root opens every folder, so every path has a kind"
+    )
+    def test_stops_at_a_root_it_cannot_stat_with_the_reason(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "shut").mkdir()
+        (tmp_path / "shut").chmod(0)
+        try:
+            with pytest.raises(SystemExit) as caught:
+                app(["check", "--root", str(tmp_path / "shut" / "root")])
+        finally:
+            (tmp_path / "shut").chmod(0o755)
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{tmp_path / 'shut' / 'root'}: cannot be opened (Permission"
+                    " denied); give the folder read and execute permission\n"
+                ),
+            ),
+        )
+
+    def test_stops_at_a_root_that_is_gone(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as caught:
+            app(["check", "--root", str(tmp_path / "gone")])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{tmp_path}/gone: is not a folder, so the check stops here;"
+                    " pass the repository's folder as --root\n"
+                ),
+            ),
+        )
+
+    def test_stops_at_a_root_that_is_a_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "file").write_text("x")
+        with pytest.raises(SystemExit) as caught:
+            app(["check", "--root", str(tmp_path / "file")])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{tmp_path}/file: is not a folder, so the check stops here;"
+                    " pass the repository's folder as --root\n"
+                ),
+            ),
+        )
+
+    def test_defaults_its_root_to_the_folder_it_runs_in(
+        self,
+        repository: ModelRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(repository.save())
+        with pytest.raises(SystemExit) as caught:
+            app(["check"])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("nustack check: no problems\n", ""),
+        )
+
+    def test_lists_each_rule_in_its_help(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit):
+            app(["check", "--help"])
+        output = plain(capsys.readouterr().out)
+        assert "Hold the repository to these rules:" in output
+        assert "a tier folder holds no file but tests and conftest.py." in " ".join(
+            output.split()
+        )
+
+
+class TestBundle:
+    """make bundle gets one path to upload, and no zip of a broken plugin.
+
+    An out path it cannot write to exits 1 naming it.
+    """
+
+    @pytest.mark.usefixtures("elsewhere")
+    def test_takes_its_root_and_out_as_options(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            app(["bundle", "--root", str(root), "--out", "out"])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("out/kit-1.2.3.zip\n", ""),
+        )
+
+    def test_prints_only_the_zip_path_in_dist_by_default(
+        self,
+        repository: ModelRepository,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = repository.save()
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(SystemExit):
+            app(["bundle", "--root", str(root)])
+        path = Path("dist/kit-1.2.3.zip")
+        with ZipFile(path) as archive:
+            names = archive.namelist()
+        assert (capsys.readouterr().out, names[0]) == (
+            f"{path}\n",
+            ".claude-plugin/plugin.json",
+        )
+
+    def test_defaults_to_the_folder_it_runs_in_and_dist(
+        self,
+        repository: ModelRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(repository.save())
+        with pytest.raises(SystemExit) as caught:
+            app(["bundle"])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("dist/kit-1.2.3.zip\n", ""),
+        )
+
+    def test_writes_nothing_for_a_repository_with_problems(
+        self, repository: ModelRepository, tmp_path: Path
+    ) -> None:
+        repository.remove("README.md")
+        with pytest.raises(SystemExit):
+            app(
+                [
+                    "bundle",
+                    "--root",
+                    str(repository.save()),
+                    "--out",
+                    str(tmp_path / "dist"),
+                ]
+            )
+        assert not (tmp_path / "dist").exists()
+
+    def test_exits_1_naming_an_out_path_it_cannot_write_to(
+        self,
+        repository: ModelRepository,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        out = tmp_path / "out"
+        out.write_text("x")
+        with pytest.raises(SystemExit) as caught:
+            app(["bundle", "--root", str(repository.save()), "--out", str(out)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{out}: is a file, not a folder; pass --out a folder, or remove"
+                    " the file\n"
+                ),
+            ),
+        )
+
+
+class TestNotes:
+    """The release publishes the changelog's words, and nothing while a check fails."""
+
+    @pytest.mark.usefixtures("elsewhere")
+    def test_takes_its_root_as_an_option(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as caught:
+            app(["notes", "--root", str(repository.save())])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("- Adds the kit.\n", ""),
+        )
+
+    def test_prints_the_entry_for_the_plugin_version_as_written(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.edit(
+            "CHANGELOG.md",
+            "- Adds the kit.\n",
+            "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n",
+        )
+        with pytest.raises(SystemExit):
+            app(["notes", "--root", str(repository.save())])
+        assert capsys.readouterr().out == (
+            "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n"
+        )
+
+    def test_defaults_its_root_to_the_folder_it_runs_in(
+        self,
+        repository: ModelRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(repository.save())
+        with pytest.raises(SystemExit) as caught:
+            app(["notes"])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("- Adds the kit.\n", ""),
+        )
+
+    def test_exits_1_for_a_repository_with_problems(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.remove("README.md")
+        with pytest.raises(SystemExit) as caught:
+            app(["notes", "--root", str(repository.save())])
+        assert caught.value.code == 1
+
+
+class TestSyncDescription:
+    """No sync PR opens from a template that lost what the sync fills.
+
+    A missing template stops it too, named by its full path.
+    """
+
+    LINKS = SyncLinks("https://x.io/up", "https://x.io/run", "https://x.io/checks")
+
+    def test_exits_1_naming_each_line_the_template_lost(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.write(
+            ".github/pull_request_template.md",
+            "<!-- Lead -->\n\n"
+            "| **Feedback wanted** | |\n"
+            "| <!-- mark --> **[<!-- check -->](<!-- run link -->)** |"
+            " <!-- result --> |\n\n<!-- Files -->\n\n<!-- One heading per idea -->\n",
+        )
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            sync_description(
+                upstream=self.LINKS.upstream,
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=root,
+                source="skills/s",
+                folder="copy",
+                root=root,
+            )
+        output = capsys.readouterr()
+        assert (caught.value.code, output.out, output.err) == (
+            1,
+            "",
+            (
+                f'{root}/.github/pull_request_template.md: lost "| **Risk** | |", which'
+                " the sync's description needs; restore it, or change SyncTemplate to"
+                " match\n"
+                f'{root}/.github/pull_request_template.md: lost "## ⚖️ Decisions", which'
+                " the sync's description needs; restore it, or change SyncTemplate to"
+                " match\n"
+            ),
+        )
+
+    def test_exits_1_naming_the_missing_template_by_its_full_path(
+        self,
+        repository: ModelRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repository.remove(".github/pull_request_template.md")
+        root = repository.save()
+        monkeypatch.chdir(root.parent)
+        with pytest.raises(SystemExit) as caught:
+            sync_description(
+                upstream=self.LINKS.upstream,
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=root,
+                source="skills/s",
+                folder="copy",
+                root=Path(root.name),
+            )
+        output = capsys.readouterr()
+        assert (caught.value.code, output.out, output.err) == (
+            1,
+            "",
+            (
+                f"{root}/.github/pull_request_template.md: is missing; restore it,"
+                " since the sync fills it\n"
+            ),
+        )

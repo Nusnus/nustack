@@ -1,5 +1,26 @@
+# https://bun.com/docs/runtime/bunfig#test-runner
 [test]
-root = "tests/loader"
+root = "tests"
+# bun test has no setting that fails on a warning
+# (https://bun.com/docs/runtime/bunfig#test-runner), so this file fails the
+# test that warns.
+preload = [ "./tests/fixtures/warnings.ts" ]
+# The smoke tests run real hosts, so they run alone: make smoke.
+pathIgnorePatterns = [ "tests/smoke/**" ]
 coverage = true
-coverageSkipTestFiles = false
+# Bun's coverage measures lines and functions but no branches, so review covers
+# each branch, and tracks only files a test loads, so a file no test loads goes
+# unreported (https://bun.com/docs/test/code-coverage). It measures only
+# JavaScript and TypeScript, so it cannot see plugin/hooks/reload-nus-mode.sh;
+# tests/integration/plugin/hooks runs each of its branches.
 coverageThreshold = 1.0
+# Bun's bunfig page says this defaults to false, but Bun skips test files unless
+# it is set, as its coverage page says
+# (https://bun.com/docs/test/code-coverage).
+coverageSkipTestFiles = false
+# Its handler runs only in a test that warns, which then fails;
+# tests/integration/fixtures/warnings.test.ts runs that case in a separate bun
+# test.
+coveragePathIgnorePatterns = [ "tests/fixtures/warnings.ts" ]
+# Prints the seed of each run; rerun one order with bun test --seed=<seed>.
+randomize = true

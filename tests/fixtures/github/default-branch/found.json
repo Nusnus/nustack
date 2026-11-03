@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "api",
+    "repos/microsoft/bioemu",
+    "--jq",
+    ".default_branch"
+  ],
+  "stdout": "main\n",
+  "stderr": "",
+  "code": 0
+}

@@ -1,6 +1,8 @@
 [build-system]
 build-backend = "uv_build"
-requires = [ "uv-build>=0.9,<0.14" ]
+# uv init writes these bounds:
+# https://docs.astral.sh/uv/concepts/build-backend/#using-the-uv-build-backend
+requires = [ "uv-build>=0.13.6,<0.14" ]
 
 [project]
 name = "nustack"
@@ -10,48 +12,207 @@ license = "MIT"
 authors = [ { name = "Tomer Nosrati" } ]
 requires-python = ">=3.15"
 dependencies = [
-  "cyclopts>=5.3.2",
   "markdown-it-py>=4.2",
   "pydantic>=2.14.2",
   "ruamel-yaml>=0.19.1",
+  "typer>=0.27.3",
 ]
-scripts.nustack = "nustack.cli:app"
+scripts.nustack = "nustack.cli.command:app"
 
 [dependency-groups]
 dev = [
   "actionlint-py>=1.7.12.25",
   "commitizen>=4.19.3",
+  "import-linter>=2.15",
+  "mutmut>=3.8.1",
   "pre-commit>=4.7",
   "pyproject-fmt>=2.30.3",
   "pytest>=9.2",
   "pytest-cov>=7.1",
+  "pytest-randomly>=5",
+  "rich>=15",
   "ruff>=0.17.3",
+  # actionlint checks workflow scripts with ShellCheck only when it is
+  # installed:
+  # https://github.com/rhysd/actionlint/blob/v1.7.12/docs/checks.md#check-shellcheck-integ
+  "shellcheck-py>=0.11.0.1",
   "ty>=0.0.95",
   "zizmor>=1.31.1",
 ]
 
 [tool.uv]
-required-version = ">=0.13.6"
+# The newest uv that Dependabot's own uv meets, not the oldest that locks
+# this project:
+# https://github.com/dependabot/dependabot-core/blob/v0.403.0/uv/helpers/requirements.txt
+required-version = ">=0.13.5"
 
 [tool.ruff]
-src = [ "src" ]
+# The sync proposes this copy byte for byte from upstream, so the hooks that
+# rewrite text skip it.
+extend-exclude = [ ".agents/skills/writing-for-agents" ]
 lint.select = [ "ALL" ]
-lint.ignore = [ "COM812", "CPY001", "D102", "D103", "D105", "D107", "TC" ]
-lint.per-file-ignores."src/nustack/cli.py" = [ "T201" ]
-lint.per-file-ignores."tests/**" = [ "INP001", "S101" ]
+# Each rule's page says why: https://docs.astral.sh/ruff/rules/
+lint.ignore = [
+  # The formatter adds trailing commas its own way:
+  # https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+  "COM812",
+  # The repository's LICENSE holds the copyright, not each file.
+  "CPY001",
+  # Docstrings belong to modules and classes:
+  # plugin/skills/principle-self-explanatory-code/SKILL.md
+  "D102",
+  "D103",
+  "D105",
+  "D107",
+]
+# The command's output is what it prints.
+lint.per-file-ignores."src/nustack/cli/command.py" = [ "T201" ]
+# pytest loads each conftest.py by path, so it needs no package:
+# https://docs.pytest.org/en/stable/explanation/pythonpath.html
+lint.per-file-ignores."tests/**/conftest.py" = [ "INP001" ]
+# Tests are no package, since pytest imports them in importlib mode, and pytest
+# reads plain asserts: https://docs.pytest.org/en/stable/how-to/assert.html
+lint.per-file-ignores."tests/**/test_*.py" = [ "INP001", "S101" ]
+# pytest's pythonpath imports the shared helpers as the namespace package
+# tests.fixtures:
+# https://docs.pytest.org/en/stable/reference/reference.html#confval-pythonpath
+lint.per-file-ignores."tests/fixtures/**/*.py" = [ "INP001" ]
+# import-linter cannot forbid an outside package's I/O subpackage alone, so
+# these are banned here:
+# https://docs.astral.sh/ruff/settings/#lint_flake8-tidy-imports_banned-api
+lint.flake8-tidy-imports.banned-api."http.client".msg = "Do I/O in the modules import-linter allows it in."
+lint.flake8-tidy-imports.banned-api."typing.cast".msg = """\
+  Narrow the value with isinstance, match or a TypeIs function instead.\
+  """
+lint.flake8-tidy-imports.banned-api."typing_extensions.cast".msg = """\
+  Narrow the value with isinstance, match or a TypeIs function instead.\
+  """
+lint.flake8-tidy-imports.banned-api."urllib.request".msg = "Do I/O in the modules import-linter allows it in."
+# pydantic reads its models' annotations at runtime, so their imports stay
+# outside TYPE_CHECKING:
+# https://docs.astral.sh/ruff/settings/#lint_flake8-type-checking_runtime-evaluated-base-classes
+lint.flake8-type-checking.runtime-evaluated-base-classes = [ "pydantic.BaseModel" ]
 lint.isort.force-single-line = true
 lint.pydocstyle.convention = "pep257"
 
 [tool.pyproject-fmt]
 generate_python_version_classifiers = false
+# Wrapped, a coverage pattern turns into a multi-line string with its regex split across lines:
+# https://pyproject-fmt.readthedocs.io/en/latest/configuration.html#string-wrapping
+skip_wrap_for_keys = [ "tool.coverage.report.exclude_lines" ]
 
+# https://docs.pytest.org/en/stable/reference/reference.html#configuration-options
 [tool.pytest]
-addopts = [ "--strict-markers", "--strict-config", "-ra", "--import-mode=importlib" ]
-testpaths = [ "tests/harness" ]
+addopts = [ "--import-mode=importlib", "--strict-config", "--strict-markers", "-ra", "-p", "randomly" ]
+filterwarnings = [ "error" ]
+pythonpath = [ "." ]
+testpaths = [ "tests" ]
+xfail_strict = true
 
+# https://coverage.readthedocs.io/en/latest/config.html
 [tool.coverage]
 run.source = [ "nustack", "tests" ]
 run.branch = true
 report.fail_under = 100
-report.exclude_also = [ 'case \w+:\n\s*assert_never\(' ]
+report.include_namespace_packages = true
+# Coverage's own patterns for `...` stubs and `if TYPE_CHECKING:`, plus `assert_never` arms:
+# https://github.com/coveragepy/coveragepy/blob/7.17.0/coverage/config.py#L153-L157
+# Where coverage's stub pattern has `\s*`, these have `[ \t]*`, so a `def` line can't match across lines; where it has
+# `.`, these read a quoted string whole, escapes included, and otherwise stop at `#`, so a comment ending in `: ...`
+# can't match. A triple-quoted string, or one holding `{`, stops a stub's line matching, since either can hold a lone
+# quote, as an f-string's `{}` can; `\x27` is `'`, which a TOML literal string can't hold. A line of only `...` counts
+# only after a one-line docstring, which may end in a comment, since a regex can't tell a docstring's closing `"""` from
+# a string's opening one. A split signature's last line counts only when it starts `) ->`, since a dictionary entry can
+# end `): ...` or `]: ...`. A split return annotation ending either way stays measured, so its stub can leave a branch
+# missing: name the annotation with a `type` alias, so it fits on the `) ->` line.
+# Ruff format joins any other bare stub to its `def` unless a comment or a multi-line docstring sits above it, and
+# coverage reports such a stub missing: put the comment after the `...`, and leave the `...` out under a multi-line
+# docstring. A regex can't tell code from a string spanning lines either, so a line starting in one that reads like a
+# stub, an `if TYPE_CHECKING:` or an `assert_never` arm excludes the statement holding it; review catches that.
+# Each setting replaces coverage's defaults, so neither `# pragma: no cover` nor `# pragma: no branch` excludes
+# anything:
+# https://coverage.readthedocs.io/en/latest/config.html#config-report-exclude-lines
+# https://coverage.readthedocs.io/en/latest/config.html#config-report-partial-branches
+report.exclude_lines = [
+  '^[ \t]*[rR]?(""".*"""|\x27{3}.*\x27{3})[ \t]*(#.*)?\n[ \t]*\.\.\.[ \t]*(#|$)',
+  '^\s*(async )?def ("(?!"")(\\[^{\n]|[^"\\\n{])*"|\x27(?!\x27\x27)(\\[^{\n]|[^\x27\\\n{])*\x27|[^#\n"\x27])*?:[ \t]*\.\.\.[ \t]*(#|$)',
+  '^\s*\)[ \t]*->("(?!"")(\\[^{\n]|[^"\\\n{])*"|\x27(?!\x27\x27)(\\[^{\n]|[^\x27\\\n{])*\x27|[^#\n"\x27])*?:[ \t]*\.\.\.[ \t]*(#|$)',
+  '^\s*if (typing\.)?TYPE_CHECKING:',
+  'case \w+:\n\s*assert_never\(',
+]
+report.partial_branches = []
 report.show_missing = true
+
+[tool.importlinter]
+root_packages = [ "nustack" ]
+include_external_packages = true
+
+# https://import-linter.readthedocs.io/en/stable/contract_types.html#layers
+[[tool.importlinter.contracts]]
+name = "Each part of the harness builds only on the parts below it"
+type = "layers"
+layers = [
+  "nustack.cli",
+  "nustack.release | nustack.repository | nustack.sync",
+  "nustack.plugin",
+  "nustack.markdown",
+  "nustack.git | nustack.github",
+  "nustack.problem | nustack.rule | nustack.tree | nustack.validation | nustack.yaml_reader",
+]
+
+# https://import-linter.readthedocs.io/en/stable/contract_types.html#forbidden-modules
+[[tool.importlinter.contracts]]
+name = "The modules that decide do no I/O; the disk, the bundle, Git, gh and what acts through them do it"
+type = "forbidden"
+source_modules = [
+  "nustack.markdown",
+  "nustack.plugin.manifest",
+  "nustack.plugin.plugin",
+  "nustack.plugin.skill",
+  "nustack.problem",
+  "nustack.repository.changelog",
+  "nustack.repository.pyproject",
+  "nustack.repository.repository",
+  "nustack.repository.suite",
+  "nustack.repository.vendored",
+  "nustack.rule",
+  "nustack.sync.change",
+  "nustack.sync.description",
+  "nustack.sync.history",
+  "nustack.sync.tree",
+  "nustack.tree",
+  "nustack.validation",
+  "nustack.yaml_reader",
+]
+# Ruff bans the I/O subpackages it cannot name, such as urllib.request; review
+# keeps out builtins such as open.
+forbidden_modules = [
+  "nustack.cli",
+  "nustack.git",
+  "nustack.github",
+  "nustack.plugin.bundle",
+  "nustack.release",
+  "nustack.repository.disk",
+  "nustack.sync.git",
+  "nustack.sync.proposal",
+  "glob",
+  "io",
+  "os",
+  "shutil",
+  "socket",
+  "subprocess",
+  "tempfile",
+  "zipfile",
+]
+
+# https://mutmut.readthedocs.io/en/latest/
+[tool.mutmut]
+source_paths = [ "src/nustack" ]
+# The tests of the harness's code run inside mutmut's copy of the repository,
+# which also needs the files they read; the settings tests check the repository
+# itself.
+pytest_add_cli_args_test_selection = [ "tests/unit", "tests/integration/nustack" ]
+also_copy = [ ".github", "plugin" ]
+# ty proves each match exhaustive, so no input reaches its assert_never arm,
+# which coverage skips the same way.
+do_not_mutate_patterns = [ '^\s*case unexpected:$', '^\s*assert_never\(unexpected\)$' ]

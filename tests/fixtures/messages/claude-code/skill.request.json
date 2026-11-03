@@ -1,0 +1,33 @@
+{
+  "model": "claude-haiku-5-5",
+  "max_tokens": 64,
+  "stream": true,
+  "tools": [
+    {
+      "name": "Skill",
+      "description": "Run a skill from the available-skills list.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "The name of a skill from the available-skills list."
+          }
+        },
+        "required": [
+          "skill"
+        ]
+      }
+    }
+  ],
+  "tool_choice": {
+    "type": "tool",
+    "name": "Skill"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Load nus-mode with the skill tool. Its name is nustack:nus-mode."
+    }
+  ]
+}

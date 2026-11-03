@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  // Biome checks every TypeScript file kind tsc reads, and skips dot-files and dot-folders as tsc
+  // does, so it never rewrites the writing-for-agents copy the sync proposes byte for byte.
+  // tsc's rule:
+  // https://github.com/microsoft/typescript-go/blob/typescript/v7.0.2/internal/vfs/vfsmatch/MATCHING_ALGORITHM.md?plain=1#L424-L425
+  "files": { "includes": ["**/*.{ts,tsx,mts,cts}", "!!**/.*"] },
+  // Biome also skips what Git ignores, such as the copies make mutate leaves in mutants/:
+  // https://biomejs.dev/guides/integrate-in-vcs/
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "formatter": { "indentStyle": "space", "lineWidth": 100 },
+  "javascript": { "formatter": { "semicolons": "asNeeded" } }
+}

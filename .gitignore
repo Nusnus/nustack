@@ -1,4 +1,11 @@
+# What the tools rebuild from tracked files
 .coverage
+.import_linter_cache/
 __pycache__/
 dist/
+mutants/
 node_modules/
+
+# Each agent host's machine-local files
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,0 +1,11 @@
+{
+  "name": "nustack-smoke-hosts",
+  "devDependencies": {
+    "@anthropic-ai/claude-code": ">=2.1.280",
+    "@opencode/cli": ">=2.2.5"
+  },
+  "private": true,
+  "trustedDependencies": [
+    "@opencode/cli"
+  ]
+}

@@ -1,78 +1,71 @@
 name: Release
 
+# Publishes the GitHub release for a v<version> tag on main, once the tag
+# matches the plugin version and CI passes on it. AGENTS.md › Releases says how
+# to cut one.
 on:
-  pull_request:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: read
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+# A tag pushed again waits for the release still publishing from it:
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  build:
-    name: Build the zip
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  tag:
+    name: Tag
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Check the tag is on main
-        if: github.ref_type == 'tag'
-        run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $GITHUB_REF_NAME is not on main"
-            exit 1
-          fi
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
-        with:
-          bun-version-file: package.json
-          no-cache: true
-      - name: make check
-        if: github.ref_type == 'tag'
-        run: make check
-      - name: Check the tag matches the plugin version
-        if: github.ref_type == 'tag'
-        run: |
-          version=$(uv run --locked nustack --version)
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match plugin version $version"
-            exit 1
-          fi
-      - name: Build the zip and the notes
-        env:
-          UV_LOCKED: "1"
-        run: |
-          make bundle
-          uv run nustack notes > dist/notes.md
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
-        with:
-          name: release
-          path: dist/
+      - name: The tag is on main and names the plugin version
+        run: uv run --locked nustack release-tag "$GITHUB_REF_NAME"
+    timeout-minutes: 5
+
+  ci:
+    name: CI
+    permissions:
+      contents: read
+    needs: tag
+    uses: $/.github/workflows/ci.yml
 
   publish:
-    name: Publish the release
-    needs: build
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    name: Publish
     permissions:
       contents: write
+    needs: ci
+    runs-on: ubuntu-26.04
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: release
           path: dist
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      # gh takes its host from GH_HOST, not from the server the workflow runs on
+      # (https://cli.github.com/manual/gh_help_environment). The $/ call above
+      # keeps this workflow off Enterprise Server
+      # (https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows),
+      # so it sets no Enterprise token.
       - name: Publish the release
+        run: |
+          export GH_HOST=${GITHUB_SERVER_URL#https://}
+          uv run --locked nustack publish "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+            --repository "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --notes ""
-          fi
-          gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false \
-            --title "nustack ${GITHUB_REF_NAME#v}" --notes-file dist/notes.md
+    timeout-minutes: 5

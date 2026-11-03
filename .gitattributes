@@ -1,0 +1,4 @@
+# A CRLF checkout breaks plugin/hooks/reload-nus-mode.sh, and the release zip
+# ships plugin/ as checked out, so Git checks out every file there with LF line
+# endings: https://git-scm.com/docs/gitattributes#_eol
+plugin/** text eol=lf

@@ -1,12 +1,12 @@
-<!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, nus-mode's PR descriptions principle, and keep only the parts this change has. -->
+<!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
 
 <!-- Lead -->
 
 | Fact | Detail |
 | :-- | :-- |
-| **Feedback wanted** | <!-- --> |
-| <!-- mark --> **<!-- check -->** | <!-- result --> |
-| **Risk** | <!-- --> |
+| **Feedback wanted** | |
+| <!-- mark --> **[<!-- check -->](<!-- run link -->)** | <!-- result --> |
+| **Risk** | |
 
 ## 👀 Where to look
 
@@ -16,9 +16,9 @@
 
 ## ⚖️ Decisions
 
-| Decision | Why |
-| :-- | :-- |
-| <!-- --> | |
+| Decision | Rule | Why |
+| :-- | :-- | :-- |
+| | | |
 
 ## 📋 After merge
 

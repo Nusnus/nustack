@@ -1,14 +1,9 @@
 version: 2
+# Each cooldown holds a new version back 7 days, past GitHub's default 3
+# (https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-),
+# to give a bad release time to be withdrawn before it is proposed. Security
+# updates skip it, where Dependabot offers them.
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: monthly
-    cooldown:
-      default-days: 7
-    groups:
-      actions:
-        patterns: ["*"]
   - package-ecosystem: bun
     directory: /
     schedule:
@@ -17,6 +12,24 @@ updates:
       default-days: 7
     groups:
       loader:
+        patterns: ["*"]
+  - package-ecosystem: bun
+    directory: /tests/fixtures/smoke
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      hosts:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
         patterns: ["*"]
   - package-ecosystem: pre-commit
     directory: /
@@ -36,3 +49,8 @@ updates:
     groups:
       harness:
         patterns: ["*"]
+    # Without it, Dependabot leaves a floor a new release still meets, instead
+    # of raising it, whenever it takes nustack for a library, which hangs on
+    # whether an unrelated PyPI project named nustack exists
+    # (https://github.com/dependabot/dependabot-core/blob/v0.403.0/python/lib/dependabot/python/update_checker.rb#L413-L437).
+    versioning-strategy: increase

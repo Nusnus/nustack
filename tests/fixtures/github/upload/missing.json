@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "release",
+    "upload",
+    "v1.2.3",
+    "-R",
+    "microsoft/bioemu",
+    "a.zip",
+    "--clobber"
+  ],
+  "stdout": "",
+  "stderr": "release not found\n",
+  "code": 1
+}
