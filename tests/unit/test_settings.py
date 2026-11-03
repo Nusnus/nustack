@@ -1,4 +1,4 @@
-"""The suite's settings collect every tier and require every line and branch covered."""
+"""The suite's settings run every tier, cover every line and bound each smoke test."""
 
 import tomllib
 lazy from pathlib import Path
@@ -21,3 +21,14 @@ class TestCoverage:
             True,
             100,
         )
+
+
+class TestSmoke:
+    """make smoke stops a stalled host's test after two minutes."""
+
+    def test_bounds_each_test_at_two_minutes(self, repository_root: Path) -> None:
+        makefile = (repository_root / "Makefile").read_text()
+        runs = [line for line in makefile.splitlines() if "bun --config=" in line]
+        assert runs == [
+            "\tbun --config=tests/fixtures/smoke/bunfig.toml test --timeout=120000"
+        ]

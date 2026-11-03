@@ -16,8 +16,14 @@ from nustack.sync.tree import Mode
 class TestFileChange:
     """A file's change shows its edits, loading effect, outside links and cue lines.
 
-    Text it cannot compare is left for review, never counted as unchanged. A mode-
-    only change is a change, and a link that only starts with dots stays inside.
+    A mode-only change is a change, and text it cannot compare is left for review,
+    never counted as unchanged. A body edit leaves the frontmatter unchanged, while
+    a lost closing fence changes it. Only new outside uses count; an edit's CRLF
+    drops while a bare CR stays, and a repeated line stays out of the diff. A file
+    under agents/ is a policy file, a nested SKILL.md has no frontmatter lines, and
+    a removal is numbered on the base side. Only added cue lines are quoted, and a
+    link through the parent or from the root leaves, while one that only starts with
+    dots stays.
     """
 
     def test_counts_a_mode_only_change_as_a_change_with_no_line_edits(self) -> None:
@@ -59,7 +65,7 @@ class TestFileChange:
         assert change.frontmatter_comparison is Comparison.UNCHANGED
         assert change.marked_lines == ()
 
-    def test_reads_a_lost_closing_fence_as_a_changed_header(self) -> None:
+    def test_reads_a_lost_closing_fence_as_a_changed_frontmatter(self) -> None:
         change = FileChange(
             "SKILL.md",
             Blob(b"---\nname: x\n---\n", Mode.REGULAR),
@@ -114,19 +120,12 @@ class TestFileChange:
         )
         assert change.edits == (Edit("+", 1, "new line"),)
 
-    def test_numbers_configuration_removals_on_the_base_side(self) -> None:
-        change = FileChange(
-            "agents/host.yml",
-            Blob(b"policy:\n  allow_implicit_invocation: false\n", Mode.REGULAR),
-            None,
-        )
-        assert change.status == "removed"
-        assert change.marked_lines == (
-            Edit("-", 1, "policy:"),
-            Edit("-", 2, "  allow_implicit_invocation: false"),
-        )
+    def test_counts_a_file_under_agents_as_a_policy_file(self) -> None:
+        assert FileChange("agents/openai.yaml", None, None).policy is True
+        assert FileChange("SKILL.md", None, None).policy is False
+        assert FileChange("agents.md", None, None).policy is False
 
-    def test_reads_a_removed_line_of_a_longer_old_header_as_a_loading_line(
+    def test_reads_a_removed_line_of_a_longer_old_frontmatter_as_a_loading_line(
         self,
     ) -> None:
         change = FileChange(
@@ -144,24 +143,21 @@ class TestFileChange:
             Edit("-", 5, "triggers: [user]"),
         )
 
-    def test_counts_a_file_under_agents_as_a_policy_file(self) -> None:
-        assert FileChange("agents/openai.yaml", None, None).policy is True
-        assert FileChange("SKILL.md", None, None).policy is False
-        assert FileChange("agents.md", None, None).policy is False
-
-    def test_finds_no_loading_lines_in_a_policy_file_with_nul(self) -> None:
-        change = FileChange(
-            "agents/openai.yaml", None, Blob(b"\0triggers: [model]\n", Mode.REGULAR)
-        )
-        assert change.loading_lines == ()
-
-    def test_finds_no_header_lines_in_a_nested_skill_file(self) -> None:
+    def test_finds_no_frontmatter_lines_in_a_nested_skill_file(self) -> None:
         change = FileChange(
             "refs/SKILL.md",
             Blob(b"---\nname: x\n---\n", Mode.REGULAR),
             Blob(b"---\nname: y\n---\n", Mode.REGULAR),
         )
         assert change.loading_lines == ()
+
+    def test_leaves_loading_uncompared_in_a_policy_file_with_nul(self) -> None:
+        change = FileChange(
+            "agents/openai.yaml",
+            Blob(b"policy:\n", Mode.REGULAR),
+            Blob(b"\0allow_implicit_invocation: true\n", Mode.REGULAR),
+        )
+        assert change.loading is Comparison.BINARY
 
     def test_reads_a_removed_loading_field_in_a_policy_file_as_a_loading_change(
         self,
@@ -173,7 +169,7 @@ class TestFileChange:
         )
         assert change.loading is Comparison.CHANGED
 
-    def test_reads_a_loading_field_edit_in_the_skill_header_as_a_loading_change(
+    def test_reads_a_loading_field_edit_in_the_skill_frontmatter_as_a_loading_change(
         self,
     ) -> None:
         change = FileChange(
@@ -182,14 +178,6 @@ class TestFileChange:
             Blob(b"---\nname: x\ndisable-model-invocation: true\n---\n", Mode.REGULAR),
         )
         assert change.loading is Comparison.CHANGED
-
-    def test_leaves_loading_uncompared_in_a_policy_file_with_nul(self) -> None:
-        change = FileChange(
-            "agents/openai.yaml",
-            Blob(b"policy:\n", Mode.REGULAR),
-            Blob(b"\0allow_implicit_invocation: true\n", Mode.REGULAR),
-        )
-        assert change.loading is Comparison.BINARY
 
     @pytest.mark.parametrize(
         ("path", "old", "new"),
@@ -205,7 +193,19 @@ class TestFileChange:
         change = FileChange(path, Blob(old, Mode.REGULAR), Blob(new, Mode.REGULAR))
         assert change.loading is Comparison.UNCHANGED
 
-    def test_quotes_only_added_cues_outside_headers_and_host_settings(self) -> None:
+    def test_reads_a_configuration_only_on_the_base_side_as_removed_lines(self) -> None:
+        change = FileChange(
+            "agents/host.yml",
+            Blob(b"policy:\n  allow_implicit_invocation: false\n", Mode.REGULAR),
+            None,
+        )
+        assert change.status == "removed"
+        assert change.marked_lines == (
+            Edit("-", 1, "policy:"),
+            Edit("-", 2, "  allow_implicit_invocation: false"),
+        )
+
+    def test_quotes_only_added_cues_outside_frontmatter_and_host_settings(self) -> None:
         change = FileChange(
             "notes.md",
             Blob(b"Read REVIEW.md\nRead AGENTS.md\n", Mode.REGULAR),

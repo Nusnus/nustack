@@ -90,8 +90,10 @@ class TestPluginSafety:
 class TestPluginManifests:
     """Manifests agree; valid ones still set the metadata beside a broken one.
 
-    Claude's manifest stands in when Devin's is broken, nothing compares when none
-    is valid, and a file where the manifests folder belongs is named.
+    One that differs from Devin's is named, nothing compares when none is valid, and
+    Claude's manifest stands in when Devin's is broken. A missing manifest, a folder
+    in a manifest's place, a file where the manifests folder belongs and a manifest
+    that cannot be read are each named.
     """
 
     DEVIN = "plugin/.devin-plugin/plugin.json"
@@ -101,31 +103,15 @@ class TestPluginManifests:
     def test_agree_in_the_model_repository(self, repository: ModelRepository) -> None:
         assert repository.problems() == []
 
-    @pytest.mark.parametrize("path", [DEVIN, CLAUDE, CURSOR])
-    def test_reports_a_missing_manifest(
-        self, repository: ModelRepository, path: str
-    ) -> None:
-        repository.remove(path)
-        assert repository.problems() == [
-            Problem(
-                repository.where(path),
-                "is missing; add it, since its host installs the plugin from it",
-            )
-        ]
-
-    def test_reports_a_manifest_that_cannot_be_read(
+    def test_names_one_manifest_only_while_all_agree(
         self, repository: ModelRepository
     ) -> None:
-        repository.put(
-            self.CURSOR,
-            Unreadable("cannot be read (Permission denied); make it readable"),
+        agreeing = Plugin(repository.snapshot().plugin).manifest
+        repository.edit(self.CURSOR, '"A kit."', '"Another kit."')
+        assert (agreeing is None, Plugin(repository.snapshot().plugin).manifest) == (
+            False,
+            None,
         )
-        assert repository.problems() == [
-            Problem(
-                repository.where(self.CURSOR),
-                "cannot be read (Permission denied); make it readable",
-            )
-        ]
 
     def test_reports_a_manifest_that_differs_from_devins(
         self, repository: ModelRepository
@@ -138,23 +124,6 @@ class TestPluginManifests:
                 "differs from the Devin manifest in description, author; make it"
                 " identical to the Devin manifest",
             )
-        ]
-
-    def test_reports_a_folder_in_place_of_a_manifest(
-        self, repository: ModelRepository
-    ) -> None:
-        repository.remove(self.CLAUDE)
-        repository.write(f"{self.CLAUDE}/a.md", "# A\n")
-        assert repository.problems() == [
-            Problem(
-                repository.where(self.CLAUDE),
-                "is a folder where a file belongs; move the folder, then add the file",
-            ),
-            Problem(
-                repository.where(f"{self.CLAUDE}/a.md"),
-                "is neither a skill's SKILL.md nor a playbook; move it into the"
-                " mode's playbooks folder or out of the plugin",
-            ),
         ]
 
     def test_compares_no_manifest_when_none_is_valid(
@@ -196,6 +165,35 @@ class TestPluginManifests:
             ),
         ]
 
+    @pytest.mark.parametrize("path", [DEVIN, CLAUDE, CURSOR])
+    def test_reports_a_missing_manifest(
+        self, repository: ModelRepository, path: str
+    ) -> None:
+        repository.remove(path)
+        assert repository.problems() == [
+            Problem(
+                repository.where(path),
+                "is missing; add it, since its host installs the plugin from it",
+            )
+        ]
+
+    def test_reports_a_folder_in_place_of_a_manifest(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.remove(self.CLAUDE)
+        repository.write(f"{self.CLAUDE}/a.md", "# A\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where(self.CLAUDE),
+                "is a folder where a file belongs; move the folder, then add the file",
+            ),
+            Problem(
+                repository.where(f"{self.CLAUDE}/a.md"),
+                "is neither a skill's SKILL.md nor a playbook; move it into the"
+                " mode's playbooks folder or out of the plugin",
+            ),
+        ]
+
     def test_reports_a_file_in_place_of_a_manifests_folder(
         self, repository: ModelRepository
     ) -> None:
@@ -211,12 +209,30 @@ class TestPluginManifests:
             Problem(folder, "is not Markdown; remove it or move it out of the plugin"),
         ]
 
+    def test_reports_a_manifest_that_cannot_be_read(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.put(
+            self.CURSOR,
+            Unreadable("cannot be read (Permission denied); make it readable"),
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where(self.CURSOR),
+                "cannot be read (Permission denied); make it readable",
+            )
+        ]
+
 
 class TestPluginFiles:
     """plugin/ holds only the files nustack ships, each readable where it belongs.
 
-    A missing skills folder or a timestamp past year 9999 hides no other problem,
-    and a folder, pipe or other entry where a file belongs is named.
+    A missing loader, hook config or hook script is named with any test it orphans,
+    and a folder, file, pipe or unreadable entry where the license, loader or skills
+    folder belongs is named. Neither a missing skills folder nor a value YAML cannot
+    read hides another problem, and an entry that is neither a file nor a folder, or
+    a file it cannot read, is named. A file that is not Markdown, Markdown that is
+    neither a skill nor a playbook, and Markdown that is not UTF-8 are named.
     """
 
     @pytest.fixture
@@ -226,74 +242,6 @@ class TestPluginFiles:
         ]
         for skill_file in skill_files:
             repository.remove(skill_file.as_posix())
-
-    @pytest.mark.usefixtures("skillless")
-    def test_reports_a_file_in_place_of_the_skills_folder(
-        self, repository: ModelRepository
-    ) -> None:
-        repository.write("plugin/skills", "x")
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/skills"),
-                "is a file where a folder belongs; move the file, then add the folder",
-            ),
-            Problem(
-                repository.where("plugin/skills"),
-                "holds 0 modes, where it needs exactly 1; keep one skill folder"
-                " without the 'principle-' or 'language-' prefix",
-            ),
-        ]
-
-    @pytest.mark.usefixtures("skillless")
-    def test_reports_a_pipe_in_place_of_the_skills_folder(
-        self, repository: ModelRepository
-    ) -> None:
-        repository.put("plugin/skills", Special())
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/skills"),
-                "is neither a file nor a folder; remove it, then add the folder",
-            ),
-            Problem(
-                repository.where("plugin/skills"),
-                "holds 0 modes, where it needs exactly 1; keep one skill folder"
-                " without the 'principle-' or 'language-' prefix",
-            ),
-        ]
-
-    @pytest.mark.usefixtures("skillless")
-    def test_reports_every_other_problem_beside_a_missing_skills_folder(
-        self, repository: ModelRepository
-    ) -> None:
-        repository.remove("plugin/LICENSE")
-        repository.remove("LICENSE")
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/LICENSE"),
-                "is missing; copy the repository's LICENSE here",
-            ),
-            Problem(
-                repository.where("plugin/skills"),
-                "is missing; add it with the plugin's skills",
-            ),
-            Problem(
-                repository.where("plugin/skills"),
-                "holds 0 modes, where it needs exactly 1; keep one skill folder"
-                " without the 'principle-' or 'language-' prefix",
-            ),
-            Problem(
-                repository.where("LICENSE"), "is missing; add the project's license"
-            ),
-        ]
-
-    def test_reports_a_missing_license(self, repository: ModelRepository) -> None:
-        repository.remove("plugin/LICENSE")
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/LICENSE"),
-                "is missing; copy the repository's LICENSE here",
-            )
-        ]
 
     def test_reports_a_missing_loader_and_its_orphaned_test(
         self, repository: ModelRepository
@@ -381,24 +329,127 @@ class TestPluginFiles:
             ),
         ]
 
-    def test_reports_every_other_problem_beside_a_timestamp_past_year_9999(
+    @pytest.mark.usefixtures("skillless")
+    def test_reports_a_file_in_place_of_the_skills_folder(
         self, repository: ModelRepository
     ) -> None:
-        repository.edit(
-            "plugin/skills/principle-naming/SKILL.md",
-            "description: Naming.",
-            "description: 9999-12-31T23:59:59.9999999Z",
+        repository.write("plugin/skills", "x")
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills"),
+                "is a file where a folder belongs; move the file, then add the folder",
+            ),
+            Problem(
+                repository.where("plugin/skills"),
+                "holds 0 modes, where it needs exactly 1; keep one skill folder"
+                " without the 'principle-' or 'language-' prefix",
+            ),
+        ]
+
+    @pytest.mark.usefixtures("skillless")
+    def test_reports_a_pipe_in_place_of_the_skills_folder(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.put("plugin/skills", Special())
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills"),
+                "is neither a file nor a folder; remove it, then add the folder",
+            ),
+            Problem(
+                repository.where("plugin/skills"),
+                "holds 0 modes, where it needs exactly 1; keep one skill folder"
+                " without the 'principle-' or 'language-' prefix",
+            ),
+        ]
+
+    @pytest.mark.usefixtures("skillless")
+    def test_reports_an_unreadable_entry_in_place_of_the_skills_folder(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.put(
+            "plugin/skills",
+            Unreadable("cannot be read (Permission denied); make it readable"),
         )
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills"),
+                "is a file where a folder belongs; move the file, then add the folder",
+            ),
+            Problem(
+                repository.where("plugin/skills"),
+                "cannot be read (Permission denied); make it readable",
+            ),
+            Problem(
+                repository.where("plugin/skills"),
+                "holds 0 modes, where it needs exactly 1; keep one skill folder"
+                " without the 'principle-' or 'language-' prefix",
+            ),
+        ]
+
+    @pytest.mark.usefixtures("skillless")
+    def test_reports_every_other_problem_beside_a_missing_skills_folder(
+        self, repository: ModelRepository
+    ) -> None:
         repository.remove("plugin/LICENSE")
+        repository.remove("LICENSE")
         assert repository.problems() == [
             Problem(
                 repository.where("plugin/LICENSE"),
                 "is missing; copy the repository's LICENSE here",
             ),
             Problem(
+                repository.where("plugin/skills"),
+                "is missing; add it with the plugin's skills",
+            ),
+            Problem(
+                repository.where("plugin/skills"),
+                "holds 0 modes, where it needs exactly 1; keep one skill folder"
+                " without the 'principle-' or 'language-' prefix",
+            ),
+            Problem(
+                repository.where("LICENSE"), "is missing; add the project's license"
+            ),
+        ]
+
+    def test_reports_every_other_problem_beside_a_value_its_tag_cannot_build(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "plugin/skills/language-python/SKILL.md",
+            "description: Python.",
+            "description: !!int canary",
+        )
+        repository.edit(
+            "plugin/skills/principle-naming/SKILL.md",
+            "description: Naming.",
+            "description: !!int canary",
+        )
+        repository.remove("plugin/LICENSE")
+        repository.edit(
+            "plugin/skills/nus-mode/SKILL.md", "Ship.", "Ship [it](missing.md)."
+        )
+        missing = repository.where("plugin/skills/nus-mode/missing.md")
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/LICENSE"),
+                "is missing; copy the repository's LICENSE here",
+            ),
+            Problem(
+                repository.where("plugin/skills/language-python/SKILL.md"),
+                "frontmatter is invalid: it holds a value on line 3 that YAML cannot"
+                " build as its type; fix the value, or remove its tag or merge key",
+            ),
+            Problem(
                 repository.where("plugin/skills/principle-naming/SKILL.md"),
-                "frontmatter is invalid: it holds a value YAML cannot read; quote it,"
-                " fix or remove its tag, or delete any control character",
+                "frontmatter is invalid: it holds a value on line 3 that YAML cannot"
+                " build as its type; fix the value, or remove its tag or merge key",
+            ),
+            Problem(
+                repository.where("plugin/skills/nus-mode/SKILL.md"),
+                f"links to {missing}, which is not a file inside"
+                f" {repository.where('plugin')}; link to a file inside it, or to a"
+                " full URL",
             ),
         ]
 
@@ -432,10 +483,43 @@ class TestPluginFiles:
             )
         ]
 
-    def test_reports_a_file_that_is_not_markdown(
+    def test_reports_a_file_that_cannot_be_read(
         self, repository: ModelRepository
     ) -> None:
-        repository.write("plugin/notes.txt", "x")
+        repository.put(
+            "plugin/opencode.ts",
+            Unreadable("cannot be read (Permission denied); make it readable"),
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/opencode.ts"),
+                "cannot be read (Permission denied); make it readable",
+            )
+        ]
+
+    def test_reports_an_unreadable_file_the_plugin_does_not_hold(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.put(
+            "plugin/notes.txt",
+            Unreadable("cannot be read (Permission denied); make it readable"),
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/notes.txt"),
+                "is not Markdown; remove it or move it out of the plugin",
+            ),
+            Problem(
+                repository.where("plugin/notes.txt"),
+                "cannot be read (Permission denied); make it readable",
+            ),
+        ]
+
+    @pytest.mark.parametrize("content", ["x", b"\xff"])
+    def test_reports_a_file_that_is_not_markdown(
+        self, repository: ModelRepository, content: str | bytes
+    ) -> None:
+        repository.write("plugin/notes.txt", content)
         assert repository.problems() == [
             Problem(
                 repository.where("plugin/notes.txt"),
@@ -458,19 +542,13 @@ class TestPluginFiles:
             )
         ]
 
-    def test_reports_a_file_that_cannot_be_read(
+    def test_accepts_markdown_in_utf8_beyond_ascii(
         self, repository: ModelRepository
     ) -> None:
-        repository.put(
-            "plugin/opencode.ts",
-            Unreadable("cannot be read (Permission denied); make it readable"),
+        repository.edit(
+            "plugin/skills/nus-mode/playbooks/new-project.md", "\n", " Café.\n"
         )
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/opencode.ts"),
-                "cannot be read (Permission denied); make it readable",
-            )
-        ]
+        assert repository.problems() == []
 
     def test_reports_markdown_that_is_not_utf8(
         self, repository: ModelRepository
@@ -492,12 +570,7 @@ class TestPluginMode:
     """
 
     MODE = "plugin/skills/nus-mode/SKILL.md"
-
     NAMING = "plugin/skills/principle-naming/SKILL.md"
-
-    REACH = "plugin/skills/principle-reach/SKILL.md"
-
-    SCOPE = "plugin/skills/principle-scope/SKILL.md"
 
     @pytest.fixture
     def padding(self, repository: ModelRepository) -> int:
@@ -527,6 +600,12 @@ class TestPluginMode:
                 f" {repository.where('plugin')}; link to a file inside it, or to a"
                 " full URL",
             ),
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 linking"
+                " plugin/skills/principle-naming/SKILL.md, which is no skill's"
+                " SKILL.md; link a skill's SKILL.md, or remove the row",
+            ),
         ]
 
     def test_reports_a_pipe_named_skill_md(self, repository: ModelRepository) -> None:
@@ -542,6 +621,25 @@ class TestPluginMode:
                 f" {repository.where('plugin')}; link to a file inside it, or to a"
                 " full URL",
             ),
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 linking"
+                " plugin/skills/principle-naming/SKILL.md, which is no skill's"
+                " SKILL.md; link a skill's SKILL.md, or remove the row",
+            ),
+        ]
+
+    def test_reports_a_second_mode(self, repository: ModelRepository) -> None:
+        repository.write(
+            "plugin/skills/other/SKILL.md",
+            "---\nname: other\ndescription: Another.\n---\n\n# Other\n",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills"),
+                "holds 2 modes, where it needs exactly 1; keep one skill folder"
+                " without the 'principle-' or 'language-' prefix",
+            )
         ]
 
     def test_reports_a_mode_without_skill_md_once(
@@ -574,19 +672,6 @@ class TestPluginMode:
                 repository.where("plugin/skills/principle-tests"),
                 "has no SKILL.md; add one or remove the folder",
             ),
-        ]
-
-    def test_reports_a_second_mode(self, repository: ModelRepository) -> None:
-        repository.write(
-            "plugin/skills/other/SKILL.md",
-            "---\nname: other\ndescription: Another.\n---\n\n# Other\n",
-        )
-        assert repository.problems() == [
-            Problem(
-                repository.where("plugin/skills"),
-                "holds 2 modes, where it needs exactly 1; keep one skill folder"
-                " without the 'principle-' or 'language-' prefix",
-            )
         ]
 
     def test_reports_a_body_that_does_not_open_with_its_title(
@@ -635,6 +720,7 @@ class TestPluginMode:
             f"---\nname: principle-scope\ndescription: More.\n"
             f"{ModelRepository.HIDDEN}# More\n\nKeep it.\n",
         )
+        repository.list_skill("principle-scope", "More.")
         scope = repository.where("plugin/skills/principle-scope/SKILL.md")
         assert repository.problems() == [
             Problem(
@@ -652,6 +738,7 @@ class TestPluginMode:
             f"---\nname: language-rust\ndescription: More.\n"
             f"{ModelRepository.HIDDEN}# More\n\nKeep it.\n",
         )
+        repository.list_skill("language-rust", "More.")
         rust = repository.where("plugin/skills/language-rust/SKILL.md")
         assert repository.problems() == [
             Problem(
@@ -661,28 +748,6 @@ class TestPluginMode:
             )
         ]
 
-    def test_lists_each_skill_the_mode_does_not_index_in_path_order(
-        self, repository: ModelRepository
-    ) -> None:
-        for folder in ("principle-scope", "principle-reach"):
-            repository.write(
-                f"plugin/skills/{folder}/SKILL.md",
-                f"---\nname: {folder}\ndescription: More.\n"
-                f"{ModelRepository.HIDDEN}# More\n\nKeep it.\n",
-            )
-        assert repository.problems() == [
-            Problem(
-                repository.where(self.MODE),
-                f"does not index {repository.where(self.REACH)} under ## Principles;"
-                " add a link to it there with when it applies",
-            ),
-            Problem(
-                repository.where(self.MODE),
-                f"does not index {repository.where(self.SCOPE)} under ## Principles;"
-                " add a link to it there with when it applies",
-            ),
-        ]
-
     def test_reports_a_playbook_the_mode_does_not_index(
         self, repository: ModelRepository
     ) -> None:
@@ -690,11 +755,11 @@ class TestPluginMode:
             "plugin/skills/nus-mode/playbooks/review.md",
             "# Review\n\n1. **Read it.** Done when every file is read.\n",
         )
-        playbook = repository.where("plugin/skills/nus-mode/playbooks/review.md")
+        playbook_path = repository.where("plugin/skills/nus-mode/playbooks/review.md")
         assert repository.problems() == [
             Problem(
                 repository.where(self.MODE),
-                f"does not index {playbook} under ## Playbooks; add a link to it"
+                f"does not index {playbook_path} under ## Playbooks; add a link to it"
                 " there with when it applies",
             )
         ]
@@ -707,22 +772,23 @@ class TestPluginMode:
             "---\nname: principle-scope\ndescription: More.\n"
             f"{ModelRepository.HIDDEN}# More\n\nKeep it.\n",
         )
+        repository.list_skill("principle-scope", "More.")
         repository.write(
             "plugin/skills/nus-mode/playbooks/review.md",
             "# Review\n\n1. **Read it.** Done when every file is read.\n",
         )
-        playbook = repository.where("plugin/skills/nus-mode/playbooks/review.md")
-        skill = repository.where("plugin/skills/principle-scope/SKILL.md")
+        playbook_path = repository.where("plugin/skills/nus-mode/playbooks/review.md")
+        skill_path = repository.where("plugin/skills/principle-scope/SKILL.md")
         assert repository.problems() == [
             Problem(
                 repository.where(self.MODE),
-                f"does not index {playbook} under ## Playbooks; add a link to it"
+                f"does not index {playbook_path} under ## Playbooks; add a link to it"
                 " there with when it applies",
             ),
             Problem(
                 repository.where(self.MODE),
-                f"does not index {skill} under ## Principles; add a link to it there"
-                " with when it applies",
+                f"does not index {skill_path} under ## Principles; add a link to it"
+                " there with when it applies",
             ),
         ]
 
@@ -809,8 +875,8 @@ class TestPluginPlaybooks:
 class TestPluginSkillText:
     """Skill text stays true on every host and every day, without false alarms.
 
-    A word that only looks like a host or a date passes, and only skill text is held
-    to the rule.
+    Only skill text is held to the rule, and a word that only looks like a host or a
+    date passes.
     """
 
     PATH = "plugin/skills/principle-naming/SKILL.md"
@@ -841,16 +907,16 @@ class TestPluginSkillText:
     def test_reports_each_skill_file_that_names_a_host_or_a_date(
         self, repository: ModelRepository
     ) -> None:
-        playbook = "plugin/skills/nus-mode/playbooks/new-project.md"
+        playbook_path = "plugin/skills/nus-mode/playbooks/new-project.md"
         repository.edit(self.PATH, "Name each part for what it does.", "Claude, 2026.")
         repository.edit(
-            playbook,
+            playbook_path,
             "Done when its terms are written down.",
             "Done when its terms are written down in 1999.",
         )
         assert repository.problems() == [
             Problem(
-                repository.where(playbook),
+                repository.where(playbook_path),
                 "line 3 holds a date or a year; state the rule without it, since"
                 " skill text outlives any date",
             ),
@@ -928,16 +994,16 @@ class TestPluginLinks:
             "what it does: [z](z.md), [a](a.md), [z again](z.md).",
         )
         folder = repository.where("plugin/skills/principle-naming")
-        plugin = repository.where("plugin")
+        plugin_path = repository.where("plugin")
         assert repository.problems() == [
             Problem(
                 repository.where(self.PATH),
-                f"links to {folder / 'a.md'}, which is not a file inside {plugin};"
+                f"links to {folder / 'a.md'}, which is not a file inside {plugin_path};"
                 " link to a file inside it, or to a full URL",
             ),
             Problem(
                 repository.where(self.PATH),
-                f"links to {folder / 'z.md'}, which is not a file inside {plugin};"
+                f"links to {folder / 'z.md'}, which is not a file inside {plugin_path};"
                 " link to a file inside it, or to a full URL",
             ),
         ]

@@ -51,13 +51,10 @@ class TestText:
 
 
 class TestNonempty:
-    """A nonempty value passes through, and '' fails naming what to give."""
+    """A nonempty value, even one of only spaces, passes through.
+
+    TestPath, TestPathText and TestText test the refusal.
+    """
 
     def test_passes_a_nonempty_value_through(self) -> None:
         assert nonempty(" ", "name") == " "
-
-    def test_names_the_noun_to_give(self) -> None:
-        with pytest.raises(
-            typer.BadParameter, match=r"^give a name, not an empty string$"
-        ):
-            nonempty("", "name")

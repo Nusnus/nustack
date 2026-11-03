@@ -1,6 +1,6 @@
 ---
 name: principle-boundaries
-description: "Boundaries, a nus-mode principle."
+description: "Outside data parsed once, where it enters, and an expected absence held as data."
 disable-model-invocation: true
 triggers:
   - user

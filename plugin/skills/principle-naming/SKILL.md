@@ -1,6 +1,6 @@
 ---
 name: principle-naming
-description: "Naming, a nus-mode principle."
+description: "Names that say what a thing is in the domain."
 disable-model-invocation: true
 triggers:
   - user

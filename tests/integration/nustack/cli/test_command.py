@@ -1,11 +1,12 @@
-"""The release and sync workflows' commands, on real Git repositories and a fake gh.
+"""nustack's sync and release commands, on real Git repositories and a fake gh.
 
-The sync's description command prints a body or a Problem, the sync command opens,
-updates or closes its pull request, and the release commands hold a tag to main and
-the plugin version and publish its release.
+sync-description, a command a person runs by hand, prints the body the sync command
+would publish, or a Problem. The sync command opens, updates or closes its pull request,
+and the release commands hold a tag to main and the plugin version and publish its
+release.
 """
 
-lazy from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -14,7 +15,6 @@ from nustack.cli.command import publish
 from nustack.cli.command import release_tag
 from nustack.cli.command import sync as sync_command
 from nustack.cli.command import sync_description
-from nustack.sync.description import SyncCopy
 from nustack.sync.description import SyncLinks
 from nustack.sync.proposal import Proposal
 from tests.fixtures.repository import ModelRepository
@@ -25,7 +25,7 @@ lazy from tests.fixtures.gh import FakeGh
 
 @pytest.mark.usefixtures("template")
 class TestSyncDescriptionCommand:
-    """The workflow gets a body to publish, or a Problem and no body.
+    """A person gets the body sync would publish, or a Problem and no body.
 
     A clone that is no Git repository, or a body too large for GitHub, stops it.
     """
@@ -36,11 +36,11 @@ class TestSyncDescriptionCommand:
         self, sync: Sync, capsys: pytest.CaptureFixture[str], repository_root: Path
     ) -> None:
         sync_description(
-            upstream=self.LINKS.upstream,
+            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
             clone=sync.upstream.root,
-            source=sync.SOURCE,
+            source_folder=sync.SOURCE_FOLDER,
             folder=sync.FOLDER,
             root=sync.checkout.root,
         )
@@ -48,7 +48,7 @@ class TestSyncDescriptionCommand:
         output = capsys.readouterr()
         assert (output.out, output.err) == (expected.read_text(), "")
 
-    def test_takes_the_workflows_flags(
+    def test_takes_each_option_by_its_flag(
         self,
         sync: Sync,
         repository_root: Path,
@@ -60,7 +60,7 @@ class TestSyncDescriptionCommand:
             app(
                 [
                     "sync-description",
-                    "--upstream",
+                    "--upstream-url",
                     "https://x.io/up",
                     "--run",
                     "https://x.io/run",
@@ -68,8 +68,8 @@ class TestSyncDescriptionCommand:
                     "https://x.io/checks",
                     "--clone",
                     "upstream",
-                    "--source",
-                    sync.SOURCE,
+                    "--source-folder",
+                    sync.SOURCE_FOLDER,
                     "--folder",
                     sync.FOLDER,
                     "--root",
@@ -95,11 +95,11 @@ class TestSyncDescriptionCommand:
         monkeypatch.chdir(missing.parent)
         with pytest.raises(SystemExit) as stopped:
             sync_description(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=Path("missing"),
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 root=sync.checkout.root,
             )
@@ -116,15 +116,15 @@ class TestSyncDescriptionCommand:
     def test_stops_at_a_description_too_large_for_github(
         self, sync: Sync, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        sync.upstream.write(f"{sync.SOURCE}/SKILL.md", "nustack\n" * 9000)
+        sync.upstream.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "nustack\n" * 9000)
         sync.upstream.commit("third")
         with pytest.raises(SystemExit) as stopped:
             sync_description(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 root=sync.checkout.root,
             )
@@ -134,7 +134,7 @@ class TestSyncDescriptionCommand:
             "",
             (
                 f"{sync.checkout.root}/copy: the sync description of this copy is"
-                " 307184 bytes, over the 65536 GitHub accepts; quote less in"
+                " 307205 bytes, over the 65536 GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change\n"
             ),
         )
@@ -146,12 +146,11 @@ class TestSyncCommand:
 
     A failed gh command, a second pull request on the branch, a copy it cannot make,
     a repository without a default branch or a clone Git cannot read stops it. A
-    reply no recording holds, such as an empty default branch, is written in the
-    form of gh's recorded replies.
+    reply no recording holds, such as an empty default branch, is the test's own.
     """
 
     LINKS = SyncLinks("https://github.com/up/skills", "https://x.io/run", "#checks")
-
+    DEFAULT = ("api", "repos/o/r", "--jq", ".default_branch")
     PULLS = (
         "api",
         "--method",
@@ -168,8 +167,6 @@ class TestSyncCommand:
         ".[] | select(.head.repo.id == .base.repo.id) | .number",
     )
 
-    DEFAULT = ("api", "repos/o/r", "--jq", ".default_branch")
-
     @pytest.fixture
     def default_branch(self, gh: FakeGh, github_fixtures: Path) -> None:
         gh.replay(
@@ -180,22 +177,23 @@ class TestSyncCommand:
     def test_opens_a_pull_request_for_upstreams_new_copy(
         self,
         sync: Sync,
-        remote: str,
+        remote_url: str,
         gh: FakeGh,
+        github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        copy = SyncCopy(sync.upstream.root, sync.SOURCE, sync.FOLDER)
-        proposal = Proposal("main", "sync/w", remote)
+        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
+        proposal = Proposal("main", "sync/w", remote_url)
         sync_command(
-            upstream=self.LINKS.upstream,
+            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
-            clone=copy.clone,
-            source=copy.source,
-            folder=copy.folder,
+            clone=sync.upstream.root,
+            source_folder=sync.SOURCE_FOLDER,
+            folder=sync.FOLDER,
             branch=proposal.branch,
-            remote=proposal.remote,
-            repository="o/r",
+            remote_url=proposal.remote_url,
+            name_with_owner="o/r",
             root=sync.checkout.root,
         )
         (argv, body) = gh.calls[-1]
@@ -213,35 +211,35 @@ class TestSyncCommand:
     def test_closes_the_pull_request_once_the_copy_matches_upstream(
         self,
         sync: Sync,
-        remote: str,
+        remote_url: str,
         gh: FakeGh,
         github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        copy = SyncCopy(sync.upstream.root, sync.SOURCE, sync.FOLDER)
-        sync_command(
-            upstream=self.LINKS.upstream,
-            run=self.LINKS.run,
-            checks=self.LINKS.checks,
-            clone=copy.clone,
-            source=copy.source,
-            folder=copy.folder,
-            branch="sync/w",
-            remote=remote,
-            repository="o/r",
-            root=sync.checkout.root,
-        )
+        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/one.json")
         sync_command(
-            upstream=self.LINKS.upstream,
+            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
-            clone=copy.clone,
-            source=copy.source,
-            folder=copy.folder,
+            clone=sync.upstream.root,
+            source_folder=sync.SOURCE_FOLDER,
+            folder=sync.FOLDER,
             branch="sync/w",
-            remote=remote,
-            repository="o/r",
+            remote_url=remote_url,
+            name_with_owner="o/r",
+            root=sync.checkout.root,
+        )
+        sync_command(
+            upstream_url=self.LINKS.upstream_url,
+            run=self.LINKS.run,
+            checks=self.LINKS.checks,
+            clone=sync.upstream.root,
+            source_folder=sync.SOURCE_FOLDER,
+            folder=sync.FOLDER,
+            branch="sync/w",
+            remote_url=remote_url,
+            name_with_owner="o/r",
             root=sync.checkout.root,
         )
         assert capsys.readouterr().out.splitlines()[-1] == (
@@ -259,15 +257,15 @@ class TestSyncCommand:
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/missing.json")
         with pytest.raises(SystemExit) as stopped:
             sync_command(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 branch="sync/w",
-                remote="remote",
-                repository="o/r",
+                remote_url="remote",
+                name_with_owner="o/r",
                 root=sync.checkout.root,
             )
         assert (stopped.value.code, capsys.readouterr().err) == (
@@ -286,15 +284,15 @@ class TestSyncCommand:
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/several.json")
         with pytest.raises(SystemExit) as stopped:
             sync_command(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 branch="sync/w",
-                remote="remote",
-                repository="o/r",
+                remote_url="remote",
+                name_with_owner="o/r",
                 root=sync.checkout.root,
             )
         assert (stopped.value.code, capsys.readouterr().err) == (
@@ -314,40 +312,41 @@ class TestSyncCommand:
         monkeypatch.chdir(sync.checkout.root.parent)
         with pytest.raises(SystemExit) as stopped:
             sync_command(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source="missing",
+                source_folder="missing",
                 folder=sync.FOLDER,
                 branch="sync/w",
-                remote="remote",
-                repository="o/r",
+                remote_url="remote",
+                name_with_owner="o/r",
                 root=Path(sync.checkout.root.name),
             )
         assert (stopped.value.code, capsys.readouterr().err) == (
             1,
             (
                 f"{sync.checkout.root}/copy/SKILL.md: has no upstream source; pass"
-                " --source the skill's folder upstream\n"
+                " --source-folder the skill's folder upstream\n"
             ),
         )
 
     def test_stops_on_a_repository_that_names_no_default_branch(
         self, sync: Sync, gh: FakeGh, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # GitHub gives every repository a default branch, so no recording holds this.
         gh.reply(*self.DEFAULT, stdout="\n")
         with pytest.raises(SystemExit) as stopped:
             sync_command(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 branch="sync/w",
-                remote="remote",
-                repository="o/r",
+                remote_url="remote",
+                name_with_owner="o/r",
                 root=sync.checkout.root,
             )
         assert (stopped.value.code, capsys.readouterr().err, gh.calls[-1][0]) == (
@@ -369,15 +368,15 @@ class TestSyncCommand:
         monkeypatch.chdir(missing.parent)
         with pytest.raises(SystemExit) as stopped:
             sync_command(
-                upstream=self.LINKS.upstream,
+                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=Path("missing"),
-                source=sync.SOURCE,
+                source_folder=sync.SOURCE_FOLDER,
                 folder=sync.FOLDER,
                 branch="sync/w",
-                remote="remote",
-                repository="o/r",
+                remote_url="remote",
+                name_with_owner="o/r",
                 root=sync.checkout.root,
             )
         assert (stopped.value.code, capsys.readouterr().err) == (
@@ -468,13 +467,13 @@ class TestPublishCommand:
         gh.replay(
             *("release", "view", "v1.2.3", "-R", "o/r", "--json", "isDraft"),
             *("--jq", ".isDraft"),
-            recording=github_fixtures / "release-draft/missing.json",
+            recording=github_fixtures / "release-state/missing.json",
         )
         publish(
             "v1.2.3",
             commit="81c986c0e0a7c511f2941ed3cec09f7975687f80",
-            repository="o/r",
-            folder=tmp_path,
+            name_with_owner="o/r",
+            zip_folder=tmp_path,
         )
         assert capsys.readouterr() == ("Published release v1.2.3\n", "")
 
@@ -482,7 +481,9 @@ class TestPublishCommand:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         with pytest.raises(SystemExit) as stopped:
-            publish("v1.2.3", commit="another", repository="o/r", folder=tmp_path)
+            publish(
+                "v1.2.3", commit="another", name_with_owner="o/r", zip_folder=tmp_path
+            )
         assert (stopped.value.code, capsys.readouterr().err) == (
             1,
             (

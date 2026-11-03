@@ -43,10 +43,10 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       BRANCH: sync/writing-for-agents
-      DESTINATION: .agents/skills/writing-for-agents
+      FOLDER: .agents/skills/writing-for-agents
       RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      SOURCE: skills/productivity/writing-for-agents
-      UPSTREAM: mattpocock/skills
+      SOURCE_FOLDER: skills/productivity/writing-for-agents
+      UPSTREAM_URL: https://github.com/mattpocock/skills
     steps:
       # gh takes its host from GH_HOST, not from the server the workflow runs
       # on, and its token for an Enterprise Server host from GH_ENTERPRISE_TOKEN
@@ -71,7 +71,7 @@ jobs:
       - name: Clone upstream's main
         run: |
           git clone --filter=blob:none --single-branch --branch main --no-checkout \
-            "https://github.com/$UPSTREAM.git" "$RUNNER_TEMP/skills"
+            "$UPSTREAM_URL.git" "$RUNNER_TEMP/skills"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       - name: Copy the skill and propose it in a pull request
         run: |
@@ -80,11 +80,11 @@ jobs:
           # GitHub Actions create pull requests:
           # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
           uv run --locked nustack sync \
-            --upstream "https://github.com/$UPSTREAM" --run "$RUN" \
+            --upstream-url "$UPSTREAM_URL" --run "$RUN" \
             --checks "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions?query=branch:$BRANCH" \
-            --clone "$RUNNER_TEMP/skills" --source "$SOURCE" --folder "$DESTINATION" \
-            --branch "$BRANCH" --repository "$GITHUB_REPOSITORY" \
-            --remote "https://x-access-token:${GH_TOKEN}@${GH_HOST}/${GITHUB_REPOSITORY}.git"
+            --clone "$RUNNER_TEMP/skills" --source-folder "$SOURCE_FOLDER" --folder "$FOLDER" \
+            --branch "$BRANCH" --name-with-owner "$GITHUB_REPOSITORY" \
+            --remote-url "https://x-access-token:${GH_TOKEN}@${GH_HOST}/${GITHUB_REPOSITORY}.git"
         env:
           GH_ENTERPRISE_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}

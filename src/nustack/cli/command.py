@@ -1,10 +1,11 @@
-"""The `nustack` command that the make targets and the workflows run.
+"""The `nustack` command that the make targets, the workflows and a person run.
 
-Its commands check the repository, bundle the plugin, print the release notes,
-check a release tag and publish its release, and stage the writing-for-agents sync's
-copy and propose it in a pull request. Each path is an option, no command takes an
-empty value, and `nustack` alone prints the help. A command that fails prints its
-Problems and exits with a failing status, never a traceback.
+Its commands check the repository, bundle the plugin, print the plugin version's release
+page, print for a person the description of the writing-for-agents sync's pull request,
+stage the sync's copy and propose it in that pull request, check a release tag, and
+publish its release. Each path is an option, no command takes an empty value, `nustack`
+alone prints the help, and `nustack --version` prints the installed version. A command
+that fails prints its Problems and exits with a failing status, never a traceback.
 """
 
 import sys
@@ -25,6 +26,7 @@ from nustack.github import GitHub
 from nustack.github import GitHubError
 from nustack.markdown.document import Document
 from nustack.plugin.bundle import Bundle
+from nustack.problem import Problem
 from nustack.release import Publication
 from nustack.release import Tag
 from nustack.repository.disk import Disk
@@ -42,7 +44,13 @@ from nustack.tree import Missing
 from nustack.tree import NotAFolder
 from nustack.tree import Symlink
 from nustack.tree import Unopened
-lazy from nustack.problem import Problem
+
+# Package metadata matches a distribution's name in any case, so no test tells
+# "nustack" from another casing, and mutmut leaves module-level values alone:
+# https://peps.python.org/pep-0503/#normalized-names
+DISTRIBUTION = "nustack"
+
+ZIP_FOLDER = Path("dist")
 
 app = typer.Typer(
     help="Check, bundle and release the nustack plugin, and sync its vendored"
@@ -51,7 +59,7 @@ app = typer.Typer(
 )
 
 
-# Git names the paths in a tree as text, so source and folder stay str.
+# Git names the paths in a tree as text, so the source and copy folders stay str.
 # Inside Annotated, Typer reads an Option's default as its name, and a
 # default_factory there shows the class, not `.`, in help, so each command writes
 # its own `Path()` default.
@@ -59,11 +67,11 @@ app = typer.Typer(
 RootOption = Annotated[
     Path, typer.Option(parser=path, help="The nustack repository's folder.")
 ]
-RepositoryOption = Annotated[
+NameWithOwnerOption = Annotated[
     str, typer.Option(parser=text, help="The GitHub repository, as <owner>/<name>.")
 ]
 TagArgument = Annotated[str, typer.Argument(parser=text, help="The release's tag.")]
-UpstreamOption = Annotated[
+UpstreamUrlOption = Annotated[
     str, typer.Option(parser=text, help="The upstream repository's URL.")
 ]
 RunOption = Annotated[
@@ -73,7 +81,7 @@ ChecksOption = Annotated[
     str, typer.Option(parser=text, help="The URL of the sync branch's checks.")
 ]
 CloneOption = Annotated[Path, typer.Option(parser=path, help="Upstream's clone.")]
-SourceOption = Annotated[
+SourceFolderOption = Annotated[
     str,
     typer.Option(
         parser=path_text, metavar="<path>", help="The skill's folder in upstream."
@@ -114,12 +122,12 @@ def check(root: RootOption = Path()) -> None:
 @app.command(help="Build the zip that hosts install from a file, after a clean check.")
 def bundle(
     root: RootOption = Path(),
-    out: Annotated[
+    zip_folder: Annotated[
         Path, typer.Option(parser=path, help="The folder to write the zip into.")
-    ] = Path("dist"),
+    ] = ZIP_FOLDER,
 ) -> None:
     release = checked_release(root)
-    match Bundle(release.tree, release.manifest).write(out):
+    match Bundle(release.tree, release.manifest).write(zip_folder):
         case Problem() as problem:
             fail([problem])
         case zip_path:
@@ -134,60 +142,65 @@ def notes(root: RootOption = Path()) -> None:
 @app.command(
     help="Print the description of the writing-for-agents sync's pull request."
 )
-def sync_description(  # noqa: PLR0913 -- one argument per option the sync workflow passes
+# https://github.com/fastapi/typer/blob/0.27.3/typer/main.py#L1373-L1389
+def sync_description(  # noqa: PLR0913 -- Typer reads each option from a parameter of its own
     *,
-    upstream: UpstreamOption,
+    upstream_url: UpstreamUrlOption,
     run: RunOption,
     checks: ChecksOption,
     clone: CloneOption,
-    source: SourceOption,
+    source_folder: SourceFolderOption,
     folder: FolderOption,
     root: RootOption = Path(),
 ) -> None:
-    copy = SyncCopy(clone, source, folder)
-    checkout, upstream_git = CopyGit(root.resolve()), CopyGit(clone.resolve())
-    links = SyncLinks(upstream, run, checks)
-    print(described(links, checkout, upstream_git, copy), end="")
+    sync_copy = SyncCopy(clone, source_folder, folder)
+    checkout_git, upstream_git = CopyGit(root.resolve()), CopyGit(clone.resolve())
+    links = SyncLinks(upstream_url, run, checks)
+    print(described(links, checkout_git, upstream_git, sync_copy), end="")
 
 
 @app.command(
     help="Stage upstream's writing-for-agents as the copy, and open, update or close"
     " the pull request that proposes it."
 )
-def sync(  # noqa: PLR0913 -- one argument per option the sync workflow passes
+# https://github.com/fastapi/typer/blob/0.27.3/typer/main.py#L1373-L1389
+def sync(  # noqa: PLR0913 -- Typer reads each option from a parameter of its own
     *,
-    upstream: UpstreamOption,
+    upstream_url: UpstreamUrlOption,
     run: RunOption,
     checks: ChecksOption,
     clone: CloneOption,
-    source: SourceOption,
+    source_folder: SourceFolderOption,
     folder: FolderOption,
     branch: Annotated[
         str, typer.Option(parser=text, help="The branch that proposes the copy.")
     ],
-    remote: Annotated[
+    remote_url: Annotated[
         str, typer.Option(parser=text, help="The URL to push the branch to.")
     ],
-    repository: RepositoryOption,
+    name_with_owner: NameWithOwnerOption,
     root: RootOption = Path(),
 ) -> None:
-    links, copy = SyncLinks(upstream, run, checks), SyncCopy(clone, source, folder)
-    checkout, upstream_git = CopyGit(root.resolve()), CopyGit(clone.resolve())
+    links, sync_copy = (
+        SyncLinks(upstream_url, run, checks),
+        SyncCopy(clone, source_folder, folder),
+    )
+    checkout_git, upstream_git = CopyGit(root.resolve()), CopyGit(clone.resolve())
     try:
-        tree = upstream_git.tree("HEAD", source, CopyTree.LICENSE)
-        if problems := tree.problems(checkout.root / folder):
+        tree = upstream_git.tree("HEAD", source_folder, CopyTree.LICENSE)
+        if problems := tree.problems(checkout_git.root / folder):
             fail(problems)
-        checkout.stage(folder, upstream_git, tree)
-        staged = checkout.staged()
-        body = described(links, checkout, upstream_git, copy) if staged else ""
-        github = GitHub(repository)
-        outcome = Proposal(github.default_branch(), branch, remote).propose(
-            upstream, checkout, github, body
+        checkout_git.stage(folder, upstream_git, tree)
+        staged = checkout_git.staged()
+        body = described(links, checkout_git, upstream_git, sync_copy) if staged else ""
+        github = GitHub(name_with_owner)
+        outcome = Proposal(github.default_branch(), branch, remote_url).propose(
+            upstream_url, checkout_git, github, body
         )
     except GitError as error:
         fail([error.problem])
     except GitHubError as error:
-        fail([Problem(Path(repository), error.what)])
+        fail([Problem(name_with_owner, error.what)])
     match outcome:
         case Problem() as problem:
             fail([problem])
@@ -219,12 +232,15 @@ def publish(
     commit: Annotated[
         str, typer.Option(parser=text, help="The commit CI built the release from.")
     ],
-    repository: RepositoryOption,
-    folder: Annotated[
-        Path, typer.Option(parser=path, help="The folder that holds the zip CI built.")
-    ] = Path("dist"),
+    name_with_owner: NameWithOwnerOption,
+    zip_folder: Annotated[
+        Path,
+        typer.Option(
+            parser=path, help="The folder that holds the zip and notes.md CI built."
+        ),
+    ] = ZIP_FOLDER,
 ) -> None:
-    match Publication(tag, commit, folder).publish(GitHub(repository)):
+    match Publication(tag, commit, zip_folder).publish(GitHub(name_with_owner)):
         case Problem() as problem:
             fail([problem])
         case message:
@@ -232,9 +248,9 @@ def publish(
 
 
 def described(
-    links: SyncLinks, checkout: CopyGit, upstream: CopyGit, copy: SyncCopy
+    links: SyncLinks, checkout_git: CopyGit, upstream_git: CopyGit, sync_copy: SyncCopy
 ) -> str:
-    template_path = checkout.root / SyncTemplate.PATH
+    template_path = checkout_git.root / SyncTemplate.PATH
     match Document.of(
         template_path,
         Disk.read(template_path),
@@ -247,15 +263,19 @@ def described(
     if problems := template.problems(template_path):
         fail(problems)
     try:
-        base = checkout.tree("HEAD", copy.folder)
-        history = upstream.history(upstream.head, copy.source, base)
-        proposed = upstream.tree(history.copied, copy.source, CopyTree.LICENSE)
-        changes = checkout.changes(base, upstream, proposed)
+        base = checkout_git.tree("HEAD", sync_copy.folder)
+        history = upstream_git.history(upstream_git.head, sync_copy.source_folder, base)
+        proposed = upstream_git.tree(
+            history.copied, sync_copy.source_folder, CopyTree.LICENSE
+        )
+        changes = checkout_git.changes(base, upstream_git, proposed)
     except GitError as error:
         fail([error.problem])
-    description = SyncDescription(links, copy.source, copy.folder, history, changes)
+    description = SyncDescription(
+        links, sync_copy.source_folder, sync_copy.folder, history, changes
+    )
     body = template.fill(description)
-    if problems := template.size_problems(body, checkout.root / copy.folder):
+    if problems := template.size_problems(body, checkout_git.root / sync_copy.folder):
         fail(problems)
     return body
 
@@ -272,8 +292,8 @@ def checked_release(root: Path) -> Release:
                 [
                     Problem(
                         root,
-                        "is not a folder, so the check stops here; pass the"
-                        " repository's folder as --root",
+                        f"{Problem.NOT_A_FOLDER}; pass the repository's folder as"
+                        " --root",
                     )
                 ]
             )
@@ -293,9 +313,5 @@ def fail(problems: list[Problem]) -> NoReturn:
 
 def print_version(*, value: bool) -> None:
     if value:
-        # Package metadata matches a distribution's name in any case, so no test
-        # tells "nustack" from another casing:
-        # https://peps.python.org/pep-0503/#normalized-names
-        distribution_name = "nustack"  # pragma: no mutate
-        print(version(distribution_name))
+        print(version(DISTRIBUTION))
         raise typer.Exit

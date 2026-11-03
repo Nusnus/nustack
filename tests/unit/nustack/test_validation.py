@@ -25,6 +25,14 @@ class TestPattern:
     loader counts as blank.
     """
 
+    def test_counts_as_blank_the_characters_the_loader_counts_as_blank(
+        self, repository_root: Path
+    ) -> None:
+        loader = (repository_root / "plugin/opencode.ts").read_text()
+        blank = re.search(r"static readonly BLANK =\s*/\^\[(.+)\]\*\$/", loader)
+        assert blank is not None
+        assert f"[^{blank[1]}]" == Pattern.NON_BLANK
+
     @pytest.mark.parametrize(
         ("pattern", "fix"),
         [
@@ -45,14 +53,6 @@ class TestPattern:
         assert Pattern.VERSION.unanchored == (
             r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
         )
-
-    def test_counts_as_blank_the_characters_the_loader_counts_as_blank(
-        self, repository_root: Path
-    ) -> None:
-        loader = (repository_root / "plugin/opencode.ts").read_text()
-        blank = re.search(r"static readonly BLANK =\s*/\^\[(.+)\]\*\$/", loader)
-        assert blank is not None
-        assert f"[^{blank[1]}]" == Pattern.NON_BLANK
 
 
 class TestSchema:
@@ -79,7 +79,10 @@ class TestSchema:
         name: str = Field(pattern=Pattern.NAME.value)
 
     class Counted(BaseModel):
-        """A model whose field fails with an error type no harness model meets."""
+        """A model whose field fails with an error type no harness model meets.
+
+        Its field, left out, also shows a missing key's fix.
+        """
 
         count: int
 
@@ -93,6 +96,33 @@ class TestSchema:
         items: tuple[str, ...] = ()
         link: HttpUrl = HttpUrl("https://example.com")
         required: str
+
+    def test_labels_every_key_at_every_depth(self) -> None:
+        assert Schema(self.Outer).labels == {
+            "inner",
+            "name",
+            "plain",
+            "dashed-key",
+            "a.b",
+        }
+
+    def test_names_the_place_and_the_fix_of_each_error(self) -> None:
+        with pytest.raises(ValidationError) as caught:
+            self.Outer.model_validate(
+                {
+                    "inner": [{"plain": "x", "dashed-key": "y", "a.b": 1, "odd": 2}],
+                    "name": "Bad",
+                    "extra": 3,
+                }
+            )
+        assert Schema(self.Outer).reason(caught.value) == (
+            'inner.0."a.b": make it a string; '
+            "inner.0.an unknown key: rename it or remove it; nustack allows only"
+            ' plain, dashed-key, "a.b" here; '
+            "name: use kebab case, such as nus-mode; "
+            "an unknown key: rename it or remove it; nustack allows only inner,"
+            " name here"
+        )
 
     @pytest.mark.parametrize(
         ("change", "reason"),
@@ -126,44 +156,10 @@ class TestSchema:
             self.Typed.model_validate({"required": "a"} | change)
         assert Schema(self.Typed).reason(caught.value) == reason
 
-    def test_names_the_fix_for_a_missing_key(self) -> None:
+    def test_names_the_fix_for_an_error_type_it_has_a_fix_for(self) -> None:
         with pytest.raises(ValidationError) as caught:
-            self.Typed.model_validate({})
-        assert Schema(self.Typed).reason(caught.value) == "required: add it"
-
-    def test_labels_every_key_at_every_depth(self) -> None:
-        assert Schema(self.Outer).labels == {
-            "inner",
-            "name",
-            "plain",
-            "dashed-key",
-            "a.b",
-        }
-
-    def test_names_the_place_and_the_fix_of_each_error(self) -> None:
-        with pytest.raises(ValidationError) as caught:
-            self.Outer.model_validate(
-                {
-                    "inner": [{"plain": "x", "dashed-key": "y", "a.b": 1, "odd": 2}],
-                    "name": "Bad",
-                    "extra": 3,
-                }
-            )
-        assert Schema(self.Outer).reason(caught.value) == (
-            'inner.0."a.b": make it a string; '
-            "inner.0.an unknown key: rename it or remove it; nustack allows only"
-            ' plain, dashed-key, "a.b" here; '
-            "name: use kebab case, such as nus-mode; "
-            "an unknown key: rename it or remove it; nustack allows only inner,"
-            " name here"
-        )
-
-    def test_names_the_file_for_an_error_at_its_top(self) -> None:
-        with pytest.raises(ValidationError) as caught:
-            self.Outer.model_validate([])
-        assert Schema(self.Outer).reason(caught.value) == (
-            "the file: make it an object of keys and values"
-        )
+            self.Counted.model_validate({})
+        assert Schema(self.Counted).reason(caught.value) == "count: add it"
 
     def test_refuses_an_error_type_it_has_no_fix_for(self) -> None:
         with pytest.raises(ValidationError) as caught:
@@ -173,4 +169,11 @@ class TestSchema:
         assert str(refused.value) == (
             "pydantic's error type 'int_parsing' has no fix; add one to Schema.fix,"
             " with a test"
+        )
+
+    def test_names_the_file_for_an_error_at_its_top(self) -> None:
+        with pytest.raises(ValidationError) as caught:
+            self.Outer.model_validate([])
+        assert Schema(self.Outer).reason(caught.value) == (
+            "the file: make it an object of keys and values"
         )

@@ -21,19 +21,6 @@ class TestKind:
     """A skill's folder name alone tells nus-mode how to load and index it."""
 
     @pytest.mark.parametrize(
-        ("name", "kind"),
-        [
-            ("nus-mode", Kind.MODE),
-            ("principle-naming", Kind.PRINCIPLE),
-            ("language-python", Kind.LANGUAGE),
-            ("principal-naming", Kind.MODE),
-            ("old-principle-naming", Kind.MODE),
-        ],
-    )
-    def test_of_a_folder_name_follows_its_prefix(self, name: str, kind: Kind) -> None:
-        assert Kind.of(name) is kind
-
-    @pytest.mark.parametrize(
         ("kind", "prefix", "section"),
         [
             (Kind.MODE, None, "Playbooks"),
@@ -49,9 +36,22 @@ class TestKind:
     def test_lists_the_prefixes(self) -> None:
         assert Kind.prefixes() == "'principle-' or 'language-'"
 
+    @pytest.mark.parametrize(
+        ("name", "kind"),
+        [
+            ("nus-mode", Kind.MODE),
+            ("principle-naming", Kind.PRINCIPLE),
+            ("language-python", Kind.LANGUAGE),
+            ("principal-naming", Kind.MODE),
+            ("old-principle-naming", Kind.MODE),
+        ],
+    )
+    def test_of_a_folder_name_follows_its_prefix(self, name: str, kind: Kind) -> None:
+        assert Kind.of(name) is kind
+
 
 class TestFrontmatter:
-    """The header decides how hosts load a skill, and never changes once read.
+    """The frontmatter decides how hosts load a skill, and never changes once read.
 
     A name at the length limit is taken, and only both fields hide the skill from
     the model.
@@ -65,12 +65,6 @@ class TestFrontmatter:
         }
         assert len(frontmatters) == 1
 
-    def test_holds_the_triggers_its_frozen_fields_give(self) -> None:
-        frontmatter = Frontmatter.model_validate(
-            {"name": "a", "description": "A.", "triggers": ("user",)}
-        )
-        assert frontmatter.triggers == ("user",)
-
     def test_takes_a_name_at_the_length_limit(self) -> None:
         assert Frontmatter.model_validate({"name": "n" * 64, "description": "N."})
 
@@ -80,6 +74,7 @@ class TestFrontmatter:
             ({"disable-model-invocation": True, "triggers": ("user",)}, True),
             ({"disable-model-invocation": True, "triggers": ("user", "user")}, False),
             ({"disable-model-invocation": True}, False),
+            ({"disable-model-invocation": False, "triggers": ("user",)}, False),
             ({"triggers": ("user",)}, False),
         ],
     )
@@ -139,20 +134,6 @@ class TestSkill:
         text = f"---\nname: {name}\ndescription: N.\n{self.HIDDEN}---\n# N\n"
         assert Skill(Path(f"/p/skills/{name}"), File(text.encode())).problems() == []
 
-    def test_without_a_skill_md_is_a_problem(self) -> None:
-        assert Skill(Path("/p/skills/empty"), Missing()).problems() == [
-            Problem(
-                Path("/p/skills/empty"),
-                "has no SKILL.md; add one or remove the folder",
-            )
-        ]
-
-    @pytest.mark.parametrize("read", [Unreadable("cannot be read"), File(b"\xff")])
-    def test_leaves_a_skill_md_that_does_not_read_to_the_plugin(
-        self, read: File | Unreadable
-    ) -> None:
-        assert Skill(self.MODE, read).problems() == []
-
     @pytest.mark.parametrize(
         ("folder", "problem"),
         [
@@ -192,6 +173,20 @@ class TestSkill:
             ),
             "has no SKILL.md; add one or remove the folder",
         ]
+
+    def test_without_a_skill_md_is_a_problem(self) -> None:
+        assert Skill(Path("/p/skills/empty"), Missing()).problems() == [
+            Problem(
+                Path("/p/skills/empty"),
+                "has no SKILL.md; add one or remove the folder",
+            )
+        ]
+
+    @pytest.mark.parametrize("read", [Unreadable("cannot be read"), File(b"\xff")])
+    def test_leaves_a_skill_md_that_does_not_read_to_the_plugin(
+        self, read: File | Unreadable
+    ) -> None:
+        assert Skill(self.MODE, read).problems() == []
 
     @pytest.mark.parametrize(
         "opening", ["\ufeff---\n", "---\r", "# A skill\n"], ids=["bom", "cr", "none"]

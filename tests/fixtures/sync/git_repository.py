@@ -66,7 +66,7 @@ class Sync:
     instead of a path shows.
     """
 
-    SOURCE: ClassVar[str] = "skills/*"
+    SOURCE_FOLDER: ClassVar[str] = "skills/*"
     FOLDER: ClassVar[str] = "copy"
     upstream: GitRepository
     checkout: GitRepository

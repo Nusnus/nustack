@@ -6,6 +6,7 @@
         "hooks": [
           {
             "type": "command",
+            "timeout": 10,
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/reload-nus-mode.sh\""
           }
         ]

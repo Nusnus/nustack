@@ -4,11 +4,16 @@
  */
 import type { ModelRequest, SessionHooks, Store, UserPrompt } from "../../plugin/opencode.ts"
 
+/** A hook's name, as OpenCode's session API spells it. */
+type HookName = Parameters<SessionHooks["hook"]>[0]
+
 /** OpenCode's session hooks, which run only inside OpenCode. */
 export class FakeSession implements SessionHooks {
-  readonly hooks = new Map<string, (request: ModelRequest | UserPrompt) => Promise<void> | void>()
+  readonly hooks = new Map<HookName, (request: ModelRequest | UserPrompt) => Promise<void> | void>()
 
   readonly hook: SessionHooks["hook"] = async (name, callback) => {
+    // OpenCode types each callback for its hook's whole input, while a test passes only the fields the loader reads,
+    // which is all ModelRequest and UserPrompt hold.
     this.hooks.set(name, callback as (request: ModelRequest | UserPrompt) => Promise<void> | void)
     return {
       dispose: async () => {
@@ -19,7 +24,7 @@ export class FakeSession implements SessionHooks {
 
   async run(name: "prompt", request: UserPrompt): Promise<void>
   async run(name: "context" | "compaction", request: ModelRequest): Promise<void>
-  async run(name: string, request: ModelRequest | UserPrompt): Promise<void> {
+  async run(name: HookName, request: ModelRequest | UserPrompt): Promise<void> {
     const hook = this.hooks.get(name)
     if (hook === undefined) throw new Error(`no ${name} hook is registered`)
     await hook(request)

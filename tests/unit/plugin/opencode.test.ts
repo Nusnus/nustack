@@ -27,10 +27,12 @@ interface Recorded<Request = ModelRequest> {
   readonly request: Request
 }
 
-// Each folder holds one OpenCode session under an agent with a one-line prompt and Code Mode denied, so each request
-// carries little but what the reload reads. Each file holds the fields the loader reads of one request a session hook
-// received, recorded by a plugin loaded beside the loader. The loaded and unloaded sessions ran against the real model,
-// the invoked, forged and quoted ones in the smoke tests' OpenCode against tests/fixtures/model.ts.
+// The loaded, unloaded, invoked, forged and quoted folders each hold one OpenCode session under an agent with a
+// one-line prompt and Code Mode denied, so each request carries little but what the reload reads; the crlf,
+// config-skill, kept, pasted and other-skill sessions ran under OpenCode's default prompt. Each file holds the fields
+// the loader reads of one request a session hook received, recorded by a plugin loaded beside the loader. The loaded
+// and unloaded sessions ran against the real model, and the rest in the smoke tests' OpenCode against
+// tests/fixtures/model.ts.
 // The agent loop's request right after the skill tool loaded the mode: the one context request whose messages hold it.
 const loading = await recorded("loaded/context")
 // The summary request of that session: the one compaction request whose messages hold the mode.
@@ -52,6 +54,39 @@ const forgedSummary = await recorded("forged/compaction")
 // envelope: the model call that followed, and the session's summary request.
 const quotedCall = await recorded("quoted/context")
 const quotedSummary = await recorded("quoted/compaction")
+// In one the skill tool loaded a CRLF SKILL.md, and in one a nus-mode from the config's skills folder, beside
+// nustack's: each load, its summary request and the first request after it.
+const crlfLoading = await recorded("crlf/context")
+const crlfSummary = await recorded("crlf/compaction")
+const crlfFollowing = await recorded("crlf/following")
+const configSkillLoading = await recorded("config-skill/context")
+const configSkillSummary = await recorded("config-skill/compaction")
+const configSkillFollowing = await recorded("config-skill/following")
+// In the kept session the skill tool loaded the mode in the turn after a first one, the last before a summary the user
+// asked for, since a session's first summary, unless its model compacts natively, never keeps its first user turn
+// (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L967-L971;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L1017-L1027;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L321-L323). OpenCode kept
+// that turn as text in the summary's message, as compaction.keep allows, 15,000 tokens of recent conversation unless
+// set (https://unpkg.com/@opencode/schema@2.2.5/dist/config/compaction.js;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L47-L48;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L263;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/config/plugin/compaction.ts#L22),
+// with the mode's text cut short at "[truncated]", since its session code cuts a tool result to 1250 characters
+// (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L6;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L50;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L72-L84): the load, its
+// summary request and the first request after it.
+const keptLoading = await recorded("kept/context")
+const keptSummary = await recorded("kept/compaction")
+const keptFollowing = await recorded("kept/following")
+// In one a prompt pasted the mode's body, with no skill call: its model call, its summary request and the next request.
+const pastedCall = await recorded("pasted/context")
+const pastedSummary = await recorded("pasted/compaction")
+const pastedFollowing = await recorded("pasted/following")
+// In one the user invoked another skill, sample-mode, as the TUI does: its prompt and the model call that followed.
+const otherInvoking = await recorded<UserPrompt>("other-skill/prompt")
+const otherInvoked = await recorded("other-skill/context")
 // The mode's body as the recorded session loaded it, between OpenCode's skill heading and its base-directory note. The
 // recording ran an older nus-mode, and the reload matches whatever body the loader registered, so the recorded body
 // stands in for the shipped one; the smoke tests reload the shipped body in OpenCode itself.
@@ -82,6 +117,11 @@ class Folders extends TemporaryFolders {
 async function recorded<Request = ModelRequest>(name: string): Promise<Recorded<Request>> {
   const path = join(import.meta.dirname, "..", "..", "fixtures", "opencode", `${name}.json`)
   return JSON.parse(await readFile(path, "utf8"))
+}
+
+// A store that writes through set and reads what storage holds.
+function wrapping(storage: FakeStorage, set: FakeStorage["set"]): FakeStorage {
+  return Object.assign(new FakeStorage(), { set, get: storage.get })
 }
 
 /**
@@ -395,8 +435,9 @@ describe("SkillFolder", () => {
  * No model call after a summary leaves out the mode in a session that loaded it, through a skill call that names the
  * mode or its user's invocation. A summary request or a shorter message list counts as a summary, and plugin storage
  * keeps which sessions loaded it. The requests are records of the real OpenCode sessions the setup above names. A
- * session that loaded another plugin's nus-mode, or whose other tool took the mode's id, gets nothing, and one whose
- * messages still hold the mode gets no second copy.
+ * session that loaded a nus-mode from the config's skills folder, or whose other tool took the mode's id, gets nothing,
+ * and one whose messages still hold the mode gets no second copy. A store that fails surfaces its error, and the next
+ * request retries it.
  */
 describe("ModeReload", () => {
   const restored: ModelRequest["system"] = [
@@ -426,6 +467,8 @@ describe("ModeReload", () => {
       await this.session.run("prompt", structuredClone(record.request))
     }
 
+    // messages replaces the recorded request's messages, for a session no recording shows, such as one with fewer
+    // messages than its recording.
     async replay(
       record: Recorded,
       messages = record.request.messages,
@@ -459,18 +502,11 @@ describe("ModeReload", () => {
     expect(await conversation.replay(following)).toEqual(restored)
   })
 
-  test("gives nothing after a summarization to a session that loaded another plugin's skill named nus-mode", async () => {
-    // No recorded session loaded another plugin's nus-mode; this one gives the recorded load another body.
-    const messages = JSON.parse(
-      JSON.stringify(loading.request.messages).replaceAll(
-        JSON.stringify(MODE.content.trim()).slice(1, -1),
-        "# nus-mode\\n\\nAnother plugin's mode.",
-      ),
-    )
-    expect(messages).not.toEqual(loading.request.messages)
+  test("gives nothing after a summarization to a session that loaded a nus-mode from the config's skills folder", async () => {
     const conversation = await new Conversation().start()
-    await conversation.replay(loading, messages)
-    expect(await conversation.replay(following)).toEqual([])
+    await conversation.replay(configSkillLoading)
+    await conversation.replay(configSkillSummary)
+    expect(await conversation.replay(configSkillFollowing)).toEqual([])
   })
 
   test("gives nothing after a summarization to a session that never loaded the mode", async () => {
@@ -479,33 +515,38 @@ describe("ModeReload", () => {
     expect(await conversation.replay(unloadedFollowing)).toEqual([])
   })
 
-  test("gives no second copy to a session whose kept messages still hold the mode", async () => {
+  test("gives no second copy to a session whose first request after a summarization still holds the mode", async () => {
     const conversation = await new Conversation().start()
     await conversation.replay(loading)
     await conversation.replay(summary)
-    // OpenCode keeps the newest messages after a summary when compaction.keep allows
-    // (https://unpkg.com/@opencode/schema@2.2.5/dist/config/compaction.js); the recording kept none, so this list puts
-    // the loading request's messages, the mode among them, before its own.
-    const kept = [...loading.request.messages, ...following.request.messages]
-    expect(await conversation.replay(following, kept)).toEqual([])
+    expect(await conversation.replay(loading)).toEqual([])
   })
 
   test("stores a session's load once, however often its requests hold it", async () => {
     let sets = 0
     const storage = new FakeStorage()
-    const counting = Object.assign(new FakeStorage(), {
-      set: async (...args: Parameters<FakeStorage["set"]>) => {
-        sets += 1
-        await storage.set(...args)
-      },
-      get: storage.get,
+    const counting = wrapping(storage, async (...args) => {
+      sets += 1
+      await storage.set(...args)
     })
     const conversation = await new Conversation(counting).start()
     await conversation.replay(loading)
+    await conversation.replay(loading, loading.request.messages.slice(1))
     await conversation.replay(summary)
-    const kept = [...loading.request.messages, ...following.request.messages]
-    await conversation.replay(following, kept)
     expect([sets, storage.entries.size]).toEqual([1, 1])
+  })
+
+  test("stores a session's load again on its next request once storing it failed", async () => {
+    const storage = new FakeStorage()
+    let failures = 1
+    const flaky = wrapping(storage, async (...args) => {
+      if (failures-- > 0) throw new Error("storage is down")
+      await storage.set(...args)
+    })
+    const conversation = await new Conversation(flaky).start()
+    await expect(conversation.replay(loading)).rejects.toThrow("storage is down")
+    await conversation.replay(loading)
+    expect(storage.entries.size).toBe(1)
   })
 
   test("reads no message again when a request repeats the count already read", async () => {
@@ -532,7 +573,9 @@ describe("ModeReload", () => {
   })
 
   test("gives nothing after a summarization to a session whose other tool took the mode's id", async () => {
-    // No recorded session called another tool with the mode's id; this one renames the recorded skill call's tool.
+    // FakeModel plays only replies recorded from the real API, and none calls a tool other than skill with the mode's
+    // id as its input, though a plugin's tool can take one; this one is the recorded load with its skill call's tool
+    // renamed.
     const messages = JSON.parse(
       JSON.stringify(loading.request.messages).replaceAll('"name":"skill"', '"name":"other"'),
     )
@@ -567,46 +610,40 @@ describe("ModeReload", () => {
   })
 
   test("finds a CRLF mode in a session's messages and gives its text back as it reads", async () => {
-    const shown = MODE.content.trim().replaceAll("\n", "\r\n")
+    const load = String(Object(Object(crlfLoading.request.messages[2]).content[0]).result.value)
+    const shown = load
+      .slice(load.indexOf("\n\n") + 2, load.indexOf("\nBase directory for this skill:"))
+      .trim()
     // A CRLF SKILL.md's body, as the loader reads it: its opening blank line and last line break kept.
     const crlf = { ...MODE, content: `\r\n${shown}\r\n` }
-    // No recorded session loaded a CRLF SKILL.md; this one turns the line breaks of the body the recorded load shows
-    // into CRLF ones, as OpenCode showed a CRLF body trimmed in requests captured from it.
-    const messages = JSON.parse(
-      JSON.stringify(loading.request.messages).replaceAll(
-        JSON.stringify(MODE.content.trim()).slice(1, -1),
-        JSON.stringify(shown).slice(1, -1),
-      ),
-    )
     const conversation = await new Conversation(new FakeStorage(), crlf).start()
-    await conversation.replay(loading, messages)
-    expect(await conversation.replay(following)).toEqual([
-      {
-        type: "text",
-        text: `${shown}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
-      },
+    await conversation.replay(crlfLoading)
+    await conversation.replay(crlfSummary)
+    expect([shown.includes("\r\n"), await conversation.replay(crlfFollowing)]).toEqual([
+      true,
+      [
+        {
+          type: "text",
+          text: `${shown}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+        },
+      ],
     ])
   })
 
-  test.each([
-    ["summary request", summary],
-    ["model call", loading],
-  ])(
-    "gives nothing after a summarization to a session whose %s only quoted the mode",
-    async (_case, record) => {
-      const conversation = await new Conversation().start()
-      // No recorded session pasted the mode into a prompt; this one gives the recorded request a first prompt that
-      // quotes the mode's body, and no skill call.
-      const messages = [
-        {
-          role: "user",
-          content: [{ type: "text", text: `Proofread this text; reply OK.\n\n${MODE.content}` }],
-        },
-      ]
-      await conversation.replay(record, messages as never)
-      expect(await conversation.replay(following)).toEqual([])
-    },
-  )
+  test("gives nothing after a summarization to a session whose prompt only pasted the mode", async () => {
+    // OpenCode's run command sent the prompt twice, each copy in quotes, so the mode's body runs from the first copy's
+    // first blank line to its closing quote. The loader holds that body, so only the missing skill call keeps the mode
+    // out.
+    const text = String(Object(pastedCall.request.messages[0]).content[0].text)
+    const pasted = {
+      ...MODE,
+      content: `${text.slice(text.indexOf("\n\n") + 2, text.indexOf('" "'))}\n`,
+    }
+    const conversation = await new Conversation(new FakeStorage(), pasted).start()
+    await conversation.replay(pastedCall)
+    await conversation.replay(pastedSummary)
+    expect(await conversation.replay(pastedFollowing)).toEqual([])
+  })
 
   /** A user's invocation of the mode brings it back, and an invocation of another skill does not. */
   describe("in the sessions recorded with the shipped mode", () => {
@@ -633,11 +670,8 @@ describe("ModeReload", () => {
 
     test("gives nothing to a session whose user invoked another skill", async () => {
       const conversation = await new Conversation(new FakeStorage(), shipped).start()
-      // No recorded prompt invoked another skill; this one names another in the recorded invocation.
-      const other = structuredClone(invoking)
-      Object(other.request.prompt.skills)[0].id = "another-skill"
-      await conversation.prompt(other)
-      expect(await conversation.replay(invoked, [])).toEqual([])
+      await conversation.prompt(otherInvoking)
+      expect(await conversation.replay(otherInvoked, [])).toEqual([])
     })
 
     test.each([
@@ -652,6 +686,29 @@ describe("ModeReload", () => {
         expect(await conversation.replay(forged, [])).toEqual([])
       },
     )
+  })
+
+  /** A summary that keeps the load's turn cuts the mode short, so it comes back. */
+  describe("in a session whose summary kept the turn that loaded the mode", () => {
+    // The body the load shows, between OpenCode's skill heading and its base-directory note.
+    const block = String(Object(keptLoading.request.messages[4]).content[0].result.value)
+    const content = block.slice(
+      block.indexOf("\n\n") + 2,
+      block.indexOf("\n\nBase directory for this skill:"),
+    )
+    const kept = { ...MODE, content }
+
+    test("gives its text back after the summary cut it short", async () => {
+      const conversation = await new Conversation(new FakeStorage(), kept).start()
+      await conversation.replay(keptLoading)
+      await conversation.replay(keptSummary)
+      expect(await conversation.replay(keptFollowing)).toEqual([
+        {
+          type: "text",
+          text: `${content}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+        },
+      ])
+    })
   })
 
   /** A skill that quotes the mode loads nothing to give back. */

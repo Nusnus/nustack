@@ -50,7 +50,7 @@ class TestPyproject:
                 ),
             ),
             (
-                b'[project]\nversion = "1"\n[tool.ruff]\nextend-exclude = 1\n',
+                b'[project]\nversion = "1.2.3"\n[tool.ruff]\nextend-exclude = 1\n',
                 (
                     "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
                     " table, and a list of strings as any [tool.ruff] extend-exclude"

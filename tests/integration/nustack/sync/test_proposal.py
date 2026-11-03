@@ -1,6 +1,7 @@
 """The sync's pull request follows the copy: opened, updated, kept or closed.
 
-It runs on real Git repositories and a gh that replays GitHub's replies.
+These tests run on real Git repositories and a gh that replays GitHub's replies. A close
+that fails keeps the branch.
 """
 
 lazy from pathlib import Path
@@ -8,6 +9,7 @@ lazy from pathlib import Path
 import pytest
 
 from nustack.github import GitHub
+from nustack.github import GitHubError
 from nustack.problem import Problem
 from nustack.sync.git import CopyGit
 from nustack.sync.proposal import Proposal
@@ -18,13 +20,12 @@ lazy from tests.fixtures.sync.git_repository import Sync
 class TestProposal:
     """One pull request proposes the newest copy, and none once the copy matches.
 
-    Two pull requests proposing the branch stop it.
+    Two pull requests proposing the branch stop the sync. A close that fails keeps
+    the branch.
     """
 
-    UPSTREAM = "https://github.com/mattpocock/skills"
-
+    UPSTREAM_URL = "https://github.com/mattpocock/skills"
     BODY = "| ✅ **[Copy](https://x.io/runs/2)** | Compared. |\n"
-
     PULLS = (
         "api",
         "--method",
@@ -40,7 +41,6 @@ class TestProposal:
         "--jq",
         ".[] | select(.head.repo.id == .base.repo.id) | .number",
     )
-
     CREATE = (
         "pr",
         "create",
@@ -55,47 +55,77 @@ class TestProposal:
         "--body-file",
         "-",
     )
-
     EDIT = ("pr", "edit", "267", "-R", "o/r", "--body-file", "-")
 
     @pytest.fixture
-    def checkout(self, sync: Sync) -> CopyGit:
+    def checkout_git(self, sync: Sync) -> CopyGit:
         return CopyGit(sync.checkout.root)
 
     @pytest.fixture
-    def staged(self, sync: Sync, checkout: CopyGit) -> None:
-        upstream = CopyGit(sync.upstream.root)
-        checkout.stage(
-            sync.FOLDER, upstream, upstream.tree("HEAD", sync.SOURCE, "LICENSE")
+    def staged(self, sync: Sync, checkout_git: CopyGit) -> None:
+        upstream_git = CopyGit(sync.upstream.root)
+        checkout_git.stage(
+            sync.FOLDER,
+            upstream_git,
+            upstream_git.tree("HEAD", sync.SOURCE_FOLDER, "LICENSE"),
         )
 
     @pytest.fixture
-    def proposal(self, remote: str) -> Proposal:
-        return Proposal("main", "sync/w", remote)
+    def proposal(self, remote_url: str) -> Proposal:
+        return Proposal("main", "sync/w", remote_url)
 
     @pytest.fixture
     def one_pull(self, gh: FakeGh, github_fixtures: Path) -> None:
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/one.json")
 
-    @pytest.mark.usefixtures("staged")
-    def test_opens_a_pull_request_for_a_new_copy(
-        self, gh: FakeGh, github_fixtures: Path, checkout: CopyGit, proposal: Proposal
+    def test_stops_when_more_than_one_pull_request_proposes_the_branch(
+        self,
+        gh: FakeGh,
+        github_fixtures: Path,
+        checkout_git: CopyGit,
+        proposal: Proposal,
+    ) -> None:
+        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/several.json")
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+        )
+        assert outcome == Problem(
+            "o/r",
+            "has pull requests #267, #265, #264, #259, #258 that all propose sync/w"
+            " for main; close all but one, then rerun",
+        )
+
+    def test_proposes_nothing_while_the_copy_matches(
+        self,
+        gh: FakeGh,
+        github_fixtures: Path,
+        checkout_git: CopyGit,
+        proposal: Proposal,
     ) -> None:
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), self.BODY)
-        pushed = checkout.run("log", "-1", "--format=%s", "HEAD")
-        assert (outcome, gh.calls[1:], pushed) == (
-            "Opened a pull request proposing sync/w for main.",
-            [(self.CREATE, self.BODY)],
-            b"docs: sync writing-for-agents from mattpocock/skills\n",
+        _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
+        outcome = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+        assert (
+            outcome,
+            len(gh.calls),
+            checkout_git.run("ls-remote", proposal.remote_url),
+        ) == (
+            "The copy on main matches upstream; nothing to propose.",
+            1,
+            b"",
         )
 
     @pytest.mark.usefixtures("one_pull")
     def test_closes_the_pull_request_once_the_copy_matches_again(
-        self, gh: FakeGh, checkout: CopyGit, proposal: Proposal
+        self, gh: FakeGh, checkout_git: CopyGit, proposal: Proposal
     ) -> None:
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), "")
-        assert (outcome, gh.calls[1:]) == (
+        _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
+        outcome = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+        assert (
+            outcome,
+            gh.calls[1:],
+            checkout_git.run("ls-remote", proposal.remote_url),
+        ) == (
             "Closed pull request #267: the copy matches upstream again.",
             [
                 (
@@ -105,7 +135,6 @@ class TestProposal:
                         "267",
                         "-R",
                         "o/r",
-                        "--delete-branch",
                         "--comment",
                         (
                             "mattpocock/skills's writing-for-agents matches the copy"
@@ -115,24 +144,33 @@ class TestProposal:
                     "",
                 )
             ],
+            b"",
         )
 
-    @pytest.mark.usefixtures("staged", "one_pull")
-    def test_updates_the_pull_request_with_a_newer_copy(
-        self, gh: FakeGh, sync: Sync, checkout: CopyGit, proposal: Proposal
+    @pytest.mark.usefixtures("one_pull")
+    def test_keeps_the_branch_while_the_pull_request_stays_open(
+        self,
+        gh: FakeGh,
+        github_fixtures: Path,
+        checkout_git: CopyGit,
+        proposal: Proposal,
     ) -> None:
-        checkout.push(proposal.remote, "sync/w", "docs: sync", "Copies it.")
-        sync.checkout.git("reset", "-q", "--soft", "HEAD~1")
-        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "newer\n")
-        sync.checkout.git("add", f"{sync.FOLDER}/SKILL.md")
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), self.BODY)
-        pushed = sync.checkout.git(
-            "--git-dir", proposal.remote, "rev-parse", "refs/heads/sync/w"
+        gh.replay(
+            "pr",
+            "close",
+            "267",
+            "-R",
+            "o/r",
+            "--comment",
+            "mattpocock/skills's writing-for-agents matches the copy on main again,"
+            " so this sync proposes nothing.",
+            recording=github_fixtures / "pull-close/unauthorized.json",
         )
-        assert (outcome, gh.calls[1:], pushed) == (
-            "Updated pull request #267 with the new copy.",
-            [(self.EDIT, self.BODY)],
-            f"{checkout.head}\n",
+        _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
+        with pytest.raises(GitHubError):
+            _ = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+        assert checkout_git.run("ls-remote", proposal.remote_url) == (
+            f"{checkout_git.head}\trefs/heads/sync/w\n".encode()
         )
 
     @pytest.mark.usefixtures("staged", "one_pull")
@@ -146,37 +184,62 @@ class TestProposal:
     def test_keeps_a_pull_request_that_proposes_the_copy_editing_only_what_differs(
         self,
         gh: FakeGh,
-        checkout: CopyGit,
+        checkout_git: CopyGit,
         proposal: Proposal,
         posted: str,
         edits: list[tuple[tuple[str, ...], str]],
     ) -> None:
-        checkout.push(proposal.remote, "sync/w", "docs: sync", "Copies it.")
-        checkout.run("reset", "-q", "--soft", "HEAD~1")
+        checkout_git.push(proposal.remote_url, "sync/w", "docs: sync", "Copies it.")
+        _ = checkout_git.run("reset", "-q", "--soft", "HEAD~1")
+        # Each row's body is one the sync posts, written by the test.
         gh.reply("api", "repos/o/r/pulls/267", "--jq", ".body", stdout=posted)
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), self.BODY)
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+        )
         assert (outcome, gh.calls[2:]) == (
             "Pull request #267 already proposes this copy on main's head.",
             edits,
         )
 
-    def test_proposes_nothing_while_the_copy_matches(
-        self, gh: FakeGh, github_fixtures: Path, checkout: CopyGit, proposal: Proposal
+    @pytest.mark.usefixtures("staged")
+    def test_opens_a_pull_request_for_a_new_copy(
+        self,
+        gh: FakeGh,
+        github_fixtures: Path,
+        checkout_git: CopyGit,
+        proposal: Proposal,
     ) -> None:
         gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), "")
-        assert (outcome, len(gh.calls)) == (
-            "The copy on main matches upstream; nothing to propose.",
-            1,
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+        )
+        pushed = checkout_git.run("log", "-1", "--format=%B", "HEAD")
+        assert (outcome, gh.calls[1:], pushed) == (
+            "Opened a pull request proposing sync/w for main.",
+            [(self.CREATE, self.BODY)],
+            (
+                b"docs: sync writing-for-agents from mattpocock/skills\n\n"
+                b"Copies the newest writing-for-agents skill from mattpocock/skills"
+                b" main.\n\n"
+            ),
         )
 
-    def test_stops_when_more_than_one_pull_request_proposes_the_branch(
-        self, gh: FakeGh, github_fixtures: Path, checkout: CopyGit, proposal: Proposal
+    @pytest.mark.usefixtures("staged", "one_pull")
+    def test_updates_the_pull_request_with_a_newer_copy(
+        self, gh: FakeGh, sync: Sync, checkout_git: CopyGit, proposal: Proposal
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/several.json")
-        outcome = proposal.propose(self.UPSTREAM, checkout, GitHub("o/r"), self.BODY)
-        assert outcome == Problem(
-            Path("o/r"),
-            "has pull requests #267, #265, #264, #259, #258 that all propose sync/w"
-            " for main; close all but one, then rerun",
+        checkout_git.push(proposal.remote_url, "sync/w", "docs: sync", "Copies it.")
+        sync.checkout.git("reset", "-q", "--soft", "HEAD~1")
+        sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "newer\n")
+        sync.checkout.git("add", f"{sync.FOLDER}/SKILL.md")
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+        )
+        pushed = sync.checkout.git(
+            "--git-dir", proposal.remote_url, "rev-parse", "refs/heads/sync/w"
+        )
+        assert (outcome, gh.calls[1:], pushed) == (
+            "Updated pull request #267 with the new copy.",
+            [(self.EDIT, self.BODY)],
+            f"{checkout_git.head}\n",
         )

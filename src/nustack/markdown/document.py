@@ -2,14 +2,14 @@
 
 It reads GFM's extensions as `Document.MARKDOWN`'s comment says.
 
-The checks inspect its body's lines below any frontmatter, split where an editor breaks
-lines, and the line each offset in its whole text falls on; its headings and the
-sections under them; the anchors and Markdown links a reader follows; its fenced code
-blocks; a playbook's steps; whether a text shows anything to a reader; and whether a
-part lifted out keeps every reference it uses. It also reads any text's reference
-definitions, and tells whether a text reads the same beside given ones, as on a page
-that joins several parts. A path that holds no readable UTF-8 file is refused with its
-reason.
+The checks inspect the lines of its whole text and of its body below any frontmatter,
+split where an editor breaks lines, and the line in its whole text that each offset, or
+each body line, falls on; its headings and the sections under them; the anchors and
+Markdown links a reader follows; its fenced code blocks; a playbook's steps; whether a
+text shows anything to a reader; and whether a part lifted out keeps every reference it
+uses. It also reads any text's reference definitions, and tells whether a text reads the
+same beside given ones, as on a page that joins several parts. A path that holds no
+readable UTF-8 file is refused with its reason.
 """
 
 import posixpath
@@ -23,6 +23,7 @@ from typing import assert_never
 from urllib.parse import SplitResult
 from urllib.parse import unquote
 from urllib.parse import urlsplit
+lazy from collections.abc import Iterable
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.tasklists import tasklists_plugin
@@ -208,8 +209,17 @@ class Document:
         .use(tasklists_plugin)
     )
     SLUG_DROPS: ClassVar[re.Pattern[str]] = re.compile(r"[^\w\- ]")
+    # GitHub builds a heading's anchor from the heading's text nodes, and an image's
+    # alt text is no text node, since it renders as the img element's alt attribute:
+    # https://github.com/gjtorikian/html-pipeline/blob/v2.14.3/lib/html/pipeline/toc_filter.rb#L41-L45
+    # https://github.com/sparklemotion/nokogiri/blob/v1.16.0/ext/nokogiri/xml_node.c#L721-L729
+    SLUGGED: ClassVar[frozenset[str]] = frozenset({"text", "code_inline"})
     path: Path
     text: str
+
+    @cached_property
+    def text_lines(self) -> tuple[str, ...]:
+        return Lines(self.text).lines
 
     @cached_property
     def body(self) -> str:
@@ -218,6 +228,10 @@ class Document:
     @cached_property
     def body_lines(self) -> tuple[str, ...]:
         return Lines(self.body).lines
+
+    @cached_property
+    def frontmatter_lines(self) -> int:
+        return len(self.text_lines) - len(self.body_lines)
 
     @cached_property
     def tokens(self) -> tuple[Token, ...]:
@@ -381,13 +395,16 @@ class Document:
     def line_at(self, index: int) -> int:
         return self.text[:index].count("\n") + 1
 
+    def file_line(self, body_line: int) -> int:
+        return self.frontmatter_lines + body_line + 1
+
     def slug(self, inline: Token) -> str:
-        text = "".join(
-            child.content
-            for child in inline.children or ()
-            if child.type in {"text", "code_inline"}
-        )
+        text = self.inline_text(inline.children or (), self.SLUGGED)
         return self.SLUG_DROPS.sub("", text.lower()).replace(" ", "-")
+
+    @staticmethod
+    def inline_text(children: Iterable[Token], kinds: frozenset[str]) -> str:
+        return "".join(child.content for child in children if child.type in kinds)
 
     def link(self, href: str, line: int) -> Link | None:
         parts = urlsplit(href)

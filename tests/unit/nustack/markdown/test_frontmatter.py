@@ -1,30 +1,33 @@
 """Frontmatter reads only as the lines every host reads alike, and refuses the rest.
 
-Hosts find the same header and strip it alike, and its fields read as one-line
-values and list entries; the sync still compares a header whose close an edit broke.
+Hosts find the same frontmatter and strip it alike, and its fields read as one-line
+values and list entries; the sync still compares frontmatter whose close an edit
+broke.
 """
 
 import pytest
 
 from nustack.markdown.frontmatter import FrontmatterBlock
 from nustack.markdown.frontmatter import InvalidFrontmatterError
-from tests.fixtures.deadline import Deadline
 
 
 class TestFrontmatterBlockFields:
     """Fields read as one-line values and list entries, frozen all the way down.
 
-    Each line or value a host might read differently is refused by line. An empty
-    block holds no fields, and a shared alias is checked once while one that
-    contains itself is refused.
+    An empty block holds no fields. Each line a host might read differently is
+    refused by line, a reused anchor with no line, and a repeated key and YAML that
+    does not parse by line. A value untagged or with a core tag reads, and a tag
+    outside YAML's core schema, such as binary, a set or pairs, is refused by line.
+    Nesting too deep, a key that is not text and a control character are
+    refused with no line, and a value YAML cannot build as its type by line. Each
+    value a host might read differently is refused by line, an alias that contains
+    itself is refused, and a shared alias is checked once.
     """
 
+    # An alias walk that revisits what it read slows to a stall; this fails it at once.
+    QUICK = pytest.mark.timeout(5)
     LEVELS = 40
     CHAIN = 3000
-
-    @pytest.fixture
-    def deadline(self) -> Deadline:
-        return Deadline(5)
 
     def test_reads_each_field(self) -> None:
         assert FrontmatterBlock("name: a\n").fields == frozendict({"name": "a"})
@@ -40,20 +43,12 @@ class TestFrontmatterBlockFields:
     def test_reads_no_fields_from_an_empty_block(self) -> None:
         assert FrontmatterBlock("").fields == frozendict()
 
-    def test_hands_out_fields_that_never_change(self) -> None:
-        fields = FrontmatterBlock("name: a\nmetadata: {kind: c, tags: [[b]]}\n").fields
-        metadata = fields["metadata"]
-        assert (type(fields), type(metadata), metadata) == (
-            frozendict,
-            frozendict,
-            {"kind": "c", "tags": (("b",),)},
+    def test_refuses_a_list_in_place_of_fields(self) -> None:
+        with pytest.raises(InvalidFrontmatterError) as caught:
+            _ = FrontmatterBlock("- a\n").fields
+        assert str(caught.value) == (
+            "it is a list, not key: value fields; write each field as key: value"
         )
-
-    def test_freezes_a_shared_alias_once(self) -> None:
-        fields = FrontmatterBlock("a: &a [b]\nc: [*a, *a]\n").fields
-        shared = fields["c"]
-        assert isinstance(shared, tuple)
-        assert shared[0] is shared[1] is fields["a"]
 
     def test_reads_two_dashes_inside_a_value(self) -> None:
         assert FrontmatterBlock("name: a -- b\n").fields == frozendict(
@@ -62,18 +57,15 @@ class TestFrontmatterBlockFields:
 
     @pytest.mark.parametrize("newline", ["\n", "\r\n"])
     def test_reads_fields_and_list_entries(self, newline: str) -> None:
-        header = newline.join(["name: a", "triggers:", "  - user", "tags:", "- b", ""])
-        assert FrontmatterBlock(header).fields == frozendict(
+        frontmatter = newline.join(
+            ["name: a", "triggers:", "  - user", "tags:", "- b", ""]
+        )
+        assert FrontmatterBlock(frontmatter).fields == frozendict(
             {"name": "a", "triggers": ("user",), "tags": ("b",)}
         )
 
-    def test_reads_a_hash_after_a_space_or_inside_a_plain_value(self) -> None:
-        assert FrontmatterBlock('name: "a" # b\ntag: c#d\n').fields == frozendict(
-            {"name": "a", "tag": "c#d"}
-        )
-
     @pytest.mark.parametrize(
-        ("header", "reasons"),
+        ("frontmatter", "reasons"),
         [
             (
                 "name: a---b\n",
@@ -130,10 +122,10 @@ class TestFrontmatterBlockFields:
         ],
     )
     def test_refuses_dashes_anywhere(
-        self, header: str, reasons: tuple[str, ...]
+        self, frontmatter: str, reasons: tuple[str, ...]
     ) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert caught.value.reasons == reasons
 
     def test_reports_every_line_it_refuses(self) -> None:
@@ -159,7 +151,7 @@ class TestFrontmatterBlockFields:
         )
 
     @pytest.mark.parametrize(
-        ("header", "reason"),
+        ("frontmatter", "reason"),
         [
             (
                 "%YAML 1.1\nname: a\n",
@@ -326,10 +318,10 @@ class TestFrontmatterBlockFields:
         ],
     )
     def test_refuses_a_line_that_is_not_a_field_or_a_list_entry(
-        self, header: str, reason: str
+        self, frontmatter: str, reason: str
     ) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == reason
 
     @pytest.mark.parametrize("separator", ["\x85", "\u2028", "\u2029"])
@@ -362,46 +354,120 @@ class TestFrontmatterBlockFields:
         assert str(caught.value) == "it is not valid YAML on line 4; fix it"
 
     @pytest.mark.parametrize(
-        "header", ["name: a\ndescription: a\tb\n", "name: a\ndescription: a\t\n"]
+        "frontmatter", ["name: a\ndescription: a\tb\n", "name: a\ndescription: a\t\n"]
     )
-    def test_refuses_a_tab_ruamel_cannot_read_naming_the_fix(self, header: str) -> None:
+    def test_refuses_a_tab_ruamel_cannot_read_naming_the_fix(
+        self, frontmatter: str
+    ) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == (
             "it is not valid YAML on line 3, which holds a tab outside quotes;"
             " replace the tab with a space, or quote the value"
         )
+
+    def test_reads_a_quoted_tab(self) -> None:
+        assert FrontmatterBlock('name: a\ndescription: "a\tb"\n').fields == frozendict(
+            {"name": "a", "description": "a\tb"}
+        )
+
+    def test_names_the_tag_of_a_tagged_value_holding_a_tab(self) -> None:
+        with pytest.raises(InvalidFrontmatterError) as caught:
+            _ = FrontmatterBlock('name: a\nt: !!binary "a\tb"\n').fields
+        assert str(caught.value) == (
+            "it uses a tag on line 3 that nustack does not read; remove the tag"
+        )
+
+    @pytest.mark.parametrize(
+        ("frontmatter", "value"),
+        [
+            ("metadata: aGk=\n", "aGk="),
+            ("metadata:\n  - aGk=\n", ("aGk=",)),
+            ("triggers: {user, model}\n", frozendict({"user": None, "model": None})),
+            ("t: [a: [1]]\n", (frozendict({"a": (1,)}),)),
+            ("t: 2026-01-01\n", "2026-01-01"),
+            ("t: x\n", "x"),
+        ],
+    )
+    def test_reads_an_untagged_value(self, frontmatter: str, value: object) -> None:
+        assert tuple(FrontmatterBlock(frontmatter).fields.values()) == (value,)
+
+    @pytest.mark.parametrize(
+        ("frontmatter", "error"),
+        [
+            (
+                "metadata: !!binary aGk=\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+            (
+                "metadata:\n  - !!binary aGk=\n",
+                "it uses a tag on line 3 that nustack does not read; remove the tag",
+            ),
+            (
+                "triggers: !!set {user, model}\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+            (
+                "t: !!pairs [a: [1]]\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+            (
+                "t: !!omap [a: [1]]\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+            (
+                "t: !!timestamp 2026-01-01\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+            (
+                "t: !custom x\n",
+                "it uses a tag on line 2 that nustack does not read; remove the tag",
+            ),
+        ],
+    )
+    def test_refuses_a_tag_outside_the_core_schema(
+        self, frontmatter: str, error: str
+    ) -> None:
+        with pytest.raises(InvalidFrontmatterError) as caught:
+            _ = FrontmatterBlock(frontmatter).fields
+        assert str(caught.value) == error
 
     def test_refuses_nesting_too_deep_to_read(self) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
             _ = FrontmatterBlock(f"name: {'[' * 5000}{']' * 5000}\n").fields
         assert str(caught.value) == "it nests too deeply to read; flatten it"
 
+    def test_reads_a_text_key(self) -> None:
+        assert FrontmatterBlock("metadata: {canary: x}\n").fields == frozendict(
+            {"metadata": frozendict({"canary": "x"})}
+        )
+
     @pytest.mark.parametrize(
-        "header",
-        ["metadata: {[canary]: x}\n", "metadata: {[[canary, b], [c, d]]: x}\n"],
+        "frontmatter",
+        [
+            "metadata: {[canary]: x}\n",
+            "metadata: {[[canary, b], [c, d]]: x}\n",
+            "metadata: {{canary: b}: x}\n",
+        ],
     )
-    def test_refuses_a_key_that_is_not_text(self, header: str) -> None:
+    def test_refuses_a_key_that_is_not_text(self, frontmatter: str) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == (
             "it holds a key that is not text; write each key as plain text"
         )
 
-    @pytest.mark.parametrize(
-        "header", ["description: a\x07\n", "description: 2026-02-30\n"]
-    )
-    def test_refuses_a_value_yaml_cannot_read(self, header: str) -> None:
+    def test_refuses_a_control_character(self) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock("description: a\x07\n").fields
         assert str(caught.value) == (
-            "it holds a value YAML cannot read; quote it, fix or remove its tag, or"
-            " delete any control character"
+            "it holds a character YAML cannot read; delete any control character,"
+            " or fix the escape that writes one"
         )
 
     @pytest.mark.parametrize(
         ("value", "built"),
-        [("!!bool true", True), ("!!int 1", 1), ("!!float 1.5", 1.5)],
+        [("!!str 1", "1"), ("!!bool true", True), ("!!int 1", 1), ("!!float 1.5", 1.5)],
     )
     def test_reads_a_value_its_tag_builds(self, value: str, built: object) -> None:
         assert FrontmatterBlock(f"name: {value}\n").fields == frozendict(
@@ -412,24 +478,31 @@ class TestFrontmatterBlockFields:
         ("value", "message"),
         [
             (
+                "!!str [canary]",
+                (
+                    "it holds a value on line 2 that YAML cannot build as its type;"
+                    " fix the value, or remove its tag or merge key"
+                ),
+            ),
+            (
                 "!!bool canary",
                 (
-                    "it holds a value YAML cannot read; quote it, fix or remove its"
-                    " tag, or delete any control character"
+                    "it holds a value on line 2 that YAML cannot build as its type;"
+                    " fix the value, or remove its tag or merge key"
                 ),
             ),
             (
                 "!!int canary",
                 (
-                    "it holds a value YAML cannot read; quote it, fix or remove its"
-                    " tag, or delete any control character"
+                    "it holds a value on line 2 that YAML cannot build as its type;"
+                    " fix the value, or remove its tag or merge key"
                 ),
             ),
             (
                 "!!float canary",
                 (
-                    "it holds a value YAML cannot read; quote it, fix or remove its"
-                    " tag, or delete any control character"
+                    "it holds a value on line 2 that YAML cannot build as its type;"
+                    " fix the value, or remove its tag or merge key"
                 ),
             ),
         ],
@@ -440,18 +513,18 @@ class TestFrontmatterBlockFields:
         assert str(caught.value) == message
 
     @pytest.mark.parametrize(
-        "header", ["name: |\n  - a\n", "description: |\n", "description: >\n"]
+        "frontmatter", ["name: |\n  - a\n", "description: |\n", "description: >\n"]
     )
-    def test_refuses_a_block_value(self, header: str) -> None:
+    def test_refuses_a_block_value(self, frontmatter: str) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == (
             "line 2 opens a | or > block value; write the value on that line, after"
             " its key"
         )
 
     @pytest.mark.parametrize(
-        ("header", "reason"),
+        ("frontmatter", "reason"),
         [
             (
                 'description: "Use for\n- naming"\n',
@@ -480,10 +553,10 @@ class TestFrontmatterBlockFields:
         ],
     )
     def test_refuses_a_value_wrapped_onto_the_next_line(
-        self, header: str, reason: str
+        self, frontmatter: str, reason: str
     ) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == reason
 
     def test_reports_every_value_it_refuses(self) -> None:
@@ -498,8 +571,13 @@ class TestFrontmatterBlockFields:
             ),
         )
 
+    def test_reads_a_hash_after_a_space_or_inside_a_plain_value(self) -> None:
+        assert FrontmatterBlock('name: "a" # b\ntag: c#d\n').fields == frozendict(
+            {"name": "a", "tag": "c#d"}
+        )
+
     @pytest.mark.parametrize(
-        ("header", "reason"),
+        ("frontmatter", "reason"),
         [
             (
                 'name: "a"# b\n',
@@ -539,36 +617,29 @@ class TestFrontmatterBlockFields:
         ],
     )
     def test_refuses_a_hash_right_after_a_quote_or_bracket(
-        self, header: str, reason: str
+        self, frontmatter: str, reason: str
     ) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == reason
 
     @pytest.mark.parametrize(
-        "header", ["metadata: !!binary aGk=\n", "metadata:\n  - !!binary aGk=\n"]
+        "frontmatter", ["metadata: &loop [*loop]\n", "metadata: &loop\n  - *loop\n"]
     )
-    def test_refuses_binary_data(self, header: str) -> None:
+    @QUICK
+    def test_refuses_an_alias_that_contains_itself(self, frontmatter: str) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
-        assert str(caught.value) == "it holds binary data; write it as text"
-
-    @pytest.mark.parametrize(
-        "header", ["metadata: &loop [*loop]\n", "metadata: &loop\n  - *loop\n"]
-    )
-    def test_refuses_an_alias_that_contains_itself(
-        self, header: str, deadline: Deadline
-    ) -> None:
-        with deadline, pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock(header).fields
+            _ = FrontmatterBlock(frontmatter).fields
         assert str(caught.value) == (
             "it holds an alias that contains itself; remove the loop"
         )
 
     def test_refuses_the_first_field_it_cannot_read(self) -> None:
         with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock("metadata: !!binary aGk=\nother: {[k]: x}\n").fields
-        assert str(caught.value) == "it holds binary data; write it as text"
+            _ = FrontmatterBlock("metadata: &loop [*loop]\nother: {[k]: x}\n").fields
+        assert str(caught.value) == (
+            "it holds an alias that contains itself; remove the loop"
+        )
 
     @pytest.mark.parametrize(
         ("first", "level"),
@@ -577,12 +648,10 @@ class TestFrontmatterBlockFields:
             ("a0: &a0\n  - x\n", "a{i}: &a{i}\n  - *a{j}\n  - *a{j}\n"),
         ],
     )
-    def test_checks_each_shared_alias_once(
-        self, first: str, level: str, deadline: Deadline
-    ) -> None:
+    @QUICK
+    def test_checks_each_shared_alias_once(self, first: str, level: str) -> None:
         levels = "".join(level.format(i=i, j=i - 1) for i in range(1, self.LEVELS))
-        with deadline:
-            fields = FrontmatterBlock(first + levels).fields
+        fields = FrontmatterBlock(first + levels).fields
         assert len(fields) == self.LEVELS
 
     def test_reads_a_long_alias_chain(self) -> None:
@@ -592,27 +661,45 @@ class TestFrontmatterBlockFields:
     def test_reads_a_merged_alias_chain(self) -> None:
         links = (f"a{i}: &a{i} [*a{i - 1}]" for i in range(1, self.CHAIN))
         last = f"<<: {{deep: *a{self.CHAIN - 1}}}"
-        header = "metadata: {" + ", ".join(["a0: &a0 []", *links, last]) + "}\n"
-        metadata = FrontmatterBlock(header).fields["metadata"]
+        frontmatter = "metadata: {" + ", ".join(["a0: &a0 []", *links, last]) + "}\n"
+        metadata = FrontmatterBlock(frontmatter).fields["metadata"]
         assert isinstance(metadata, frozendict)
-        assert "deep" in metadata
-
-    def test_refuses_a_list_in_place_of_fields(self) -> None:
-        with pytest.raises(InvalidFrontmatterError) as caught:
-            _ = FrontmatterBlock("- a\n").fields
-        assert str(caught.value) == (
-            "it is a list, not key: value fields; write each field as key: value"
+        assert (
+            len(metadata),
+            "a0" in metadata,
+            "a2999" in metadata,
+            "deep" in metadata,
+        ) == (
+            3001,
+            True,
+            True,
+            True,
         )
+
+    def test_hands_out_fields_that_never_change(self) -> None:
+        fields = FrontmatterBlock("name: a\nmetadata: {kind: c, tags: [[b]]}\n").fields
+        metadata = fields["metadata"]
+        assert (type(fields), type(metadata), metadata) == (
+            frozendict,
+            frozendict,
+            {"kind": "c", "tags": (("b",),)},
+        )
+
+    def test_freezes_a_shared_alias_once(self) -> None:
+        fields = FrontmatterBlock("a: &a [b]\nc: [*a, *a]\n").fields
+        shared = fields["c"]
+        assert isinstance(shared, tuple)
+        assert shared[0] is shared[1] is fields["a"]
 
 
 class TestFrontmatterBlockOf:
-    """The header every host finds, from the same lines, or none at all.
+    """The frontmatter every host finds, from the same lines, or none at all.
 
-    A header that never closes is refused.
+    A frontmatter that never closes is refused.
     """
 
     @pytest.mark.parametrize(
-        ("text", "header"),
+        ("text", "frontmatter"),
         [
             ("---\nname: a\n---\n# A\n", "name: a\n"),
             ("---\r\nname: a\r\n---\r\n# A\r\n", "name: a\r\n"),
@@ -620,8 +707,10 @@ class TestFrontmatterBlockOf:
             ("---\n---\n", ""),
         ],
     )
-    def test_takes_the_lines_between_the_dashes(self, text: str, header: str) -> None:
-        assert FrontmatterBlock.of(text) == FrontmatterBlock(header)
+    def test_takes_the_lines_between_the_dashes(
+        self, text: str, frontmatter: str
+    ) -> None:
+        assert FrontmatterBlock.of(text) == FrontmatterBlock(frontmatter)
 
     @pytest.mark.parametrize(
         "text",
@@ -642,14 +731,14 @@ class TestFrontmatterBlockOf:
 
 
 class TestFrontmatterBlockBodyOf:
-    """What a host shows once it strips the header."""
+    """What a host shows once it strips the frontmatter."""
 
     def test_leaves_the_body(self) -> None:
         assert FrontmatterBlock.body_of("---\nname: a\n---\n# A\n---\n") == "# A\n---\n"
 
 
 class TestFrontmatterBlockFencedOf:
-    """The sync compares a header even when an edit breaks its close."""
+    """The sync compares a frontmatter even when an edit breaks its close."""
 
     @pytest.mark.parametrize(
         ("text", "fenced"),

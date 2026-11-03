@@ -15,6 +15,7 @@ dependencies = [
   "markdown-it-py>=4.2",
   "mdit-py-plugins>=0.6.1",
   "pydantic>=2.14.2",
+  "pydantic-core>=2.50.2",
   "ruamel-yaml>=0.19.1",
   "typer>=0.27.3",
 ]
@@ -31,6 +32,7 @@ dev = [
   "pytest>=9.2",
   "pytest-cov>=7.1",
   "pytest-randomly>=5",
+  "pytest-timeout>=2.4",
   "rich>=15",
   "ruff>=0.17.3",
   # actionlint checks workflow scripts with ShellCheck only when it is
@@ -78,17 +80,23 @@ lint.per-file-ignores."tests/**/test_*.py" = [ "INP001", "S101" ]
 # tests.fixtures:
 # https://docs.pytest.org/en/stable/reference/reference.html#confval-pythonpath
 lint.per-file-ignores."tests/fixtures/**/*.py" = [ "INP001" ]
-# import-linter cannot forbid an outside package's I/O subpackage alone, so
-# these are banned here:
+lint.flake8-tidy-imports.ban-relative-imports = "all"
+# nustack reaches the network only by running Git or gh, and import-linter cannot
+# forbid an outside package's I/O subpackage alone, so http.client and
+# urllib.request are banned here, beside typing's cast:
 # https://docs.astral.sh/ruff/settings/#lint_flake8-tidy-imports_banned-api
-lint.flake8-tidy-imports.banned-api."http.client".msg = "Do I/O in the modules import-linter allows it in."
+lint.flake8-tidy-imports.banned-api."http.client".msg = """\
+  nustack reaches the network only by running Git or gh, through nustack.git or nustack.github.\
+  """
 lint.flake8-tidy-imports.banned-api."typing.cast".msg = """\
   Narrow the value with isinstance, match or a TypeIs function instead.\
   """
 lint.flake8-tidy-imports.banned-api."typing_extensions.cast".msg = """\
   Narrow the value with isinstance, match or a TypeIs function instead.\
   """
-lint.flake8-tidy-imports.banned-api."urllib.request".msg = "Do I/O in the modules import-linter allows it in."
+lint.flake8-tidy-imports.banned-api."urllib.request".msg = """\
+  nustack reaches the network only by running Git or gh, through nustack.git or nustack.github.\
+  """
 # pydantic reads its models' annotations at runtime, so their imports stay
 # outside TYPE_CHECKING:
 # https://docs.astral.sh/ruff/settings/#lint_flake8-type-checking_runtime-evaluated-base-classes
@@ -104,11 +112,21 @@ skip_wrap_for_keys = [ "tool.coverage.report.exclude_lines" ]
 
 # https://docs.pytest.org/en/stable/reference/reference.html#configuration-options
 [tool.pytest]
-addopts = [ "--import-mode=importlib", "--strict-config", "--strict-markers", "-ra", "-p", "randomly" ]
+# pytester ships in pytest's builtin plugins but not its default ones. The root conftest
+# only registers the plugins every tier shares, and pytest refuses pytest_plugins in a
+# deeper conftest, so -p loads pytester for the settings tests:
+# https://github.com/pytest-dev/pytest/blob/9.2.0/src/_pytest/config/__init__.py#L347-L381
+# https://github.com/pytest-dev/pytest/blob/9.2.0/src/_pytest/config/__init__.py#L821-L835
+# https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/deprecations.rst?plain=1#L1460-L1469
+addopts = [ "--import-mode=importlib", "-ra", "-p", "pytester" ]
 filterwarnings = [ "error" ]
 pythonpath = [ "." ]
+# strict turns on each strictness option, those that join it later included:
+# https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst?plain=1#L2437
+strict = true
 testpaths = [ "tests" ]
-xfail_strict = true
+# The slowest test takes a few seconds; a minute stops a hung one and names it.
+timeout = "60"
 
 # https://coverage.readthedocs.io/en/latest/config.html
 [tool.coverage]
@@ -158,7 +176,8 @@ layers = [
   "nustack.plugin",
   "nustack.markdown",
   "nustack.git | nustack.github",
-  "nustack.problem | nustack.rule | nustack.tree | nustack.validation | nustack.yaml_reader",
+  "nustack.process_group | nustack.rule | nustack.tree | nustack.validation | nustack.yaml_reader",
+  "nustack.problem",
 ]
 
 # https://import-linter.readthedocs.io/en/stable/contract_types.html#forbidden-modules
@@ -187,13 +206,14 @@ source_modules = [
   "nustack.validation",
   "nustack.yaml_reader",
 ]
-# Ruff bans the I/O subpackages it cannot name, such as urllib.request; review
-# keeps out builtins such as open.
+# Review keeps out builtins such as open, and Path's I/O methods, such as read_text,
+# since no import names them.
 forbidden_modules = [
   "nustack.cli",
   "nustack.git",
   "nustack.github",
   "nustack.plugin.bundle",
+  "nustack.process_group",
   "nustack.release",
   "nustack.repository.disk",
   "nustack.sync.git",
@@ -212,10 +232,15 @@ forbidden_modules = [
 [tool.mutmut]
 source_paths = [ "src/nustack" ]
 # The tests of the harness's code run inside mutmut's copy of the repository,
-# which also needs the files they read; the settings tests check the repository
-# itself.
+# which also needs the files they read: .github for the pull request template the
+# sync tests read, plugin for the validation test that reads the OpenCode loader,
+# and Makefile for tests/unit/test_settings.py. The selection below leaves out
+# tests/integration/test_settings.py and tests/integration/fixtures/: they run none
+# of the harness's code, so no mutant can fail them, and they start processes, which
+# slow each mutmut run of the whole selection. tests/unit stays whole, since its tests
+# run in-process.
 pytest_add_cli_args_test_selection = [ "tests/unit", "tests/integration/nustack" ]
-also_copy = [ ".github", "plugin" ]
+also_copy = [ ".github", "Makefile", "plugin" ]
 # ty proves each match exhaustive, so no input reaches its assert_never arm,
 # which coverage skips the same way.
 do_not_mutate_patterns = [ '^\s*case unexpected:$', '^\s*assert_never\(unexpected\)$' ]

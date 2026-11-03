@@ -8,14 +8,23 @@ maintenance:
     run: |
       # A failed command already stops a multiline step
       # (https://docs.devin.ai/onboard-devin/environment/blueprint-reference);
-      # -u and pipefail also stop it on an unset variable or a failed curl.
-      set -uo pipefail
+      # -u also stops it on an unset variable.
+      set -u
+      # Each installer downloads whole before it runs, so a dropped connection
+      # never runs half a script. curl retries a transient failure with backoff and
+      # no jitter, since one machine retrying alone forms no herd. A healthy
+      # download takes seconds and a healthy install under a minute, so the limits
+      # stop a stalled one long before the step's own.
+      installer=$(mktemp)
+      trap 'rm -f "$installer"' EXIT
       if ! command -v uv >/dev/null; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        curl -LsSf --retry 3 --retry-max-time 300 --max-time 120 -o "$installer" https://astral.sh/uv/install.sh || { echo "could not download uv's installer from https://astral.sh/uv/install.sh; rerun the build" >&2; exit 1; }
+        timeout --verbose 10m sh "$installer" || { echo "uv's installer failed or ran past 10 minutes; rerun the build" >&2; exit 1; }
         sudo ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv
       fi
       if ! command -v bun >/dev/null; then
-        curl -fsSL https://bun.sh/install | bash
+        curl -LsSf --retry 3 --retry-max-time 300 --max-time 120 -o "$installer" https://bun.sh/install || { echo "could not download Bun's installer from https://bun.sh/install; rerun the build" >&2; exit 1; }
+        timeout --verbose 10m bash "$installer" || { echo "Bun's installer failed or ran past 10 minutes; rerun the build" >&2; exit 1; }
         sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
       fi
       if ! bun test ./tests/unit/settings.test.ts; then
@@ -25,8 +34,11 @@ maintenance:
       fi
   - name: The harness, the loader's tools, the commit hooks and their environments
     run: |
-      make install
-      uv run --locked pre-commit install-hooks
+      # A healthy install takes a few minutes; this limit stops a stalled download
+      # long before the step's own, and timeout's --verbose names the command it
+      # stopped.
+      timeout --verbose 20m make install
+      timeout --verbose 20m uv run --locked pre-commit install-hooks
 knowledge:
   - name: test
     contents: make check, then make smoke; AGENTS.md › Checks says what each runs

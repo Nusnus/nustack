@@ -11,8 +11,10 @@ from nustack.tree import Entry
 from nustack.tree import File
 from nustack.tree import Folder
 from nustack.tree import Missing
+from nustack.tree import NotAFolder
 from nustack.tree import Read
 from nustack.tree import Snapshot
+from nustack.tree import Symlink
 from nustack.tree import Tree
 from nustack.tree import Unopened
 lazy from nustack.problem import Problem
@@ -89,7 +91,13 @@ class ModelRepository:
             "README.md": (
                 "# kit\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
                 "### 2️⃣ Use\n\nRun `kit`.\n\n"
-                "### 3️⃣ Turn it on\n\n```markdown\nWork in nus-mode.\n```\n"
+                "### 3️⃣ Turn it on\n\n```markdown\nWork in nus-mode.\n```\n\n"
+                "| Skill | What it holds |\n"
+                "| --- | --- |\n"
+                "| [principle-naming](plugin/skills/principle-naming/SKILL.md) |"
+                " Naming. |\n"
+                "| [language-python](plugin/skills/language-python/SKILL.md) |"
+                " Python. |\n"
             ),
             "CHANGELOG.md": (
                 "# Changelog\n\n"
@@ -130,7 +138,7 @@ class ModelRepository:
                 for hook in HOOK_IDS
             ),
             ".github/workflows/sync-writing-for-agents.yml": (
-                "jobs:\n  sync:\n    env:\n      DESTINATION: .agents/skills/vendored\n"
+                "jobs:\n  sync:\n    env:\n      FOLDER: .agents/skills/vendored\n"
             ),
             ".github/pull_request_template.md": "# Template\n",
             "src/kit/tool.py": "",
@@ -148,6 +156,14 @@ class ModelRepository:
         self.entries: dict[PurePosixPath, Entry] = {}
         self.reads: dict[PurePosixPath, Read] = {}
         self.unlisted: dict[PurePosixPath, Unopened] = {}
+
+    def list_skill(self, name: str, description: str) -> None:
+        self.edit(
+            "README.md",
+            "| --- | --- |\n",
+            f"| --- | --- |\n| [{name}](plugin/skills/{name}/SKILL.md) |"
+            f" {description} |\n",
+        )
 
     def edit(self, path: str, old: str, new: str) -> None:
         text = self.files[PurePosixPath(path)].decode()
@@ -178,17 +194,39 @@ class ModelRepository:
         return Repository(self.snapshot()).problems()
 
     def snapshot(self) -> Snapshot:
-        plugin = PurePosixPath("plugin")
+        plugin_folder = PurePosixPath("plugin")
         entries: dict[PurePosixPath, Entry] = {}
         for path, content in self.files.items():
-            if path.is_relative_to(plugin):
-                inside = path.relative_to(plugin)
+            if path.is_relative_to(plugin_folder):
+                inside = path.relative_to(plugin_folder)
                 entries |= {parent: Folder() for parent in inside.parents[:-1]}
                 entries[inside] = File(content)
         entries |= self.entries
+        # As Disk does, nothing is read below an entry that is not a folder, and a
+        # symlink or a folder that will not open leaves only those entries.
+        entries = {
+            path: entry
+            for path, entry in entries.items()
+            if all(
+                isinstance(entries.get(parent, Folder()), Folder)
+                for parent in path.parents[:-1]
+            )
+        }
+        unsafe = {
+            path: entry
+            for path, entry in entries.items()
+            if isinstance(entry, Symlink | Unopened)
+        }
+        # A plugin path that is no folder it can read leaves only that entry.
+        top = entries.get(PurePosixPath("."))
+        if isinstance(top, NotAFolder | Missing | Symlink | Unopened):
+            unsafe = {PurePosixPath("."): top}
         return Snapshot(
             self.root,
-            Tree(self.root / plugin, frozendict(sorted(entries.items()))),
+            Tree(
+                self.root / plugin_folder,
+                frozendict(sorted((unsafe or entries).items())),
+            ),
             frozendict(
                 (file, self.reads.get(file, self.read(file)))
                 for file in Repository.FILES

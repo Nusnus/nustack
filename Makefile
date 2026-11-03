@@ -34,18 +34,23 @@ install: uv bun-lock ## Install the harness, its tools and the commit hooks
 check: bun uv zip ## Run every pre-commit-stage hook over every file, fixing what the tools can fix
 	uv run pre-commit run --all-files $(PRE_COMMIT_FLAGS)
 
+# mutmut stops a mutant whose tests outlast its time limit, as pytest-timeout
+# fails a stalled test, so a timeout counts as caught. The results are read
+# whole first, so a failing mutmut results fails the target too.
 mutate: uv ## Run mutmut over the harness, failing on each mutant the tests let live
 	uv run mutmut run
-	@! uv run mutmut results | grep -v ': timeout$$' || { echo 'mutmut left the mutants above alive; give each a test that kills it, then rerun make mutate' >&2; exit 1; }
+	@results=$$(uv run mutmut results) || exit 1; ! printf '%s' "$$results" | grep -v ': timeout$$' || { echo 'mutmut left the mutants above alive; give each a test that kills it, then rerun make mutate' >&2; exit 1; }
 
 bundle: uv ## Build dist/nustack-<version>.zip for upload
 	uv run nustack bundle
 
 # The hosts are large downloads, so only make smoke installs them, from their
 # own lock.
+# A host's cold start and its turns take seconds, so a stalled host stops its
+# test after two minutes.
 smoke: bun zip bundle ## Run the release zip in Claude Code and OpenCode against a fake model
 	$(call bun-install,tests/fixtures/smoke/)
-	bun --config=tests/fixtures/smoke/bunfig.toml test
+	bun --config=tests/fixtures/smoke/bunfig.toml test --timeout=120000
 
 clean: ## Remove build and cache output
 	rm -rf dist mutants .import_linter_cache .pytest_cache .ruff_cache .coverage

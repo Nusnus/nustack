@@ -1,6 +1,6 @@
 ---
 name: principle-dependencies
-description: "Dependencies, a nus-mode principle."
+description: "Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure."
 disable-model-invocation: true
 triggers:
   - user

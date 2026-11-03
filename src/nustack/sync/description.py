@@ -28,7 +28,7 @@ lazy from nustack.sync.history import History
 class SyncLinks:
     """Trusted workflow links; copied text never supplies a Markdown destination."""
 
-    upstream: str
+    upstream_url: str
     run: str
     checks: str
 
@@ -38,7 +38,7 @@ class SyncCopy:
     """Where the sync copies from and to: upstream's clone, its skill, and the copy."""
 
     clone: Path
-    source: str
+    source_folder: str
     folder: str
 
 
@@ -50,16 +50,18 @@ class SyncDescription:
     NOT_COMPARED: ClassVar[str] = f"not compared ({NON_TEXT})"
     COPY_ROW: ClassVar[str] = "| ✅ **[Copy]({run})** |"
     links: SyncLinks
-    source: str
+    source_folder: str
     folder: str
     history: History
     changes: tuple[FileChange, ...]
 
     @property
     def lead(self) -> str:
-        source = f"{self.links.upstream}/tree/{self.history.copied}/{self.source}"
+        source_url = (
+            f"{self.links.upstream_url}/tree/{self.history.copied}/{self.source_folder}"
+        )
         return (
-            f"**Copies [writing-for-agents at {self.history.copied[:7]}]({source}) "
+            f"**Copies [writing-for-agents at {self.history.copied[:7]}]({source_url}) "
             f"into `{self.folder}/`** for the owner to review before it steers "
             "how agents word nustack's docs."
         )
@@ -111,8 +113,8 @@ class SyncDescription:
                 "copy, including its license and modes. The commit range is unknown."
             )
         baseline = self.history.baseline
-        upstream = self.links.upstream
-        compare = f"{upstream}/compare/{baseline}...{self.history.copied}"
+        upstream_url = self.links.upstream_url
+        compare = f"{upstream_url}/compare/{baseline}...{self.history.copied}"
         return (
             f"[Compare upstream from `{baseline[:7]}` to `{self.history.copied[:7]}`]"
             f"({compare}). The start is the newest first-parent path revision "
@@ -121,7 +123,7 @@ class SyncDescription:
                 f"Upstream commits touching the skill or repository {CopyTree.LICENSE} "
                 f"({len(self.history.commits)})",
                 (
-                    f"[`{commit.sha[:7]}`]({upstream}/commit/{commit.sha}) "
+                    f"[`{commit.sha[:7]}`]({upstream_url}/commit/{commit.sha}) "
                     f"{code(commit.subject)}"
                     for commit in self.history.commits
                 ),
@@ -159,7 +161,7 @@ class SyncDescription:
                 (
                     "**Links:** net new destinations per file that the CommonMark "
                     "parser recognizes as links or images. Check raw HTML, bare URLs "
-                    "and rejected URI schemes in the diff.\n\n"
+                    "and email addresses, and rejected URI schemes in the diff.\n\n"
                     f"**Lines:** edits in `{Skill.FILE}` frontmatter and "
                     f"`{FileChange.POLICIES}`, plus "
                     "added lines naming rules, invocation fields, selected commands "
@@ -278,13 +280,13 @@ class SyncTemplate:
         }
         return "\n".join(fills.get(line, line) for line in self.head).rstrip() + "\n"
 
-    def size_problems(self, body: str, copy: Path) -> list[Problem]:
+    def size_problems(self, body: str, copy_folder: Path) -> list[Problem]:
         size = len(body.encode())
         if size <= self.MAX_BODY_BYTES:
             return []
         return [
             Problem(
-                copy,
+                copy_folder,
                 f"the sync description of this copy is {size} bytes, over the"
                 f" {self.MAX_BODY_BYTES} GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change",

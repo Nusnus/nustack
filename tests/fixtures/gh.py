@@ -17,8 +17,9 @@ class FakeGh:
     """A folder holding the gh executable, its replies and its log of calls.
 
     Replies to one call come back in the order given, the last one from then on.
-    A call no reply matches prints nothing and succeeds, as gh's commands that
-    change GitHub do once GitHub accepts them.
+    A call no reply matches prints nothing and succeeds. That departs from gh,
+    which prints a link for some changes, since the harness reads no output of a
+    command that changes GitHub; a test of a read replays a recorded reply.
     """
 
     SCRIPT: ClassVar[str] = """\

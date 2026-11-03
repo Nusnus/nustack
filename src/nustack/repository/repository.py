@@ -5,10 +5,11 @@ folder lists. The marketplaces list the plugin as its manifests describe it, the
 changelog and the harness carry its version, the loader's package agrees with it,
 and it ships the repository's license unchanged. The vendored copy is left as
 written, the test suite mirrors what it tests, and the README activates nus-mode as
-its playbook says and holds the install and use steps the release page copies.
-Joined on the page, those steps and the changelog entry each resolve every
-reference label they use as they do on their own. A repository that keeps every
-rule yields what the release ships: the plugin and its release page.
+its playbook says, gives each principle and language skill its description, and
+holds the install and use steps the release page copies. Joined on the page,
+those steps and the changelog entry each resolve every reference label they use
+as they do on their own. A repository that keeps every rule yields what the
+release ships: the plugin and its release page.
 """
 
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from typing import ClassVar
 from typing import assert_never
 
 from nustack.markdown.document import Document
+from nustack.markdown.table import Tables
 from nustack.plugin.manifest import ClaudeMarketplace
 from nustack.plugin.manifest import CursorMarketplace
 from nustack.plugin.manifest import InvalidMetadataError
@@ -26,6 +28,8 @@ from nustack.plugin.manifest import Manifest
 from nustack.plugin.manifest import Marketplace
 from nustack.plugin.manifest import Package
 from nustack.plugin.plugin import Plugin
+from nustack.plugin.skill import Frontmatter
+from nustack.plugin.skill import Skill
 from nustack.problem import Problem
 from nustack.repository.changelog import Changelog
 from nustack.repository.notes import ReleaseNotes
@@ -92,6 +96,7 @@ class Repository:
         "skills/nus-mode/playbooks/new-project.md"
     )
     ACTIVATION: ClassVar[str] = "markdown"
+    SKILL_TABLE: ClassVar[tuple[str, ...]] = ("Skill", "What it holds")
     FILES: ClassVar[tuple[PurePosixPath, ...]] = (
         CHANGELOG,
         LICENSE,
@@ -206,6 +211,7 @@ class Repository:
             *self.license_problems(),
             *self.vendored_problems(),
             *self.activation_problems(),
+            *self.skill_table_problems(),
             *self.page_steps_problems(),
             *self.page_label_problems(),
             *(
@@ -322,17 +328,6 @@ class Repository:
             )
         ]
 
-    def changelog_problems(self, manifest: Manifest | None) -> list[Problem]:
-        changelog = self.changelog
-        if isinstance(changelog, Problem):
-            return [changelog]
-        if manifest is None:
-            return changelog.problems(None)
-        return [
-            *changelog.problems(manifest.version),
-            *changelog.link_problems(manifest.repository_url, manifest.version),
-        ]
-
     def version_problems(self) -> list[Problem]:
         pyproject, package = self.pyproject, self.package
         versions = [
@@ -341,6 +336,9 @@ class Repository:
                 # Both come from Plugin.MANIFESTS, so their lengths never differ and no
                 # test tells strict from its default; Ruff asks for it:
                 # https://docs.astral.sh/ruff/rules/zip-without-explicit-strict/
+                # mutmut skips every mutant of a node that spans a pragma's line, so
+                # this one also skips versions = None and dropping manifest_readings
+                # from the zip, which tests kill.
                 for (path, host), reading in zip(
                     Plugin.MANIFESTS.items(),
                     self.plugin.manifest_readings,
@@ -382,6 +380,17 @@ class Repository:
             )
             for path, _, version in versions
             if version != newest
+        ]
+
+    def changelog_problems(self, manifest: Manifest | None) -> list[Problem]:
+        changelog = self.changelog
+        if isinstance(changelog, Problem):
+            return [changelog]
+        if manifest is None:
+            return changelog.problems(None)
+        return [
+            *changelog.problems(manifest.version),
+            *changelog.link_problems(manifest.repository_url, manifest.version),
         ]
 
     def pyproject_problems(self) -> list[Problem]:
@@ -459,6 +468,130 @@ class Repository:
             )
         ]
 
+    def activation(self, document: Document) -> tuple[str, ...]:
+        return tuple(
+            fence.content for fence in document.fences if fence.info == self.ACTIVATION
+        )
+
+    def skill_table_problems(self) -> list[Problem]:
+        readme = self.readme
+        if isinstance(readme, Problem):
+            return []
+        # GitHub shows frontmatter as a table of its keys, never as Markdown, so rows
+        # count from the body, each named at its line in the whole file.
+        tables = [
+            table
+            for table in Tables(readme).tables
+            if tuple(cell.text for cell in table.header) == self.SKILL_TABLE
+        ]
+        hidden = self.hidden_descriptions()
+        if hidden and not tables:
+            return [
+                Problem(
+                    readme.path,
+                    f"has no table headed {' and '.join(self.SKILL_TABLE)}; add one"
+                    " with a row giving each principle and language skill's"
+                    " description",
+                )
+            ]
+        rows = [row for table in tables for row in table.body]
+        files = {
+            self.root / self.skill_file(skill.name): skill.name
+            for skill in self.plugin.skills
+            if isinstance(skill.read, File | Unreadable)
+        }
+        targets = {
+            link.line: link.target
+            for row in rows
+            if (href := row.cells[0].href) is not None
+            and (link := readme.link(href, row.line)) is not None
+        }
+        # Where plugin/skills/ is no folder, its own Problem says so, and no row is
+        # stale for it.
+        problems = [
+            Problem(
+                readme.path,
+                f"has a skills table row on line {readme.file_line(row.line)} whose"
+                " first cell links no skill; start it with a link to the skill's"
+                " SKILL.md, or remove the row",
+            )
+            if row.cells[0].href is None
+            else Problem(
+                readme.path,
+                f"has a skills table row on line {readme.file_line(row.line)} linking"
+                f" {row.cells[0].href}, which is no skill's SKILL.md; link a skill's"
+                " SKILL.md, or remove the row",
+            )
+            for row in rows
+            if targets.get(row.line) not in files
+            and isinstance(self.plugin.tree.entries.get(Plugin.SKILLS), Folder)
+        ]
+        for path, name in files.items():
+            lines = [
+                str(readme.file_line(row.line))
+                for row in rows
+                if targets.get(row.line) == path
+            ]
+            if len(lines) > 1:
+                problems.append(
+                    Problem(
+                        readme.path,
+                        f"has more than one skills table row for {name}, on lines"
+                        f" {', '.join(lines)}; keep the first and remove the rest",
+                    )
+                )
+        for skill, description in hidden:
+            row = next(
+                (
+                    row
+                    for row in rows
+                    if targets.get(row.line) == self.root / self.skill_file(skill.name)
+                ),
+                None,
+            )
+            if row is None:
+                problems.append(
+                    Problem(
+                        readme.path,
+                        f"has no skills table row for {skill.name}; add one that links"
+                        f" {self.skill_file(skill.name)} under its name and copies its"
+                        " description",
+                    )
+                )
+                continue
+            if row.cells[0].label != skill.name:
+                problems.append(
+                    Problem(
+                        readme.path,
+                        f"has a skills table row on line {readme.file_line(row.line)}"
+                        f" whose link text is not {skill.name}; make it {skill.name}",
+                    )
+                )
+            if row.cells[1].text != description:
+                problems.append(
+                    Problem(
+                        readme.path,
+                        f"has a skills table row on line {readme.file_line(row.line)}"
+                        f" whose description differs from {skill.name}'s; copy the"
+                        f" description from {self.skill_file(skill.name)} into it",
+                    )
+                )
+        return problems
+
+    def hidden_descriptions(self) -> list[tuple[Skill, str]]:
+        descriptions: list[tuple[Skill, str]] = []
+        for skill in self.plugin.skills:
+            document = skill.document
+            if document is None:
+                continue
+            frontmatter = skill.read_frontmatter(document)
+            if isinstance(frontmatter, Frontmatter) and frontmatter.hidden_from_model:
+                descriptions.append((skill, frontmatter.description))
+        return descriptions
+
+    def skill_file(self, name: str) -> str:
+        return f"{self.PLUGIN}/{Plugin.SKILLS}/{name}/{Skill.FILE}"
+
     def page_steps_problems(self) -> list[Problem]:
         page_steps = self.page_steps
         return [page_steps] if isinstance(page_steps, Problem) else page_steps.problems
@@ -482,11 +615,6 @@ class Repository:
                 ]
             case _:
                 return []
-
-    def activation(self, document: Document) -> tuple[str, ...]:
-        return tuple(
-            fence.content for fence in document.fences if fence.info == self.ACTIVATION
-        )
 
     def document(self, path: PurePosixPath, missing: str) -> Document | Problem:
         return Document.of(self.root / path, self.snapshot.read(path), missing)

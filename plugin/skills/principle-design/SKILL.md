@@ -1,6 +1,6 @@
 ---
 name: principle-design
-description: "Design, a nus-mode principle."
+description: "A design that starts from proven patterns and SOLID objects, short because it fits the problem."
 disable-model-invocation: true
 triggers:
   - user

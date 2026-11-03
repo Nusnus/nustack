@@ -64,7 +64,7 @@ class Plugin:
         "put the file itself here, or close the editor whose lock file it is"
     )
     NOT_A_FOLDER: ClassVar[str] = (
-        "is not a folder, so the check stops here; replace it with the plugin folder"
+        f"{Problem.NOT_A_FOLDER}; replace it with the plugin folder"
     )
     MISSING: ClassVar[str] = (
         "is missing, so the check stops here; restore the plugin folder from the"
@@ -93,9 +93,11 @@ class Plugin:
         return self.tree.root
 
     @property
-    def unsafe(self) -> tuple[PurePosixPath, ...]:
+    def unsafe(
+        self,
+    ) -> tuple[tuple[PurePosixPath, Symlink | NotAFolder | Missing | Unopened], ...]:
         return tuple(
-            path
+            (path, entry)
             for path, entry in self.tree.entries.items()
             if isinstance(entry, Symlink | NotAFolder | Missing | Unopened)
         )
@@ -188,7 +190,7 @@ class Plugin:
 
     def problems(self) -> list[Problem]:
         if self.unsafe:
-            return [self.unsafe_problem(path) for path in self.unsafe]
+            return [self.unsafe_problem(path, entry) for path, entry in self.unsafe]
         return [
             *self.manifest_problems,
             *self.required_problems(),
@@ -200,16 +202,20 @@ class Plugin:
             *self.link_problems(),
         ]
 
-    def unsafe_problem(self, path: PurePosixPath) -> Problem:
-        match self.tree.entries[path]:
+    def unsafe_problem(
+        self, path: PurePosixPath, entry: Symlink | NotAFolder | Missing | Unopened
+    ) -> Problem:
+        match entry:
             case Unopened(reason=reason):
                 return Problem(self.root / path, reason)
             case NotAFolder():
                 return Problem(self.root / path, self.NOT_A_FOLDER)
             case Missing():
                 return Problem(self.root / path, self.MISSING)
-            case _:
+            case Symlink():
                 return Problem(self.root / path, self.SYMLINK)
+            case unexpected:
+                assert_never(unexpected)
 
     def read_manifest(self, path: PurePosixPath) -> Manifest | Problem | None:
         match self.tree.read(path):
@@ -254,8 +260,10 @@ class Plugin:
                 skills = File.IN_A_FOLDERS_PLACE
             case Special():
                 skills = Special.IN_A_FOLDERS_PLACE
-            case _:
+            case Symlink() | NotAFolder() | Missing() | Unopened() | None:
                 skills = "is missing; add it with the plugin's skills"
+            case unexpected:
+                assert_never(unexpected)
         return [*problems, Problem(self.root / self.SKILLS, skills)]
 
     def file_problems(self) -> list[Problem]:
@@ -273,16 +281,23 @@ class Plugin:
         expected |= set(self.playbooks)
         problems = []
         for path, entry in self.tree.entries.items():
-            if isinstance(entry, Special) and path not in expected:
-                problems.append(Problem(self.root / path, Special.UNEXPECTED))
-            elif isinstance(entry, File | Unreadable) and path not in expected:
-                problems.append(self.unexpected_problem(path))
-            if isinstance(entry, Unreadable):
-                problems.append(Problem(self.root / path, entry.reason))
-            elif (
-                isinstance(entry, File) and entry.text is None and path.suffix == ".md"
-            ):
-                problems.append(Problem(self.root / path, Problem.NOT_UTF8))
+            match entry:
+                case Special():
+                    if path not in expected:
+                        problems.append(Problem(self.root / path, Special.UNEXPECTED))
+                case Unreadable():
+                    if path not in expected:
+                        problems.append(self.unexpected_problem(path))
+                    problems.append(Problem(self.root / path, entry.reason))
+                case File():
+                    if path not in expected:
+                        problems.append(self.unexpected_problem(path))
+                    if entry.text is None and path.suffix == ".md":
+                        problems.append(Problem(self.root / path, Problem.NOT_UTF8))
+                case Folder() | Symlink() | NotAFolder() | Missing() | Unopened():
+                    pass
+                case unexpected:
+                    assert_never(unexpected)
         return problems
 
     def unexpected_problem(self, path: PurePosixPath) -> Problem:

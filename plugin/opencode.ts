@@ -92,9 +92,9 @@ export class SkillFile {
     return Object.freeze([new Map(Object.entries(fields)), this.text.slice(match[0].length)])
   }
 
-  parse(header: string): unknown {
+  parse(frontmatter: string): unknown {
     try {
-      return YAML.parse(header)
+      return YAML.parse(frontmatter)
     } catch {
       throw this.error("has frontmatter that is not valid YAML; fix it")
     }
@@ -278,32 +278,28 @@ export class ModeReload {
   }
 
   async remember(sessionID: string, progress: Progress): Promise<void> {
-    progress.loaded = true
     await this.store.set(this.key(sessionID), true)
+    progress.loaded = true
   }
 
   // A load is the skill tool's result for a call that names the mode, as tests/fixtures/opencode/loaded/context.json
   // records; a prompt or another skill's result can hold the mode's body, as forged/ and quoted/ there record.
-  loads(messages: readonly unknown[]): boolean {
-    const parts = messages.flatMap((message): unknown[] => {
-      const content: unknown = Object(message).content
-      return Array.isArray(content) ? content : []
-    })
+  loads(messages: ModelRequest["messages"]): boolean {
+    const parts = messages.flatMap((message) => message.content)
     const calls = new Set(
-      parts
-        .filter(
-          (part) =>
-            Object(part).type === "tool-call" &&
-            Object(part).name === "skill" &&
-            Object(Object(part).input).id === this.skill.id,
-        )
-        .map((part) => Object(part).id),
+      parts.flatMap((part) =>
+        part.type === "tool-call" &&
+        part.name === "skill" &&
+        Object(part.input).id === this.skill.id
+          ? [part.id]
+          : [],
+      ),
     )
     return parts.some(
       (part) =>
-        Object(part).type === "tool-result" &&
-        calls.has(Object(part).id) &&
-        JSON.stringify(Object(part).result).includes(this.needle),
+        part.type === "tool-result" &&
+        calls.has(part.id) &&
+        JSON.stringify(part.result).includes(this.needle),
     )
   }
 

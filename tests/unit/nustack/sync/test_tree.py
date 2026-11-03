@@ -1,9 +1,10 @@
 """A copy's tree listing finds which upstream revision the checkout's copy came from.
 
-A mode change alone changes a path, and a license alone matches no copy.
+A mode change alone changes a path, and a license alone matches no copy. A copy
+that lacks its SKILL.md or LICENSE, or holds a symlink or submodule, is a Problem.
 """
 
-lazy from pathlib import Path
+from pathlib import Path
 
 from nustack.problem import Problem
 from nustack.sync.tree import CopyTree
@@ -14,63 +15,51 @@ from nustack.sync.tree import Mode
 class TestCopyTree:
     """The description compares against the upstream revision the checkout holds.
 
-    A mode change alone changes a path, a license alone matches no copy, the newest
-    match wins even after a revert, and a filename keeps its tabs, edge spaces and
-    non-UTF-8 bytes.
+    A filename keeps its tabs, edge spaces and non-UTF-8 bytes; a mode change alone
+    changes a path, a license alone matches no copy, and the newest match wins even
+    after a revert. A missing SKILL.md or LICENSE, a symlink or a submodule is named
+    with its fix.
     """
 
-    def test_keeps_the_copy_and_the_root_license_from_a_listing(self) -> None:
-        listing = (
-            b"100644 blob o1\tLICENSE\0"
-            b"100755 blob o2\tskill/a\t\xff.md\0"
-            b"100644 blob o3\tother/x\0"
-            b"120000 blob o4\tskill/link\0"
-            b"160000 commit o5\tskill/sub\0"
-        )
-        assert CopyTree.from_listing(listing, "skill") == CopyTree(
+    def test_keeps_the_copy_and_the_root_license_from_a_listing(
+        self, sync_fixtures: Path
+    ) -> None:
+        # git ls-tree -r -z HEAD, in a repository holding a non-UTF-8 path, a
+        # symlink and a submodule
+        listing = sync_fixtures / "replies/mixed-listing.bin"
+        assert CopyTree.from_listing(listing.read_bytes(), "skill") == CopyTree(
             frozendict(
                 {
-                    "a\t\udcff.md": GitEntry(Mode.EXECUTABLE, "o2"),
-                    "link": GitEntry(Mode.SYMLINK, "o4"),
-                    "sub": GitEntry(Mode.SUBMODULE, "o5"),
-                    "LICENSE": GitEntry(Mode.REGULAR, "o1"),
+                    "a\t\udcff.md": GitEntry(
+                        Mode.EXECUTABLE, "78981922613b2afb6025042ff6bd878ac1994e85"
+                    ),
+                    "link": GitEntry(
+                        Mode.SYMLINK, "2e65efe2a145dda7ee51d1741299f848e5bf752e"
+                    ),
+                    "sub": GitEntry(
+                        Mode.SUBMODULE, "4c73ab3f7c46887314adc8151e71326d6f87eb10"
+                    ),
+                    "LICENSE": GitEntry(
+                        Mode.REGULAR, "a22a2da24d1ceeef3d0c2f1f4f68923f55b8d4cc"
+                    ),
                 }
             )
         )
 
-    def test_counts_a_mode_change_alone_as_a_changed_path(self) -> None:
-        regular = CopyTree(
-            frozendict(
-                {
-                    "SKILL.md": GitEntry(Mode.REGULAR, "same"),
-                    "a.md": GitEntry(Mode.REGULAR, "kept"),
-                }
-            )
-        )
-        executable = CopyTree(
-            frozendict(
-                {
-                    "SKILL.md": GitEntry(Mode.EXECUTABLE, "same"),
-                    "a.md": GitEntry(Mode.REGULAR, "kept"),
-                }
-            )
-        )
-        assert regular.changed_paths(executable) == ("SKILL.md",)
-
-    def test_takes_the_newest_exact_match_even_after_an_upstream_revert(self) -> None:
-        base = CopyTree(frozendict({"SKILL.md": GitEntry(Mode.REGULAR, "same")}))
-        executable = CopyTree(
-            frozendict({"SKILL.md": GitEntry(Mode.EXECUTABLE, "same")})
-        )
-        assert (
-            base.newest_match((("tip", executable), ("revert", base), ("old", base)))
-            == "revert"
-        )
-        assert base.newest_match((("tip", executable),)) is None
-
-    def test_takes_no_license_alone_as_a_matching_copy_of_the_skill(self) -> None:
-        tree = CopyTree(frozendict({"LICENSE": GitEntry(Mode.REGULAR, "same")}))
-        assert tree.newest_match((("tip", tree),)) is None
+    def test_keeps_a_filenames_tab_edge_spaces_and_non_utf8_byte(
+        self, sync_fixtures: Path
+    ) -> None:
+        # git --literal-pathspecs ls-tree -r -z HEAD -- -src/
+        listing = sync_fixtures / "replies/non-utf8/path.bin"
+        tree = CopyTree.from_listing(listing.read_bytes(), "-src")
+        assert tree.files == {
+            " edge .md ": GitEntry(
+                Mode.REGULAR, "54aeb5dc2537483ba853f1b52ed0bdc20e0193c8"
+            ),
+            "nested/\udcff\t.md": GitEntry(
+                Mode.REGULAR, "994e126d270f6ab080f20051254741652e2bc726"
+            ),
+        }
 
     def test_joins_the_upstream_root_license_to_the_relative_file_list(
         self, sync_fixtures: Path
@@ -95,20 +84,39 @@ class TestCopyTree:
             ),
         }
 
-    def test_keeps_a_filenames_tab_edge_spaces_and_non_utf8_byte(
-        self, sync_fixtures: Path
-    ) -> None:
-        # git --literal-pathspecs ls-tree -r -z HEAD -- -src/
-        listing = sync_fixtures / "replies/non-utf8/path.bin"
-        tree = CopyTree.from_listing(listing.read_bytes(), "-src")
-        assert tree.files == {
-            " edge .md ": GitEntry(
-                Mode.REGULAR, "54aeb5dc2537483ba853f1b52ed0bdc20e0193c8"
-            ),
-            "nested/\udcff\t.md": GitEntry(
-                Mode.REGULAR, "994e126d270f6ab080f20051254741652e2bc726"
-            ),
-        }
+    def test_counts_a_mode_change_alone_as_a_changed_path(self) -> None:
+        regular = CopyTree(
+            frozendict(
+                {
+                    "SKILL.md": GitEntry(Mode.REGULAR, "same"),
+                    "a.md": GitEntry(Mode.REGULAR, "kept"),
+                }
+            )
+        )
+        executable = CopyTree(
+            frozendict(
+                {
+                    "SKILL.md": GitEntry(Mode.EXECUTABLE, "same"),
+                    "a.md": GitEntry(Mode.REGULAR, "kept"),
+                }
+            )
+        )
+        assert regular.changed_paths(executable) == ("SKILL.md",)
+
+    def test_takes_no_license_alone_as_a_matching_copy_of_the_skill(self) -> None:
+        tree = CopyTree(frozendict({"LICENSE": GitEntry(Mode.REGULAR, "same")}))
+        assert tree.newest_match((("tip", tree),)) is None
+
+    def test_takes_the_newest_exact_match_even_after_an_upstream_revert(self) -> None:
+        base = CopyTree(frozendict({"SKILL.md": GitEntry(Mode.REGULAR, "same")}))
+        executable = CopyTree(
+            frozendict({"SKILL.md": GitEntry(Mode.EXECUTABLE, "same")})
+        )
+        assert (
+            base.newest_match((("tip", executable), ("revert", base), ("old", base)))
+            == "revert"
+        )
+        assert base.newest_match((("tip", executable),)) is None
 
     def test_accepts_a_copy_with_its_skill_file_and_license(self) -> None:
         tree = CopyTree(
@@ -134,7 +142,8 @@ class TestCopyTree:
         assert tree.problems(Path("/c")) == [
             Problem(
                 Path("/c/SKILL.md"),
-                "has no upstream source; pass --source the skill's folder upstream",
+                "has no upstream source; pass --source-folder the skill's folder"
+                " upstream",
             ),
             Problem(
                 Path("/c/LICENSE"),

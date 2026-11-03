@@ -7,7 +7,8 @@ file. It gives each link and image a full URL, and holds an optional lead, then 
 changes, grouped under Keep a Changelog's types of change in the order that format
 lists them, each type once and each group showing something. The release below it is
 the one the page compares with. The changelog links each release and the plugin
-version to its tag's page, and `[Unreleased]` to the changes since the plugin version.
+version to its tag's page, and `[Unreleased]`, while that section exists, to the
+changes since the plugin version.
 """
 
 import re
@@ -84,7 +85,12 @@ class Entry:
 class Changelog:
     """The changelog's entries, newest first, each titled with its version and day."""
 
-    UNRELEASED: ClassVar[str] = "[Unreleased]"
+    UNRELEASED_NAME: ClassVar[str] = "Unreleased"
+    UNRELEASED: ClassVar[str] = f"[{UNRELEASED_NAME}]"
+    UNRELEASED_FOLDED: ClassVar[str] = UNRELEASED.casefold()
+    # markdown-it keys each link reference by its label in upper case:
+    # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/common/utils.py#L253-L301
+    UNRELEASED_LABEL: ClassVar[str] = UNRELEASED_NAME.upper()
     ENTRY: ClassVar[re.Pattern[str]] = re.compile(
         rf"\[(?P<version>{Pattern.VERSION.unanchored})\] - "
         r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})"
@@ -94,7 +100,7 @@ class Changelog:
     @cached_property
     def releases(self) -> tuple[Section, ...]:
         sections = self.document.sections
-        if sections and sections[0].title.casefold() == self.UNRELEASED.casefold():
+        if sections and self.is_unreleased(sections[0].title):
             return sections[1:]
         return sections
 
@@ -113,9 +119,13 @@ class Changelog:
     def top(self) -> re.Match[str] | None:
         return self.titles[0][1] if self.titles else None
 
+    @cached_property
+    def versions(self) -> tuple[str, ...]:
+        return tuple(entry["version"] for entry in self.titled)
+
     @property
     def previous(self) -> str | None:
-        return self.titled[1]["version"] if len(self.titled) > 1 else None
+        return self.versions[1] if len(self.versions) > 1 else None
 
     @cached_property
     def entry(self) -> Entry:
@@ -133,17 +143,37 @@ class Changelog:
                     f"spell it {self.UNRELEASED}",
                 )
             )
+        first_release = next(
+            (
+                index
+                for index, (title, _) in enumerate(self.titles)
+                if not self.is_unreleased(title)
+            ),
+            len(self.titles),
+        )
+        if first_release:
+            problems.append(
+                Problem(
+                    path,
+                    f"has more than one {self.UNRELEASED} section; merge them into one",
+                )
+            )
         problems += [
             Problem(
                 path,
                 f"has an {self.UNRELEASED} section below a release; "
                 "move it above the releases",
             )
-            if title.casefold() == self.UNRELEASED.casefold()
+            if self.is_unreleased(title)
             else Problem(
                 path,
                 f"has an entry titled {title!r}; "
-                "title it '[<version>] - <YYYY-MM-DD>' with the release's version",
+                "title it '[<version>] - <YYYY-MM-DD>' with the release's version"
+                + (
+                    f", or spell it {self.UNRELEASED} if no release is due"
+                    if index == 0 and self.releases == sections
+                    else ""
+                ),
             )
             if entry is None
             else Problem(
@@ -151,13 +181,14 @@ class Changelog:
                 f"has an entry dated {entry['date']}, which is no real day; "
                 "date it with the release day",
             )
-            for title, entry in self.titles
-            if entry is None or not is_date(entry["date"])
+            for index, (title, entry) in enumerate(self.titles)
+            if index >= first_release and (entry is None or not is_date(entry["date"]))
         ]
-        versions = [entry["version"] for entry in self.titled]
         problems += [
             Problem(path, f"has more than one entry for {each}; merge them into one")
-            for each in sorted({each for each in versions if versions.count(each) > 1})
+            for each in sorted(
+                {each for each in self.versions if self.versions.count(each) > 1}
+            )
         ]
         problems += [
             Problem(
@@ -179,7 +210,7 @@ class Changelog:
         ]
         if version is None:
             return problems
-        if self.top is None and problems:
+        if self.top is None and problems and not self.newer(version):
             return problems
         if not self.opens_with(version):
             return [
@@ -200,11 +231,23 @@ class Changelog:
         return self.top is not None and self.top["version"] == version
 
     def opening(self, version: str) -> str:
+        if self.newer(version):
+            return (
+                "set the newest entry's version in every file whose version "
+                f"nustack check compares, or remove the entries newer than {version}"
+            )
+        if version in self.versions:
+            return f"move the entry for {version} above the other releases"
         if self.releases != self.document.sections:
             return (
                 f"retitle its {self.UNRELEASED} section '[{version}] - <release date>'"
             )
         return f"add a '## [{version}] - <release date>' section above the releases"
+
+    def newer(self, version: str) -> bool:
+        return any(
+            version_order(listed) > version_order(version) for listed in self.versions
+        )
 
     def entry_part(self, version: str) -> PagePart:
         return PagePart(
@@ -274,32 +317,46 @@ class Changelog:
     def link_problems(self, repository_url: str, version: str) -> list[Problem]:
         if not self.releases:
             return []
-        versions = [*(entry["version"] for entry in self.titled), version]
-        # markdown-it keys each link reference by its label in upper case, and a
-        # version holds no letter:
-        # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/common/utils.py
+        versions = [*self.versions, version]
+        # A version holds no letter, so upper-casing it, as markdown-it does
+        # (UNRELEASED_LABEL's comment), leaves its label the version itself.
         targets = {
             (each, each): f"{repository_url}/releases/tag/v{each}" for each in versions
         }
         if self.releases != self.document.sections:
-            targets["UNRELEASED", "Unreleased"] = (
+            targets[self.UNRELEASED_LABEL, self.UNRELEASED_NAME] = (
                 f"{repository_url}/compare/v{version}...HEAD"
             )
         references = self.document.references
-        return [
+        problems = [
             Problem(
                 self.document.path,
-                f"has no link for [{shown}]; add '[{shown}]: {target}' above the"
+                f"has no link for [{name}]; add '[{name}]: {target}' above the"
                 " first ## heading",
             )
             if label not in references
             else Problem(
                 self.document.path,
-                f"links [{shown}] to {references[label]}; link it to {target}",
+                f"links [{name}] to {references[label]}; link it to {target}",
             )
-            for (label, shown), target in targets.items()
+            for (label, name), target in targets.items()
             if references.get(label) != target
         ]
+        if self.UNRELEASED_LABEL in references and not any(
+            self.is_unreleased(section.title) for section in self.document.sections
+        ):
+            problems.append(
+                Problem(
+                    self.document.path,
+                    f"links {self.UNRELEASED} but has no {self.UNRELEASED} section;"
+                    " add the section above the releases if changes await a release,"
+                    " or remove the link",
+                )
+            )
+        return problems
+
+    def is_unreleased(self, title: str) -> bool:
+        return title.casefold() == self.UNRELEASED_FOLDED
 
 
 def is_date(text: str) -> bool:

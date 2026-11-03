@@ -1,6 +1,6 @@
 ---
 name: principle-layout
-description: "Layout, a nus-mode principle."
+description: "A folder and file layout that shows the design."
 disable-model-invocation: true
 triggers:
   - user

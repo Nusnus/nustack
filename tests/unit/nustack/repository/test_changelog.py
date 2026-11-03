@@ -4,7 +4,8 @@ Only a top `[Unreleased]` section may sit above the releases. The top entry open
 an optional lead, groups its changes by Keep a Changelog's types and gives each link
 and image a full URL. The release below it is the previous one, and a CRLF entry
 reads with line feeds. Each release and the plugin version link to their tag's page,
-and `[Unreleased]` to the changes since the plugin version.
+and `[Unreleased]`, while that section exists, to the changes since the plugin
+version.
 """
 
 lazy from pathlib import Path
@@ -106,13 +107,20 @@ class TestChangelog:
     Entries run newest first by version and date, and the top one stands alone. The
     changelog may open without an `[Unreleased]` section, and the release below the top
     one, skipping a misnamed one, is the previous release. The changelog may not open
-    with an `[Unreleased]` section spelled in another case, nor hold one, in any case,
-    below a release. A version too long for int, or an entry dated on no real day, still
-    orders by its version. Without the manifests, the top entry is compared with no
-    plugin version. A bad top title is all it reports, while an older entry's bad title
-    leaves the top entry's checks running. A top entry for a longer version, such as
-    1.2.30, is another version's. The top entry gives each link and image a full URL,
-    while an older entry, and the top entry's own title, may link relatively.
+    with an `[Unreleased]` section spelled in another case, nor hold more than one, nor
+    one, in any case, below a release. A changelog that opens with neither the plugin
+    version's entry nor an `[Unreleased]` section asks for that entry to be added. A bad
+    top title is offered the `[Unreleased]` spelling, unless a release or an
+    `[Unreleased]` section sits above it. A version too long for int, or an entry dated
+    on no real day, still orders by its version. Without the manifests, the top entry is
+    compared with no plugin version. A bad top title is all it reports, unless an entry
+    is newer than the plugin version, while an older entry's bad title leaves the top
+    entry's checks running. An entry newer than the plugin version asks for the version
+    to be set, wherever it sits, and a top entry for a longer version, such as 1.2.30,
+    is such an entry. The plugin version's entry below another asks to be moved up, and
+    a top entry for another version asks for the `[Unreleased]` section to be retitled.
+    The top entry gives each link and image a full URL, while an older entry, and the
+    top entry's own title, may link relatively.
     """
 
     TOP = "# Changelog\n\n## [Unreleased]\n\n"
@@ -194,6 +202,54 @@ class TestChangelog:
             )
         ]
 
+    @pytest.mark.parametrize(
+        "releases",
+        ["## [1.2.3] - 2026-01-02\n\n### Added\n\n- C.\n", ""],
+        ids=["a release", "no release"],
+    )
+    def test_reads_one_unreleased_section_above_the_releases(
+        self, changelog_path: Path, releases: str
+    ) -> None:
+        assert (
+            Changelog(
+                Document(
+                    changelog_path,
+                    "# Changelog\n\n## [Unreleased]\n\n- A.\n\n" + releases,
+                )
+            ).problems(None)
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        ("extra", "releases"),
+        [
+            (
+                "## [Unreleased]\n\n- B.\n\n",
+                "## [1.2.3] - 2026-01-02\n\n### Added\n\n- C.\n",
+            ),
+            (
+                "## [Unreleased]\n\n- B.\n\n" * 2,
+                "## [1.2.3] - 2026-01-02\n\n### Added\n\n- C.\n",
+            ),
+            ("## [Unreleased]\n\n- B.\n", ""),
+        ],
+        ids=["two", "three", "two and no release"],
+    )
+    def test_reports_a_second_unreleased_section_above_any_release(
+        self, changelog_path: Path, extra: str, releases: str
+    ) -> None:
+        assert Changelog(
+            Document(
+                changelog_path,
+                "# Changelog\n\n## [Unreleased]\n\n- A.\n\n" + extra + releases,
+            )
+        ).problems(None) == [
+            Problem(
+                changelog_path,
+                "has more than one [Unreleased] section; merge them into one",
+            )
+        ]
+
     @pytest.mark.parametrize("title", ["[Unreleased]", "[unreleased]"])
     def test_reports_an_unreleased_section_below_a_release(
         self, changelog_path: Path, title: str
@@ -201,11 +257,10 @@ class TestChangelog:
         assert Changelog(
             Document(
                 changelog_path,
-                "# Changelog\n\n## [1.2.3] - 2026-01-02\n\n### Added\n\n- A.\n\n"
-                "## [1.2.2] - 2026-01-01\n\n### Added\n\n- B.\n\n"
-                f"## {title}\n\n- C.\n",
+                "# Changelog\n\n## [1.2.3] - 2026-01-02\n\n### Added\n\n- C.\n\n"
+                f"## {title}\n\n- A.\n",
             )
-        ).problems("1.2.3") == [
+        ).problems(None) == [
             Problem(
                 changelog_path,
                 "has an [Unreleased] section below a release; move it above the"
@@ -271,6 +326,33 @@ class TestChangelog:
                 + f"## {title}\n\n- B.\n",
             )
         ).problems("1.2.3") == [Problem(changelog_path, what)]
+
+    def test_offers_the_unreleased_spelling_for_a_bad_top_title(
+        self, changelog_path: Path
+    ) -> None:
+        text = "# Changelog\n\n## [Unreleasd]\n\n## [1.2.3] - 2026-01-02\n\n- A.\n"
+        assert Changelog(Document(changelog_path, text)).problems(None) == [
+            Problem(
+                changelog_path,
+                "has an entry titled '[Unreleasd]'; title it '[<version>] -"
+                " <YYYY-MM-DD>' with the release's version, or spell it [Unreleased]"
+                " if no release is due",
+            )
+        ]
+
+    def test_offers_no_unreleased_spelling_for_a_bad_title_below_a_release(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\n## [1.2.3] - 2026-01-02\n\n- A.\n\n## [Unreleasd]\n\n- B.\n"
+        )
+        assert Changelog(Document(changelog_path, text)).problems(None) == [
+            Problem(
+                changelog_path,
+                "has an entry titled '[Unreleasd]'; title it '[<version>] -"
+                " <YYYY-MM-DD>' with the release's version",
+            )
+        ]
 
     @pytest.mark.parametrize(
         ("day", "what"),
@@ -492,19 +574,135 @@ class TestChangelog:
             ),
         ]
 
-    @pytest.mark.parametrize(
-        "text", ["## [1.2.2] - 2026-01-02\n\n### Added\n\n- A.\n", ""]
-    )
-    def test_reports_an_opening_entry_for_another_version(
-        self, changelog_path: Path, text: str
+    def test_asks_to_set_the_version_of_a_newer_entry_below_a_bad_top_title(
+        self, changelog_path: Path
     ) -> None:
+        assert Changelog(
+            Document(
+                changelog_path,
+                "# Changelog\n\n## Release\n\n- A.\n\n"
+                "## [1.2.4] - 2026-01-02\n\n- B.\n",
+            )
+        ).problems("1.2.3") == [
+            Problem(
+                changelog_path,
+                "has an entry titled 'Release'; title it '[<version>] - <YYYY-MM-DD>'"
+                " with the release's version, or spell it [Unreleased] if no release"
+                " is due",
+            ),
+            Problem(
+                changelog_path,
+                "does not open with the entry for 1.2.3; set the newest entry's"
+                " version in every file whose version nustack check compares, or"
+                " remove the entries newer than 1.2.3",
+            ),
+        ]
+
+    def test_says_no_more_than_a_bad_top_title_above_an_older_entry(
+        self, changelog_path: Path
+    ) -> None:
+        assert Changelog(
+            Document(
+                changelog_path,
+                "# Changelog\n\n## Release\n\n- A.\n\n"
+                "## [1.2.2] - 2026-01-02\n\n- B.\n",
+            )
+        ).problems("1.2.3") == [
+            Problem(
+                changelog_path,
+                "has an entry titled 'Release'; title it '[<version>] - <YYYY-MM-DD>'"
+                " with the release's version, or spell it [Unreleased] if no release"
+                " is due",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        ("newer", "version", "what"),
+        [
+            (
+                "1.2.4",
+                "1.2.3",
+                (
+                    "does not open with the entry for 1.2.3; set the newest entry's"
+                    " version in every file whose version nustack check compares,"
+                    " or remove the entries newer than 1.2.3"
+                ),
+            ),
+            (
+                "1.2.10",
+                "1.2.9",
+                (
+                    "does not open with the entry for 1.2.9; set the newest entry's"
+                    " version in every file whose version nustack check compares,"
+                    " or remove the entries newer than 1.2.9"
+                ),
+            ),
+        ],
+    )
+    def test_asks_to_set_the_version_of_a_newer_entry_above_the_version(
+        self, changelog_path: Path, newer: str, version: str, what: str
+    ) -> None:
+        text = (
+            f"## [{newer}] - 2026-01-03\n\n- B.\n\n"
+            f"## [{version}] - 2026-01-02\n\n- A.\n"
+        )
+        assert Changelog(Document(changelog_path, self.TOP + text)).problems(
+            version
+        ) == [Problem(changelog_path, what)]
+
+    def test_asks_to_set_the_version_of_a_newer_entry_below_the_version(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "## [1.2.2] - 2026-01-02\n\n- A.\n\n## [1.2.3] - 2026-01-03\n\n- B.\n\n"
+            "## [1.2.4] - 2026-01-04\n\n- C.\n"
+        )
         assert Changelog(Document(changelog_path, self.TOP + text)).problems(
             "1.2.3"
         ) == [
             Problem(
                 changelog_path,
-                "does not open with the entry for 1.2.3; retitle its [Unreleased]"
-                " section '[1.2.3] - <release date>'",
+                "has the entry for 1.2.2 above the one for 1.2.3; list releases"
+                " newest first, by version",
+            ),
+            Problem(
+                changelog_path,
+                "has the entry for 1.2.3 above the one for 1.2.4; list releases"
+                " newest first, by version",
+            ),
+            Problem(
+                changelog_path,
+                "has the entry dated 2026-01-02 above the one dated 2026-01-03; list"
+                " releases newest first, by date",
+            ),
+            Problem(
+                changelog_path,
+                "has the entry dated 2026-01-03 above the one dated 2026-01-04; list"
+                " releases newest first, by date",
+            ),
+            Problem(
+                changelog_path,
+                "does not open with the entry for 1.2.3; set the newest entry's"
+                " version in every file whose version nustack check compares, or"
+                " remove the entries newer than 1.2.3",
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "top", ["# Changelog\n\n", "# Changelog\n\n## [Unreleased]\n\n"]
+    )
+    def test_asks_to_set_the_version_of_a_newer_entry_where_the_version_has_none(
+        self, changelog_path: Path, top: str
+    ) -> None:
+        text = top + (
+            "## [1.2.4] - 2026-01-03\n\n- B.\n\n## [1.2.2] - 2026-01-02\n\n- A.\n"
+        )
+        assert Changelog(Document(changelog_path, text)).problems("1.2.3") == [
+            Problem(
+                changelog_path,
+                "does not open with the entry for 1.2.3; set the newest entry's"
+                " version in every file whose version nustack check compares, or"
+                " remove the entries newer than 1.2.3",
             )
         ]
 
@@ -517,6 +715,47 @@ class TestChangelog:
                 self.TOP + "## [1.2.30] - 2026-01-02\n\n### Added\n\n- A.\n",
             )
         ).problems("1.2.3") == [
+            Problem(
+                changelog_path,
+                "does not open with the entry for 1.2.3; set the newest entry's"
+                " version in every file whose version nustack check compares, or"
+                " remove the entries newer than 1.2.3",
+            )
+        ]
+
+    def test_asks_to_move_an_entry_for_the_version_below_another(
+        self, changelog_path: Path
+    ) -> None:
+        text = "## [1.2.2] - 2026-01-02\n\n- A.\n\n## [1.2.3] - 2026-01-03\n\n- B.\n"
+        assert Changelog(Document(changelog_path, self.TOP + text)).problems(
+            "1.2.3"
+        ) == [
+            Problem(
+                changelog_path,
+                "has the entry for 1.2.2 above the one for 1.2.3; list releases"
+                " newest first, by version",
+            ),
+            Problem(
+                changelog_path,
+                "has the entry dated 2026-01-02 above the one dated 2026-01-03; list"
+                " releases newest first, by date",
+            ),
+            Problem(
+                changelog_path,
+                "does not open with the entry for 1.2.3; move the entry for 1.2.3"
+                " above the other releases",
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "text", ["## [1.2.2] - 2026-01-02\n\n### Added\n\n- A.\n", ""]
+    )
+    def test_reports_an_opening_entry_for_another_version(
+        self, changelog_path: Path, text: str
+    ) -> None:
+        assert Changelog(Document(changelog_path, self.TOP + text)).problems(
+            "1.2.3"
+        ) == [
             Problem(
                 changelog_path,
                 "does not open with the entry for 1.2.3; retitle its [Unreleased]"
@@ -835,7 +1074,10 @@ class TestChangelogLinks:
     A changelog without releases holds no link, and the plugin version is linked even
     beside an entry whose title does not parse. `[Unreleased]` links to the changes
     since the plugin version, and missing links are reported for the titled releases,
-    then the plugin version, then `[Unreleased]`.
+    then the plugin version, then `[Unreleased]`. An `[Unreleased]` link is refused
+    where no `[Unreleased]` section exists in any case, and accepted beside one spelled
+    in another case, while the link of an `[Unreleased]` section below a release is
+    left alone.
     """
 
     REPOSITORY_URL = "https://github.com/o/r"
@@ -844,7 +1086,7 @@ class TestChangelogLinks:
         "## [1.2.3] - 2026-01-02\n\n### Added\n\n- A.\n\n"
     )
 
-    def test_holds_no_link_in_a_changelog_without_releases(
+    def test_finds_no_link_in_a_changelog_without_releases(
         self, changelog_path: Path
     ) -> None:
         text = "# Changelog\n\n## [Unreleased]\n\n[Unreleased]: https://x\n"
@@ -966,3 +1208,50 @@ class TestChangelogLinks:
                 " link it to https://github.com/o/r/compare/v1.2.3...HEAD",
             ),
         ]
+
+    def test_reports_an_unreleased_link_without_its_section(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\n[Unreleased]: https://x\n\n## [1.2.3] - 2026-01-02\n\n"
+            f"- A.\n\n[1.2.3]: {self.REPOSITORY_URL}/releases/tag/v1.2.3\n"
+        )
+        assert Changelog(Document(changelog_path, text)).link_problems(
+            self.REPOSITORY_URL, "1.2.3"
+        ) == [
+            Problem(
+                changelog_path,
+                "links [Unreleased] but has no [Unreleased] section; add the section"
+                " above the releases if changes await a release, or remove the link",
+            )
+        ]
+
+    def test_leaves_the_link_of_an_unreleased_section_below_a_release(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\n[Unreleased]: https://x\n\n## [1.2.3] - 2026-01-02\n\n"
+            "- A.\n\n## [Unreleased]\n\n"
+            f"[1.2.3]: {self.REPOSITORY_URL}/releases/tag/v1.2.3\n"
+        )
+        assert (
+            Changelog(Document(changelog_path, text)).link_problems(
+                self.REPOSITORY_URL, "1.2.3"
+            )
+            == []
+        )
+
+    def test_accepts_an_unreleased_link_beside_its_section_in_another_case(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\n## [unreleased]\n\n## [1.2.3] - 2026-01-02\n\n- A.\n\n"
+            "[Unreleased]: https://github.com/o/r/compare/v1.2.3...HEAD\n"
+            "[1.2.3]: https://github.com/o/r/releases/tag/v1.2.3\n"
+        )
+        assert (
+            Changelog(Document(changelog_path, text)).link_problems(
+                self.REPOSITORY_URL, "1.2.3"
+            )
+            == []
+        )

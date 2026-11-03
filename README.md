@@ -53,11 +53,11 @@ flowchart LR
 
 | Host | How |
 | --- | --- |
-| **Devin** | Add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; the install follows `main`, as [how updates roll out](https://docs.devin.ai/product-guides/plugins#how-updates-roll-out) says. |
+| **Devin** | Add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; the install follows `main`, as [how updates roll out](https://docs.devin.ai/product-guides/plugins#how-updates-roll-out) says: a running session keeps what it loaded at start, and the Devin CLI takes the latest on `devin plugins update`. |
 | **Devin, without repository access** | Someone with access downloads the zip of the release to install, `nustack-<version>.zip`, from the [releases page](https://github.com/Nusnus/nustack/releases) and uploads it as a zip plugin, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; repeat for each new release. |
 | **Claude Code** | Run the two commands below. |
-| **Cursor** | Copy the `plugin` folder, or unzip a release, to `~/.cursor/plugins/local/nustack` ([Cursor's local plugins folder](https://github.com/cursor/plugins/blob/main/create-plugin/skills/create-plugin-scaffold/SKILL.md)). Where the plan offers team marketplaces, an admin can add this repository as a [team marketplace](https://cursor.com/docs/plugins#team-marketplaces) instead. |
-| **OpenCode** | Run `opencode plugin add 'github:Nusnus/nustack#main::path:plugin'`. |
+| **Cursor** | Copy the `plugin` folder from a clone of this repository, or unzip `nustack-<version>.zip` from a [release](https://github.com/Nusnus/nustack/releases), to `~/.cursor/plugins/local/nustack`, then run **Developer: Reload Window**, as [Cursor's plugin docs](https://cursor.com/docs/plugins) describe; on Enterprise, an admin first allows local plugins, which are off by default. Where the plan offers team marketplaces, an admin can add this repository as a [team marketplace](https://cursor.com/docs/plugins#team-marketplaces) instead. |
+| **OpenCode** | Run `opencode plugin add 'github:Nusnus/nustack#main::path:plugin'`, which installs `main`'s latest commit rather than a release. OpenCode keeps that install at startup; run `opencode plugin update` for a newer commit, as [OpenCode's plugin docs](https://opencode.ai/v2/docs/plugins/) say. |
 
 ```text
 /plugin marketplace add Nusnus/nustack
@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 > [!TIP]
-> Update a Claude Code install with `claude plugin update nustack@nustack`, or turn on the nustack marketplace's auto-update.
+> Update a Claude Code install with `claude plugin update nustack@nustack`. To have it update itself, run `/plugin`, select the nustack marketplace on the **Marketplaces** tab, and select **Enable auto-update**, as [Keep plugins updated](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated) says.
 
 ### 2️⃣ Use
 
@@ -126,15 +126,16 @@ Because they are hidden, the principle and language skills stay out of the model
 | 🏷️ [principle-naming](plugin/skills/principle-naming/SKILL.md) | Names that say what a thing is in the domain. |
 | ♻️ [principle-dry](plugin/skills/principle-dry/SKILL.md) | One home for every piece of knowledge. |
 | 🛑 [principle-fail-fast](plugin/skills/principle-fail-fast/SKILL.md) | Code that stops where a problem starts, with an error that says how to recover. |
-| 🚪 [principle-boundaries](plugin/skills/principle-boundaries/SKILL.md) | Outside data parsed once, where it enters. |
+| 🚪 [principle-boundaries](plugin/skills/principle-boundaries/SKILL.md) | Outside data parsed once, where it enters, and an expected absence held as data. |
 | 🔤 [principle-types](plugin/skills/principle-types/SKILL.md) | Types that hold the contract, so an invalid value cannot exist. |
 | 🧩 [principle-design](plugin/skills/principle-design/SKILL.md) | A design that starts from proven patterns and SOLID objects, short because it fits the problem. |
 | 🗂️ [principle-layout](plugin/skills/principle-layout/SKILL.md) | A folder and file layout that shows the design. |
-| ➡️ [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, and one home for each library. |
+| ➡️ [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure. |
+| 🛟 [principle-resilience](plugin/skills/principle-resilience/SKILL.md) | Code that comes through a stalled or failing dependency, or a crash part way through. |
 | ⏳ [principle-long-term](plugin/skills/principle-long-term/SKILL.md) | Changes built to last, so they are done once. |
 | 📖 [principle-self-explanatory-code](plugin/skills/principle-self-explanatory-code/SKILL.md) | Code that explains itself, and docs for what it cannot say. |
 | 📝 [principle-pr-descriptions](plugin/skills/principle-pr-descriptions/SKILL.md) | PR descriptions a reviewer takes in at a glance. |
-| 🐍 [language-python](plugin/skills/language-python/SKILL.md) | The tools a Python project uses, and each principle's form in Python where it differs. |
+| 🐍 [language-python](plugin/skills/language-python/SKILL.md) | Python's tools, and where Python changes how a principle applies. |
 
 nus-mode's [`SKILL.md`](plugin/skills/nus-mode/SKILL.md) is the index that counts; this table shows the skills at a glance.
 

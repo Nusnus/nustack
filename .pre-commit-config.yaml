@@ -24,18 +24,18 @@ repos:
         # The sync workflow (.github/workflows/sync-writing-for-agents.yml)
         # proposes this copy byte for byte from its source, so the hooks that
         # rewrite or restyle text skip it.
-        exclude: &upstream ^\.agents/skills/writing-for-agents/
+        exclude: &copy ^\.agents/skills/writing\-for\-agents/
       - id: fix-byte-order-marker
-        exclude: *upstream
+        exclude: *copy
       - id: mixed-line-ending
-        exclude: *upstream
+        exclude: *copy
       - id: trailing-whitespace
-        exclude: *upstream
+        exclude: *copy
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: 341e2a331ba578029e66c2e01183e7a6b5ca9ab4  # frozen: v0.24.0
     hooks:
       - id: markdownlint-cli2
-        exclude: *upstream
+        exclude: *copy
         args: [--fix]
   - repo: local
     hooks:

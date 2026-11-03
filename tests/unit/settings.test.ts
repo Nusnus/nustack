@@ -23,12 +23,12 @@ class Pin {
     )
   }
 
-  get version(): string {
-    return (typeof this.value === "string" && Pin.PLAIN.exec(this.value)?.[1]) || ""
+  get version(): string | undefined {
+    return typeof this.value === "string" ? Pin.PLAIN.exec(this.value)?.[1] : undefined
   }
 
   metBy(version: string): boolean {
-    return this.version !== "" && Bun.semver.order(version, this.version) >= 0
+    return this.version !== undefined && Bun.semver.order(version, this.version) >= 0
   }
 }
 
@@ -86,7 +86,7 @@ describe("Pin", () => {
     42,
     [["bun@1.4.4"]],
   ])("reads %j as no plain Bun release, which no Bun meets", (value) => {
-    expect([new Pin(value).version, new Pin(value).metBy("99.0.0")]).toEqual(["", false])
+    expect([new Pin(value).version, new Pin(value).metBy("99.0.0")]).toEqual([undefined, false])
   })
 })
 

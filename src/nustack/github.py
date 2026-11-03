@@ -1,18 +1,30 @@
 """GitHub, through the gh command: the pull requests and releases the workflows act on.
 
 gh takes its host and token from the environment, as the workflows set them. A
-command that fails stops with an error naming the fix beside what gh printed.
+command that fails or outlasts its time limit stops with an error naming the fix
+beside what gh printed.
 """
 
 import json
 import subprocess
 from dataclasses import dataclass
+from enum import Enum
 from typing import ClassVar
 lazy from pathlib import Path
 
+from nustack import process_group
+
+
+class ReleaseState(Enum):
+    """Where a tag's GitHub release stands."""
+
+    MISSING = "missing"
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
 
 class GitHubError(Exception):
-    """A gh command failed; what it printed names why."""
+    """A gh command failed or outlasted its time limit; the message says what to do."""
 
     def __init__(self, what: str) -> None:
         super().__init__(what)
@@ -26,15 +38,18 @@ class GitHub:
     # gh reports a missing release as exactly this:
     # https://github.com/cli/cli/blob/v2.103.3/pkg/cmd/release/shared/fetch.go
     NO_RELEASE: ClassVar[str] = "release not found"
-    repository: str
+    name_with_owner: str
+    # Each command, a few API calls or one small upload, takes seconds when GitHub
+    # is healthy; a minute leaves room for a slow answer and still stops a stalled one.
+    timeout: float = 60
 
     def default_branch(self) -> str:
         name = self.run(
-            "api", f"repos/{self.repository}", "--jq", ".default_branch"
+            "api", f"repos/{self.name_with_owner}", "--jq", ".default_branch"
         ).strip()
         if not name:
             what = (
-                f"gh names no default branch for {self.repository}; check that the"
+                f"gh names no default branch for {self.name_with_owner}; check that the"
                 " token can read the repository"
             )
             raise GitHubError(what)
@@ -45,13 +60,13 @@ class GitHub:
     # whose head is this repository, since a fork in the same organization has the
     # same owner: https://docs.github.com/en/rest/pulls/pulls#list-pull-requests
     def open_pulls(self, base: str, branch: str) -> tuple[int, ...]:
-        owner = self.repository.split("/")[0]
+        owner = self.name_with_owner.split("/")[0]
         numbers = self.run(
             "api",
             "--method",
             "GET",
             "--paginate",
-            f"repos/{self.repository}/pulls",
+            f"repos/{self.name_with_owner}/pulls",
             "-f",
             "state=open",
             "-f",
@@ -65,7 +80,7 @@ class GitHub:
 
     def pull_body(self, number: int) -> str:
         return self.run(
-            "api", f"repos/{self.repository}/pulls/{number}", "--jq", ".body"
+            "api", f"repos/{self.name_with_owner}/pulls/{number}", "--jq", ".body"
         )
 
     def create_pull(self, base: str, branch: str, title: str, body: str) -> None:
@@ -73,7 +88,7 @@ class GitHub:
             "pr",
             "create",
             "-R",
-            self.repository,
+            self.name_with_owner,
             "--base",
             base,
             "--head",
@@ -91,7 +106,7 @@ class GitHub:
             "edit",
             str(number),
             "-R",
-            self.repository,
+            self.name_with_owner,
             "--body-file",
             "-",
             stdin=body,
@@ -103,24 +118,23 @@ class GitHub:
             "close",
             str(number),
             "-R",
-            self.repository,
-            "--delete-branch",
+            self.name_with_owner,
             "--comment",
             comment,
         )
 
     def tag_commit(self, tag: str) -> str:
         return self.run(
-            "api", f"repos/{self.repository}/commits/tags/{tag}", "--jq", ".sha"
+            "api", f"repos/{self.name_with_owner}/commits/tags/{tag}", "--jq", ".sha"
         ).strip()
 
-    def release_draft(self, tag: str) -> bool | None:
+    def release_state(self, tag: str) -> ReleaseState:
         viewed = self.complete(
             "release",
             "view",
             tag,
             "-R",
-            self.repository,
+            self.name_with_owner,
             "--json",
             "isDraft",
             "--jq",
@@ -128,12 +142,14 @@ class GitHub:
             stderr=subprocess.PIPE,
         )
         if viewed.returncode == 0:
-            return json.loads(viewed.stdout) is True
+            if json.loads(viewed.stdout) is True:
+                return ReleaseState.DRAFT
+            return ReleaseState.PUBLISHED
         if viewed.stderr.strip() == self.NO_RELEASE:
-            return None
+            return ReleaseState.MISSING
         what = (
-            f"release {tag} cannot be read ({viewed.stderr.strip()}); rerun once"
-            " GitHub answers"
+            f"release {tag} cannot be read ({viewed.stderr.strip()}); fix the cause"
+            " gh names, or rerun once GitHub answers"
         )
         raise GitHubError(what)
 
@@ -143,7 +159,7 @@ class GitHub:
             "create",
             tag,
             "-R",
-            self.repository,
+            self.name_with_owner,
             "--draft",
             "--verify-tag",
             "--notes",
@@ -156,7 +172,7 @@ class GitHub:
             "upload",
             tag,
             "-R",
-            self.repository,
+            self.name_with_owner,
             *map(str, assets),
             "--clobber",
         )
@@ -167,7 +183,7 @@ class GitHub:
             "edit",
             tag,
             "-R",
-            self.repository,
+            self.name_with_owner,
             "--draft=false",
             "--title",
             title,
@@ -188,26 +204,27 @@ class GitHub:
     def complete(
         self,
         *args: str,
-        # Only the commands given input read it, so no test tells the default from
-        # another value.
-        stdin: str = "",  # pragma: no mutate
+        stdin: str = "",
         stderr: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         try:
-            return subprocess.run(  # noqa: S603 -- argv only, no shell
-                ["gh", *args],  # noqa: S607 -- the runner's gh
-                input=stdin,
-                stdout=subprocess.PIPE,
-                # Ruff asks for check, and the caller reads the exit status; False is
-                # subprocess.run's default, so no mutant of it acts differently:
-                # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-                check=False,  # pragma: no mutate
+            return process_group.run(
+                ["gh", *args],
+                timeout=self.timeout,
+                stdin=stdin,
                 stderr=stderr,
-                text=True,
+                cwd=None,
+                env=None,
             )
         except OSError as error:
             what = (
                 f"cannot run gh ({error.strerror}); install it from"
                 " https://cli.github.com"
+            )
+            raise GitHubError(what) from error
+        except subprocess.TimeoutExpired as error:
+            what = (
+                f"gh {args[0]} took over {self.timeout:g} seconds; rerun once GitHub"
+                " answers"
             )
             raise GitHubError(what) from error

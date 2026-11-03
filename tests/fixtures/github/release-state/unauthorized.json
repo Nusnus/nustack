@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "release",
+    "view",
+    "v1.4.0",
+    "-R",
+    "microsoft/bioemu",
+    "--json",
+    "isDraft",
+    "--jq",
+    ".isDraft"
+  ],
+  "stdout": "",
+  "stderr": "HTTP 401: Bad credentials (https://api.github.com/repos/microsoft/bioemu/releases/tags/v1.4.0)\nTry authenticating with:  gh auth login\n",
+  "code": 1
+}
