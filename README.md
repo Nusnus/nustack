@@ -54,7 +54,7 @@ flowchart LR
 | Host | How |
 | --- | --- |
 | **Devin** | Add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; the install follows `main`, as [how updates roll out](https://docs.devin.ai/product-guides/plugins#how-updates-roll-out) says. |
-| **Devin, without repository access** | Someone with access downloads `nustack-<version>.zip` from the [latest release](https://github.com/Nusnus/nustack/releases/latest) and uploads it as a zip plugin, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; repeat for each new release. |
+| **Devin, without repository access** | Someone with access downloads the zip of the release to install, `nustack-<version>.zip`, from the [releases page](https://github.com/Nusnus/nustack/releases) and uploads it as a zip plugin, as [Devin's plugin docs](https://docs.devin.ai/product-guides/plugins) describe; repeat for each new release. |
 | **Claude Code** | Run the two commands below. |
 | **Cursor** | Copy the `plugin` folder, or unzip a release, to `~/.cursor/plugins/local/nustack` ([Cursor's local plugins folder](https://github.com/cursor/plugins/blob/main/create-plugin/skills/create-plugin-scaffold/SKILL.md)). Where the plan offers team marketplaces, an admin can add this repository as a [team marketplace](https://cursor.com/docs/plugins#team-marketplaces) instead. |
 | **OpenCode** | Run `opencode plugin add 'github:Nusnus/nustack#main::path:plugin'`. |
@@ -78,7 +78,7 @@ Invoke the mode with the task. In Claude Code:
 
 Devin uses the same [`/<plugin>:<skill>`](https://docs.devin.ai/desktop/devin-local/customizations) form: `/nustack:nus-mode <task>`. In [Cursor](https://cursor.com/docs/skills), type `/`, pick nus-mode, then write the task. In OpenCode, [mention](https://opencode.ai/v2/docs/skills/) it: `@nus-mode <task>`.
 
-The agent works on its own once you say so, and offers to once it is highly confident it can; once it works on its own, it asks you only what nus-mode's [standing rules](plugin/skills/nus-mode/SKILL.md#standing-rules) leave to you.
+The agent works on its own once you say so, and offers to once it is highly confident it can; once it works on its own, it asks you only what nus-mode's [standing rules](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/SKILL.md#standing-rules) leave to you.
 
 ### 3️⃣ Turn it on for a project
 

@@ -5,7 +5,10 @@ folder lists. The marketplaces list the plugin as its manifests describe it, the
 changelog and the harness carry its version, the loader's package agrees with it,
 and it ships the repository's license unchanged. The vendored copy is left as
 written, the test suite mirrors what it tests, and the README activates nus-mode as
-its playbook says. A repository that keeps every rule yields what the release ships.
+its playbook says and holds the install and use steps the release page copies.
+Joined on the page, those steps and the changelog entry each resolve every
+reference label they use as they do on their own. A repository that keeps every
+rule yields what the release ships: the plugin and its release page.
 """
 
 from dataclasses import dataclass
@@ -25,6 +28,8 @@ from nustack.plugin.manifest import Package
 from nustack.plugin.plugin import Plugin
 from nustack.problem import Problem
 from nustack.repository.changelog import Changelog
+from nustack.repository.notes import ReleaseNotes
+from nustack.repository.page import PageSteps
 from nustack.repository.pyproject import InvalidPyprojectError
 from nustack.repository.pyproject import Pyproject
 from nustack.repository.suite import Suite
@@ -33,8 +38,12 @@ from nustack.repository.vendored import InvalidConfigError
 from nustack.repository.vendored import VendoredCopy
 from nustack.repository.vendored import Workflow
 from nustack.tree import Absent
+from nustack.tree import Blocked
 from nustack.tree import File
+from nustack.tree import Folder
+from nustack.tree import Missing
 from nustack.tree import Snapshot
+from nustack.tree import Special
 from nustack.tree import Tree
 from nustack.tree import Unreadable
 from nustack.validation import version_order
@@ -55,8 +64,10 @@ class Repository:
 
     A release sets the new version in every file that holds one, so each file still
     behind the newest is named, whichever was bumped. The changelog's links are
-    checked once its entries are right, since a link's target names the newest
-    release.
+    checked beside its entries: each release's tag link against its own version, and
+    `[Unreleased]` and the plugin version's own link against the plugin's version. So
+    whoever drafts a release sees a missing link before the entry is correct, and never
+    a fix that breaks a correct link.
     """
 
     PLUGIN: ClassVar[PurePosixPath] = PurePosixPath("plugin")
@@ -113,6 +124,29 @@ class Repository:
                 return problem
 
     @cached_property
+    def readme(self) -> Document | Problem:
+        return self.document(self.README, "is missing; add it with the plugin's guide")
+
+    @cached_property
+    def page_steps(self) -> PageSteps | Problem:
+        readme = self.readme
+        return readme if isinstance(readme, Problem) else PageSteps(readme)
+
+    @cached_property
+    def notes(self) -> ReleaseNotes | None:
+        match self.plugin.manifest, self.changelog, self.page_steps:
+            case (
+                Manifest() as manifest,
+                Changelog() as changelog,
+                PageSteps(sections=frozendict() as steps),
+            ) if changelog.opens_with(manifest.version):
+                return ReleaseNotes(
+                    manifest, changelog.entry, steps, changelog.previous
+                )
+            case _:
+                return None
+
+    @cached_property
     def pyproject(self) -> Pyproject | Problem:
         match self.content(
             VendoredCopy.PYPROJECT, "is missing; add it with the harness's project"
@@ -151,11 +185,9 @@ class Repository:
 
     def release(self) -> Release | list[Problem]:
         problems = self.problems()
-        manifest = self.plugin.manifest
-        changelog = self.changelog
-        match problems, manifest, changelog:
-            case [], Manifest(), Changelog():
-                return Release(self.plugin.tree, manifest, changelog.release_notes)
+        match problems, self.notes:
+            case [], ReleaseNotes() as notes:
+                return Release(self.plugin.tree, notes.manifest, notes.text)
             case _:
                 return problems
 
@@ -174,6 +206,8 @@ class Repository:
             *self.license_problems(),
             *self.vendored_problems(),
             *self.activation_problems(),
+            *self.page_steps_problems(),
+            *self.page_label_problems(),
             *(
                 Problem(self.root / path, entry.reason)
                 for path, entry in self.snapshot.unlisted.items()
@@ -294,9 +328,10 @@ class Repository:
             return [changelog]
         if manifest is None:
             return changelog.problems(None)
-        return changelog.problems(manifest.version) or changelog.link_problems(
-            str(manifest.repository).removesuffix("/")
-        )
+        return [
+            *changelog.problems(manifest.version),
+            *changelog.link_problems(manifest.repository_url, manifest.version),
+        ]
 
     def version_problems(self) -> list[Problem]:
         pyproject, package = self.pyproject, self.package
@@ -381,8 +416,10 @@ class Repository:
                         "copy the repository's LICENSE over it",
                     )
                 ]
-            case _:
+            case File() | Folder() | Special() | Missing() | Blocked() | Unreadable():
                 return []
+            case unexpected:
+                assert_never(unexpected)
 
     def vendored_problems(self) -> list[Problem]:
         problems: list[Problem] = []
@@ -408,11 +445,9 @@ class Repository:
                 return problems
 
     def activation_problems(self) -> list[Problem]:
-        match self.document(self.README, "is missing; add it with the plugin's guide"):
-            case Document() as readme:
-                pass
-            case problem:
-                return [problem]
+        readme = self.readme
+        if isinstance(readme, Problem):
+            return []
         playbook = self.plugin.documents.get(self.NEW_PROJECT)
         if playbook is None or self.activation(readme) == self.activation(playbook):
             return []
@@ -423,6 +458,30 @@ class Repository:
                 f" copy the playbook's {self.ACTIVATION} block into it",
             )
         ]
+
+    def page_steps_problems(self) -> list[Problem]:
+        page_steps = self.page_steps
+        return [page_steps] if isinstance(page_steps, Problem) else page_steps.problems
+
+    def page_label_problems(self) -> list[Problem]:
+        match self.notes, self.changelog, self.page_steps:
+            case (
+                ReleaseNotes() as notes,
+                Changelog() as changelog,
+                PageSteps() as steps,
+            ):
+                definitions = Document.defined_in(notes.text)
+                parts = (
+                    changelog.entry_part(notes.manifest.version),
+                    *(part for parts in steps.parts.values() for part in parts),
+                )
+                return [
+                    problem
+                    for part in parts
+                    for problem in part.page_problems(definitions)
+                ]
+            case _:
+                return []
 
     def activation(self, document: Document) -> tuple[str, ...]:
         return tuple(

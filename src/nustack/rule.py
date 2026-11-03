@@ -38,15 +38,24 @@ class Rule(StrEnum):
         "and each anchor names a heading in that file"
     )
     CHANGELOG = (
-        "CHANGELOG.md titles, dates and orders every release, opens with the "
-        "plugin version's entry, which reads the same on its own, and links each "
-        "release to its tag and [Unreleased] to the changes since the newest"
+        "CHANGELOG.md titles, dates and orders every release, opens with the plugin "
+        "version's entry, which resolves each reference label it uses the same on its "
+        "own, in the changelog and on the release page, gives each link and image a "
+        "full URL and groups its changes under Keep a Changelog's types, in their "
+        "order, each type once and each group showing something, and links each "
+        "release to its tag and [Unreleased] to the changes since the plugin version"
     )
     VENDORED = (
         "the commit hooks that rewrite text, and Ruff's extend-exclude, skip the "
         "folder the writing-for-agents sync copies into"
     )
     ACTIVATION = "README.md's activation line is the new-project playbook's"
+    PAGE_STEPS = (
+        "README.md holds one ### 1️⃣ Install and one ### 2️⃣ Use section for the "
+        "release page, each of which shows something, gives each link and image a "
+        "full URL and resolves each reference label it uses the same on its own, in "
+        "README.md and on the release page"
+    )
     TEST_LAYOUT = (
         "each test module sits in a tier folder and mirrors the path of the source "
         "it tests, apart from smoke tests and the tests of the suite's own settings, "

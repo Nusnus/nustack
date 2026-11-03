@@ -1,6 +1,7 @@
 """Each command's arguments, help, output and exit status, which make and CI rely on."""
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from zipfile import ZipFile
@@ -9,6 +10,7 @@ import pytest
 
 from nustack.cli.command import app
 from nustack.cli.command import sync_description
+from nustack.rule import Rule
 from nustack.sync.description import SyncLinks
 from tests.fixtures.terminal import plain
 lazy from tests.fixtures.repository import ModelRepository
@@ -265,27 +267,11 @@ class TestHelp:
         assert line in rows
 
 
-class TestVersion:
-    """The release workflow tags a release only with the declared version."""
-
-    @pytest.mark.parametrize("arguments", [["--version"], ["--version", "--help"]])
-    def test_prints_the_one_pyproject_declares(
-        self,
-        arguments: list[str],
-        pyproject: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        version = tomllib.loads(pyproject.read_text())["project"]["version"]
-        with pytest.raises(SystemExit) as caught:
-            app(arguments)
-        assert (caught.value.code, capsys.readouterr()) == (0, (f"{version}\n", ""))
-
-
 class TestCheck:
     """make check and CI fail exactly when a rule breaks, naming each place to fix.
 
-    A root it cannot stat, that is gone or that is a file stops it with the reason,
-    and a relative root's problems name full paths.
+    A relative root's problems name full paths, and a root it cannot stat, or that is
+    a symlink loop, a file or gone, stops it with the reason.
     """
 
     @pytest.mark.usefixtures("elsewhere")
@@ -358,34 +344,20 @@ class TestCheck:
             ),
         )
 
-    def test_stops_at_a_root_that_is_gone(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize("name", ["symlink-loop", "file", "gone"])
+    def test_stops_at_a_root_that_is_not_a_folder(
+        self, name: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        with pytest.raises(SystemExit) as caught:
-            app(["check", "--root", str(tmp_path / "gone")])
-        assert (caught.value.code, capsys.readouterr()) == (
-            1,
-            (
-                "",
-                (
-                    f"{tmp_path}/gone: is not a folder, so the check stops here;"
-                    " pass the repository's folder as --root\n"
-                ),
-            ),
-        )
-
-    def test_stops_at_a_root_that_is_a_file(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+        (tmp_path / "symlink-loop").symlink_to(tmp_path / "symlink-loop")
         (tmp_path / "file").write_text("x")
         with pytest.raises(SystemExit) as caught:
-            app(["check", "--root", str(tmp_path / "file")])
+            app(["check", "--root", str(tmp_path / name)])
         assert (caught.value.code, capsys.readouterr()) == (
             1,
             (
                 "",
                 (
-                    f"{tmp_path}/file: is not a folder, so the check stops here;"
+                    f"{tmp_path}/{name}: is not a folder, so the check stops here;"
                     " pass the repository's folder as --root\n"
                 ),
             ),
@@ -406,14 +378,17 @@ class TestCheck:
         )
 
     def test_lists_each_rule_in_its_help(
-        self, capsys: pytest.CaptureFixture[str]
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        monkeypatch.setenv("COLUMNS", "1000")
         with pytest.raises(SystemExit):
-            app(["check", "--help"])
-        output = plain(capsys.readouterr().out)
-        assert "Hold the repository to these rules:" in output
-        assert "a tier folder holds no file but tests and conftest.py." in " ".join(
-            output.split()
+            app(["check", "--help"], prog_name="nustack")
+        unpadded = re.sub(r"(?m)^ | +$", "", plain(capsys.readouterr().out))
+        # TestRule pins Rule.help() word for word, so this test takes its text
+        # from Rule.help() and guards how check passes it to Typer and how the
+        # help renders it.
+        assert unpadded.partition("╭─ Options")[0] == (
+            f"\nUsage: nustack check [OPTIONS]\n\n{Rule.help()}\n\n"
         )
 
 
@@ -507,7 +482,21 @@ class TestBundle:
 
 
 class TestNotes:
-    """The release publishes the changelog's words, and nothing while a check fails."""
+    """The release publishes the page built around the changelog entry.
+
+    While a check fails, it publishes nothing.
+    """
+
+    PAGE_END = (
+        "## 🚀 Quick start\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
+        "### 2️⃣ Use\n\nRun `kit`.\n\n"
+        "**Full changelog:** [`v1.2.2...v1.2.3`]"
+        "(https://example.com/kit/compare/v1.2.2...v1.2.3)\n"
+    )
+    NOTES = (
+        "> **[kit](https://example.com/kit)** · A kit.\n\n"
+        "## 🆕 What changed\n\n### Added\n\n- Adds the kit.\n\n" + PAGE_END
+    )
 
     @pytest.mark.usefixtures("elsewhere")
     def test_takes_its_root_as_an_option(
@@ -517,7 +506,7 @@ class TestNotes:
             app(["notes", "--root", str(repository.save())])
         assert (caught.value.code, capsys.readouterr()) == (
             0,
-            ("- Adds the kit.\n", ""),
+            (self.NOTES, ""),
         )
 
     def test_prints_the_entry_for_the_plugin_version_as_written(
@@ -531,7 +520,10 @@ class TestNotes:
         with pytest.raises(SystemExit):
             app(["notes", "--root", str(repository.save())])
         assert capsys.readouterr().out == (
-            "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n"
+            "> **[kit](https://example.com/kit)** · A kit.\n\n"
+            "## 🆕 What changed\n\n### Added\n\n"
+            "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n\n"
+            + self.PAGE_END
         )
 
     def test_defaults_its_root_to_the_folder_it_runs_in(
@@ -545,7 +537,7 @@ class TestNotes:
             app(["notes"])
         assert (caught.value.code, capsys.readouterr()) == (
             0,
-            ("- Adds the kit.\n", ""),
+            (self.NOTES, ""),
         )
 
     def test_exits_1_for_a_repository_with_problems(
@@ -628,3 +620,19 @@ class TestSyncDescription:
                 " since the sync fills it\n"
             ),
         )
+
+
+class TestVersion:
+    """`nustack --version` prints pyproject.toml's version, even beside --help."""
+
+    @pytest.mark.parametrize("arguments", [["--version"], ["--version", "--help"]])
+    def test_prints_the_one_pyproject_declares(
+        self,
+        arguments: list[str],
+        pyproject: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        version = tomllib.loads(pyproject.read_text())["project"]["version"]
+        with pytest.raises(SystemExit) as caught:
+            app(arguments)
+        assert (caught.value.code, capsys.readouterr()) == (0, (f"{version}\n", ""))

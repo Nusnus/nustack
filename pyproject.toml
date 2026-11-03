@@ -13,6 +13,7 @@ authors = [ { name = "Tomer Nosrati" } ]
 requires-python = ">=3.15"
 dependencies = [
   "markdown-it-py>=4.2",
+  "mdit-py-plugins>=0.6.1",
   "pydantic>=2.14.2",
   "ruamel-yaml>=0.19.1",
   "typer>=0.27.3",
@@ -171,6 +172,8 @@ source_modules = [
   "nustack.plugin.skill",
   "nustack.problem",
   "nustack.repository.changelog",
+  "nustack.repository.notes",
+  "nustack.repository.page",
   "nustack.repository.pyproject",
   "nustack.repository.repository",
   "nustack.repository.suite",

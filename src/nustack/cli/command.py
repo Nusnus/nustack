@@ -12,6 +12,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 from typing import NoReturn
+from typing import assert_never
 
 import typer
 
@@ -37,6 +38,9 @@ from nustack.sync.description import SyncTemplate
 from nustack.sync.git import CopyGit
 from nustack.sync.proposal import Proposal
 from nustack.sync.tree import CopyTree
+from nustack.tree import Missing
+from nustack.tree import NotAFolder
+from nustack.tree import Symlink
 from nustack.tree import Unopened
 lazy from nustack.problem import Problem
 
@@ -122,7 +126,7 @@ def bundle(
             print(zip_path)
 
 
-@app.command(help="Print the plugin version's changelog entry, after a clean check.")
+@app.command(help="Print the plugin version's release page, after a clean check.")
 def notes(root: RootOption = Path()) -> None:
     print(checked_release(root).notes)
 
@@ -258,19 +262,23 @@ def described(
 
 def checked_release(root: Path) -> Release:
     root = root.resolve()
-    unusable = Disk.unusable_root(root)
-    if isinstance(unusable, Unopened):
-        fail([Problem(root, unusable.reason)])
-    if unusable is not None:
-        fail(
-            [
-                Problem(
-                    root,
-                    "is not a folder, so the check stops here; pass the"
-                    " repository's folder as --root",
-                )
-            ]
-        )
+    match Disk.unusable_root(root):
+        case None:
+            pass
+        case Unopened(reason=reason):
+            fail([Problem(root, reason)])
+        case Symlink() | NotAFolder() | Missing():
+            fail(
+                [
+                    Problem(
+                        root,
+                        "is not a folder, so the check stops here; pass the"
+                        " repository's folder as --root",
+                    )
+                ]
+            )
+        case unexpected:
+            assert_never(unexpected)
     release = Repository(Disk(root).snapshot()).release()
     if not isinstance(release, Release):
         fail(release)
@@ -288,5 +296,6 @@ def print_version(*, value: bool) -> None:
         # Package metadata matches a distribution's name in any case, so no test
         # tells "nustack" from another casing:
         # https://peps.python.org/pep-0503/#normalized-names
-        print(version("nustack"))  # pragma: no mutate
+        distribution_name = "nustack"  # pragma: no mutate
+        print(version(distribution_name))
         raise typer.Exit

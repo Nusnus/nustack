@@ -86,13 +86,19 @@ class ModelRepository:
                 f"{HIDDEN}# Python\n\nType every signature.\n"
             ),
             "LICENSE": "MIT License\n",
-            "README.md": "# kit\n\n```markdown\nWork in nus-mode.\n```\n",
+            "README.md": (
+                "# kit\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
+                "### 2️⃣ Use\n\nRun `kit`.\n\n"
+                "### 3️⃣ Turn it on\n\n```markdown\nWork in nus-mode.\n```\n"
+            ),
             "CHANGELOG.md": (
-                "# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n"
-                "- Adds the kit.\n\n## [1.2.2] - 2026-01-01\n\n- Starts.\n\n"
+                "# Changelog\n\n"
                 "[Unreleased]: https://example.com/kit/compare/v1.2.3...HEAD\n"
                 "[1.2.3]: https://example.com/kit/releases/tag/v1.2.3\n"
-                "[1.2.2]: https://example.com/kit/releases/tag/v1.2.2\n"
+                "[1.2.2]: https://example.com/kit/releases/tag/v1.2.2\n\n"
+                "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n"
+                "### Added\n\n- Adds the kit.\n\n"
+                "## [1.2.2] - 2026-01-01\n\n- Starts.\n"
             ),
             ".claude-plugin/marketplace.json": json.dumps(
                 {
