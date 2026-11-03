@@ -115,6 +115,10 @@ class Manifest(Metadata):
     repository: HttpUrl
     license: NonEmptyStr
 
+    @property
+    def repository_url(self) -> str:
+        return str(self.repository).removesuffix("/")
+
     def differing(self, other: Manifest) -> tuple[str, ...]:
         mine, theirs = self.model_dump(), other.model_dump()
         return tuple(field for field, value in mine.items() if value != theirs[field])

@@ -50,11 +50,17 @@ class TestSection:
     def test_holds_the_lines_from_its_heading_to_the_next(
         self, line: int, *, held: bool
     ) -> None:
-        assert Section("A", "", 2, 4).holds(line) is held
+        assert Section("A", "", 2, 3, 4).holds(line) is held
+
+    @pytest.mark.parametrize(("line", "held"), [(2, False), (3, True), (4, False)])
+    def test_holds_in_its_body_the_lines_below_its_heading(
+        self, line: int, *, held: bool
+    ) -> None:
+        assert Section("A", "", 2, 3, 4).holds_in_body(line) is held
 
 
 class TestDocumentBody:
-    """What a reader sees once hosts strip the header."""
+    """What a reader sees once hosts strip the frontmatter."""
 
     def test_leaves_out_the_frontmatter(self) -> None:
         assert Document(Path("/a.md"), "---\nname: a\n---\n# A\n").body == "# A\n"
@@ -63,49 +69,52 @@ class TestDocumentBody:
 class TestDocumentSections:
     """The parts a reader navigates by, as GitHub renders them, with editor lines.
 
-    A document without a second-level heading holds none; a heading in a quote or in
-    indented code splits nothing, nor does a line break hosts do not break at.
+    A heading in a quote or in indented code splits nothing, nor does a line break hosts
+    do not break at. Line breaks in a body are line feeds, whatever the file's line
+    endings, and a document without a second-level heading holds no section.
     """
 
     def test_split_at_second_level_headings_outside_code(self) -> None:
         text = "# T\n\n## 1\n\nOne.\n\n```text\n## no\n```\n\n## 2\n"
         assert Document(Path("/a.md"), text).sections == (
-            Section("1", "One.\n\n```text\n## no\n```", 2, 10),
-            Section("2", "", 10, 11),
+            Section("1", "One.\n\n```text\n## no\n```", 2, 3, 10),
+            Section("2", "", 10, 11, 11),
         )
 
     def test_keep_quoted_headings_and_indented_code(self) -> None:
         text = "## 1\n\n    code\n\n> ## quoted\n\n- last\n"
         assert Document(Path("/a.md"), text).sections == (
-            Section("1", "    code\n\n> ## quoted\n\n- last", 0, 7),
+            Section("1", "    code\n\n> ## quoted\n\n- last", 0, 1, 7),
         )
 
     def test_break_lines_only_where_hosts_break_them(self) -> None:
         text = "## 1\n\nOne\u2028## no\x85\u2029\n\n## 2\n"
         assert Document(Path("/a.md"), text).sections == (
-            Section("1", "One\u2028## no\x85\u2029", 0, 4),
-            Section("2", "", 4, 5),
+            Section("1", "One\u2028## no\x85\u2029", 0, 1, 4),
+            Section("2", "", 4, 5, 5),
         )
 
     def test_leave_a_setext_underline_out_of_the_body(self) -> None:
         text = "1\n---\n\nOne.\n"
-        assert Document(Path("/a.md"), text).sections == (Section("1", "One.", 0, 4),)
-
-    def test_end_each_body_line_with_a_line_feed(self) -> None:
-        text = "## 1\r\n\r\n- A.\r\n- B.\r\n\r\n## 2\r\rC.\r"
         assert Document(Path("/a.md"), text).sections == (
-            Section("1", "- A.\n- B.", 0, 5),
-            Section("2", "C.", 5, 8),
+            Section("1", "One.", 0, 2, 4),
         )
 
-    def test_without_a_second_level_heading_hold_no_section(self) -> None:
+    def test_break_body_lines_with_line_feeds(self) -> None:
+        text = "## 1\r\n\r\n- A.\r\n- B.\r\n\r\n## 2\r\rC.\rD.\r"
+        assert Document(Path("/a.md"), text).sections == (
+            Section("1", "- A.\n- B.", 0, 1, 5),
+            Section("2", "C.\nD.", 5, 6, 9),
+        )
+
+    def test_are_empty_without_a_second_level_heading(self) -> None:
         assert Document(Path("/a.md"), "# T\n\nText.\n").sections == ()
 
-    def test_counts_lines_from_the_body_after_front_matter(self) -> None:
+    def test_count_lines_from_the_body_after_frontmatter(self) -> None:
         text = "---\n[x]: https://a\n---\n## A\n\nSee [x].\n\n## B\n\nb\n"
         assert Document(Path("/a.md"), text).sections == (
-            Section("A", "See [x].", 0, 4),
-            Section("B", "b", 4, 7),
+            Section("A", "See [x].", 0, 1, 4),
+            Section("B", "b", 4, 5, 7),
         )
 
 
@@ -150,9 +159,11 @@ class TestDocumentMalformed:
 
 
 class TestDocumentLinks:
-    """Every target a reader can follow, resolved to the file and heading it reaches.
+    """Every Markdown link and image, resolved to the file and heading it reaches.
 
-    A link with a scheme or a host reaches no file, and frontmatter holds no link.
+    A bare URL or email address stays text, and so does a URL in a link's text. A link
+    in a table sits on its row's line, a link with a scheme or a host reaches no file,
+    and frontmatter holds no link.
     """
 
     def test_hold_each_link_and_image_outside_code(self) -> None:
@@ -168,6 +179,22 @@ class TestDocumentLinks:
             Link("#top", Path("/r/a.md"), "top", 0),
             Link("i.png", Path("/r/i.png"), "", 7),
             Link("", Path("/r/a.md"), "", 7),
+        )
+
+    def test_leave_bare_urls_and_email_addresses_as_text(self) -> None:
+        text = (
+            "See [the docs at www.x.io](https://x.io), www.y.io, https://y.io/a"
+            " and a@y.io.\n"
+        )
+        assert Document(Path("/r/a.md"), text).links == (
+            Link("https://x.io", None, "", 0),
+        )
+
+    def test_in_a_table_sit_on_their_rows_line(self) -> None:
+        text = "| A | B |\n| - | - |\n| [a](a.md) | x |\n| [b](b.md) | y |\n"
+        assert Document(Path("/r/s.md"), text).links == (
+            Link("a.md", Path("/r/a.md"), "", 2),
+            Link("b.md", Path("/r/b.md"), "", 3),
         )
 
     def test_resolve_titles_references_encodings_and_parents(self) -> None:
@@ -273,6 +300,38 @@ class TestDocumentOf:
         )
 
 
+class TestDocumentHeaded:
+    """The sections at any heading level, each running to the next heading as high.
+
+    A deeper heading stays in the body; a heading as high or higher ends it.
+    """
+
+    TEXT = "# T\n\n## A\n\n### 1\n\nOne.\n\n#### d\n\nDeep.\n\n### 2\n\nTwo.\n\n## B\n"
+
+    def test_keep_deeper_headings_in_the_body(self) -> None:
+        assert Document(Path("/a.md"), self.TEXT).headed(3) == (
+            Section("1", "One.\n\n#### d\n\nDeep.", 4, 5, 12),
+            Section("2", "Two.", 12, 13, 16),
+        )
+
+    def test_end_at_a_higher_heading(self) -> None:
+        assert Document(Path("/a.md"), self.TEXT).headed(4) == (
+            Section("d", "Deep.", 8, 9, 12),
+        )
+
+    def test_keep_every_character_of_the_body_but_its_blank_lines(self) -> None:
+        text = "### X\n\nX\n\nX\n"
+        assert Document(Path("/a.md"), text).headed(3) == (
+            Section("X", "X\n\nX", 0, 1, 5),
+        )
+
+    def test_run_the_top_level_to_the_end(self) -> None:
+        assert Document(Path("/a.md"), "# T\n\nText.\n\n# U\n").headed(1) == (
+            Section("T", "Text.", 0, 1, 4),
+            Section("U", "", 4, 5, 5),
+        )
+
+
 class TestDocumentLineAt:
     """Where a match sits in the text, as the line a Problem names."""
 
@@ -283,35 +342,85 @@ class TestDocumentLineAt:
         assert Document(Path("/a.md"), "ab\ncd\nef\n").line_at(index) == line
 
 
-class TestDocumentShows:
-    """A part, such as a release's notes, shows a reader something on GitHub.
+class TestDocumentRelativeHrefs:
+    """The relative targets a section's body links to, which break off the page.
 
-    A part may show a reader nothing at all.
+    A target with a scheme or a host is no relative one, but a path from the root is,
+    and the heading's own link is not the body's.
+    """
+
+    def test_name_each_link_and_image_in_the_body(self) -> None:
+        text = (
+            "## [A](a.md)\n\n[b](b.md) [web](https://x.io) [top](#top) ![i](i.png)"
+            " [h](//x.io/h) [r](/r.md)\n\n"
+            "## B\n\n[c](c.md)\n"
+        )
+        document = Document(Path("/r/a.md"), text)
+        assert document.relative_hrefs(document.sections[0]) == (
+            "b.md",
+            "#top",
+            "i.png",
+            "/r.md",
+        )
+
+
+class TestDocumentShows:
+    """A part, such as the changelog entry, shows a reader something on GitHub.
+
+    Text, code, an image or a tag GitHub shows as text is something, and so is a
+    details element. A comment, a reference definition, a blank character, a thematic
+    break, a task item's checkbox, an empty tag such as `<b></b>`, or an empty list
+    item, table, heading or code block is not, though GitHub may draw it. A task marker
+    with nothing after it is text, as GitHub prints it, and so are three tildes or more,
+    while one or two strike text out. The rows run in the order this docstring names
+    each kind, and each row that shows nothing has its shown partner at the same place
+    in the shown rows, which then list the rows with no partner.
     """
 
     @pytest.mark.parametrize(
         "part",
         [
+            "Adds.\n",
+            "<!-- Draft: write release notes here --> Adds.\n",
+            "<!--\nDraft\n-->\nAdds.\n",
+            "[kit]: https://example.com\n\n[kit]\n",
+            "&copy;\n",
+            "\u200bAdds.\n",
+            "<p>&copy;</p>\n",
+            "<div>&copy;</div>\n",
+            "<p>&#8203;Adds.</p>\n",
+            "---\n\nAdds.\n",
+            "<hr>Adds.\n",
+            "- [ ] <!-- x --> Adds.\n",
+            "- [x] <!-- x --> Adds.\n",
+            "<b>Adds.</b>\n",
+            "<br>Adds.\n",
             "- Adds.\n",
-            "- Adds. <!-- Draft -->\n",
-            "`<!-- -->`\n",
+            "1. Adds.\n",
+            "<table><tr><td>Adds.</td></tr></table>\n",
+            "| Adds. |\n|-|\n| |\n",
+            "# Adds.\n",
             "```\n<!-- -->\n```\n",
+            "~~&copy;~~\n",
+            "~<!-- x -->Adds.~\n",
+            "- Adds. <!-- Draft -->\n",
+            "Adds. <b></b>\n",
+            "&lt;!-- --&gt;\n",
+            "`<!-- -->`\n",
             "    <!-- -->\n",
             "![](logo.png)\n",
-            "<p>Adds.</p>\n",
-            "<!-- Draft --> Adds.\n",
             '<img alt="Launch" src="https://example.com/a.png">\n',
             '<img src="logo.png">\n',
-            "<p>&copy;</p>\n",
+            '<p><img alt="Launch" src="https://example.com/a.png"></p>\n',
             "<script></script>\n",
             "<style>a{}</style>\n",
             "<textarea>a</textarea>\n",
-            '<p><img alt="Launch" src="https://example.com/a.png"></p>\n',
-            "Adds. <b></b>\n",
-            "&lt;!-- --&gt;\n",
+            "<details></details>\n",
+            "- [ ]\n",
+            "&nbsp;~~~~&nbsp;~~~~\n",
         ],
     )
-    def test_shows_text_code_or_an_image(self, part: str) -> None:
+    def test_finds_text_code_or_a_shown_tag(self, part: str) -> None:
         assert Document(Path("/a.md"), part).shows(part) is True
 
     @pytest.mark.parametrize(
@@ -323,26 +432,33 @@ class TestDocumentShows:
             "[kit]: https://example.com\n",
             "&nbsp;\n",
             "\u200b\n",
-            "-\n",
-            "---\n",
-            "#\n",
-            "<details></details>\n",
-            "```\n```\n",
-            "<b></b>\n",
             "<p>&nbsp;</p>\n",
             "<div>&nbsp;</div>\n",
             "<p>&#8203;</p>\n",
+            "---\n",
+            "<hr>\n",
+            "- [ ] <!-- x -->\n",
+            "- [x] <!-- x -->\n",
+            "<b></b>\n",
             "<br>\n",
+            "-\n",
+            "1.\n",
+            "<table><tr><td></td></tr></table>\n",
+            "| |\n|-|\n| |\n",
+            "#\n",
+            "```\n```\n",
+            "~~&nbsp;~~\n",
+            "~<!-- x -->~\n",
         ],
     )
-    def test_shows_nothing_a_reader_sees(self, part: str) -> None:
+    def test_finds_that_markup_without_content_shows_nothing(self, part: str) -> None:
         assert Document(Path("/a.md"), part).shows(part) is False
 
 
 class TestDocumentStandsAlone:
-    """A part lifted out, as a release's notes are, keeps every reference it uses.
+    """A part lifted out, as the changelog entry is, keeps every reference it uses.
 
-    A definition in the front matter is no reference of the body.
+    A definition in the frontmatter is no reference of the body.
     """
 
     @pytest.mark.parametrize(
@@ -354,6 +470,6 @@ class TestDocumentStandsAlone:
         document = Document(Path("/a.md"), f"{part}\n[ref]: r.md\n")
         assert document.stands_alone(part) is alone
 
-    def test_counts_no_reference_in_the_front_matter_as_one_of_the_body(self) -> None:
+    def test_counts_no_reference_in_the_frontmatter_as_one_of_the_body(self) -> None:
         document = Document(Path("/a.md"), "---\n[x]: https://a\n---\nSee [x].\n")
         assert document.stands_alone("[x]\n") is True

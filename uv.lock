@@ -446,6 +446,7 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "markdown-it-py" },
+    { name = "mdit-py-plugins" },
     { name = "pydantic" },
     { name = "ruamel-yaml" },
     { name = "typer" },
@@ -472,6 +473,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "markdown-it-py", specifier = ">=4.2" },
+    { name = "mdit-py-plugins", specifier = ">=0.6.1" },
     { name = "pydantic", specifier = ">=2.14.2" },
     { name = "ruamel-yaml", specifier = ">=0.19.1" },
     { name = "typer", specifier = ">=0.27.3" },

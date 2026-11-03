@@ -6,32 +6,50 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+nus-mode, the nustack plugin's mode that has a coding agent build software to a senior engineer's bar, gains a Python skill, a design principle and sharper rules. A skill is an instruction file the agent loads when its work needs it. When its host, the app the agent runs in, summarizes a long session, nus-mode comes back, or has the agent load it again. For nustack's maintainers, `nustack`, the tool that checks and packages the plugin, checks more rules, the release page's among them, and names problems it used to hide or misname.
+
 ### Added
 
 - `language-python`, which nus-mode reads for Python work, and the design principle.
-- Rules across nus-mode, its playbooks and the principles, among them nesting by area, module docstrings that summarize their whole file, each review finding treated as a hypothesis to confirm or refute, fixing a flaw everywhere it appears, the fewest words that say it clearly, documented defaults left unwritten, no data-less class as a namespace, test names that complete their class's sentence, parametrized rows that write out their expected values, decisions nothing else settles taken by the Zen of Python, ETAs from the pace the work keeps, and quality over session cost. A break of these rules blocks unless a reason that holds is stated beside the break, or in AGENTS.md where nothing beside it can hold one.
-- A weekly workflow that proposes the vendored `writing-for-agents` skill's upstream changes as a pull request describing them.
-- `nustack check` holds each playbook step to a done condition, the mode to its name, each link to an anchor its target has, nus-mode's links to their headings, skill text to naming no host or date, the marketplaces' names, owners and descriptions to the manifests, README's activation line to the new-project playbook's, the vendored copy's exclusions to the sync workflow's destination, each test module to a tier folder that mirrors its source, and each tier folder to holding only tests and `conftest.py`.
-- `make mutate` runs mutmut over the harness, and CI runs it on every pull request.
-- `nustack sync`, `nustack release-tag` and `nustack publish` hold the sync and release workflows' decisions, so the workflows run tested commands instead of shell logic.
-- nus-mode comes back, with the folder its links are relative to, after Claude Code or OpenCode summarizes a session that loaded it.
+- Rules across nus-mode, its playbooks, each the steps of one task, and its principles, each a skill that holds one area's rules. The agent departs from a rule only with a reason stated beside the departure; where nothing there can hold one, the reason goes in the project's `AGENTS.md`, the file of instructions agents read in a repository. Among them:
+  - files grouped into packages by area
+  - module docstrings that summarize their whole file
+  - each review finding treated as a hypothesis to confirm or refute
+  - fixing a flaw everywhere it appears
+  - the fewest words that say it clearly
+  - documented defaults left unwritten
+  - no class that holds no data and only groups functions
+  - test names that read as a sentence after their class's name
+  - test cases that write out their expected values
+  - decisions nothing else settles, made as the [Zen of Python](https://peps.python.org/pep-0020/)'s aphorisms favour
+  - time estimates from the pace the work keeps
+  - quality over session cost
+- The agent offers to work on its own once it is highly confident it can finish your task without you, and does so once you agree.
+- nus-mode comes back after Claude Code or OpenCode summarizes a session that loaded it.
 - On other hosts, nus-mode tells the agent to load it again once a summary drops it.
+- For nustack's maintainers:
+  - A weekly workflow proposes the changes made [upstream](https://github.com/mattpocock/skills) to `writing-for-agents`, a skill copied into the repository, as a pull request.
+  - `nustack check` covers more rules, among them: playbook done conditions; link anchors; skill text that names no host; each marketplace's owner, which must be the plugin's author; one name and description shared by both marketplaces; README's line that turns nus-mode on for a project, which must match the new-project playbook's; and the test layout.
+  - `nustack check` holds the release's changelog entry to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)'s types of change, each once and in order, with each group showing something, and to full URLs for its links and images.
+  - `nustack check` holds README to one `### 1️⃣ Install` and one `### 2️⃣ Use` section, each showing something, with full URLs for its links and images, and checks that each reference label those sections and the release's changelog entry use resolves on the release page as it does in their own file.
+  - `make mutate` runs mutation tests over `nustack`, and CI runs them on every pull request.
+  - The sync and release workflows run tested `nustack` commands instead of shell logic.
 
 ### Changed
 
-- The `nustack` command runs on Typer instead of cyclopts. `check`, `bundle` and `notes` take each path as an option only, `--root` or `--out`, and their help shows each default. Every command's help says what each option and argument holds.
-- Dependabot raises each dependency's floor to its newest release, and CI installs the Bun that `package.json` names.
+- The release page opens with what nustack is, then the release's summary and its changes, README's install and use steps and a link to every change since the previous release.
+- For nustack's maintainers:
+  - `nustack check`, `bundle` and `notes` take each path only as an option, `--root` or `--out`, no longer as an argument, and every command's help says what each option and argument holds.
+  - Dependabot's dependency updates raise each dependency's floor to its newest release, and CI installs the Bun that `package.json` names.
 
 ### Fixed
 
-- A missing `plugin/skills/` folder no longer hides the plugin's other problems, and a pyproject.toml parse error no longer repeats its contents.
-- `nustack check` asks to move an `[Unreleased]` section that sits below a release above the releases, no longer asks nus-mode to index a skill folder without a `SKILL.md`, reports a manifest's repeated keys together with its other errors, compares the release files with the valid manifests when one is invalid and the rest agree, names every frontmatter line and value it refuses, and counts a description of only zero-width spaces or word joiners as blank.
-- `nustack check`, `bundle` and `notes` stop with one problem at a root that is not a folder or a missing `plugin/` folder, `nustack bundle` names an `--out` path that is a file or cannot be written instead of ending in a traceback, and `nustack notes` prints a CRLF changelog's entry without carriage returns.
-- `nustack check` names a file where a folder belongs, an entry that is neither a file nor a folder where a file belongs, and a file, root, plugin folder or test folder whose folder it cannot open, instead of calling each one missing or skipping it, and the `writing-for-agents` sync refuses a pull request template that repeats an anchor instead of filling each copy.
-- Every `nustack` command refuses an empty value instead of reading it as a default, such as the folder it runs in.
-- `nustack check` names the file, the folder it cannot open or the symlink loop that blocks a required file, instead of calling the file missing.
-- `nustack check` reports a frontmatter timestamp too large to read beside the plugin's other problems instead of ending in a traceback, and names a tab in an unquoted frontmatter value with its fix.
-- The OpenCode loader refuses, as `nustack check` does, a `SKILL.md` that opens with a byte order mark or is not valid UTF-8, a symlinked skill folder, and a description of only zero-width spaces or word joiners. It keeps the error code of a skill it cannot read, names the fix when it cannot read its skills folder, calls a blank field blank, and lists failing skills in path order.
+- In OpenCode, the nustack plugin refuses more of the broken skills `nustack check` refuses, such as a `SKILL.md` that is not valid UTF-8 or a symlinked skill folder, and names the fix when it cannot read its skills folder.
+- For nustack's maintainers:
+  - `nustack check` names problems it used to hide, skip or misname, such as a missing `plugin/skills/` folder, a misplaced `[Unreleased]` section or a symlink loop, and reports a frontmatter timestamp too large to read instead of ending in a traceback.
+  - `nustack check`, `bundle` and `notes` stop with one problem at a root that is not a folder or lacks a `plugin/` folder, and every `nustack` command refuses an empty option.
+  - A `pyproject.toml` parse error no longer repeats the file's contents.
+  - `nustack notes` prints a CRLF changelog's entry without carriage returns, and the `writing-for-agents` sync refuses a pull request template that repeats one of the lines the sync fills, instead of filling each repeat.
 
 ## [0.0.1] - 2026-10-31
 

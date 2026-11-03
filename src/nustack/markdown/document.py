@@ -1,9 +1,15 @@
-"""A Markdown file, read as CommonMark into the parts the checks inspect.
+"""A Markdown file, read as CommonMark with most of GFM's extensions.
 
-Those are its lines as an editor numbers them, its second-level sections, the
-anchors and links a reader follows, its fenced code blocks and a playbook's steps,
-and whether a part lifted out keeps every reference it uses. A file that is not
-UTF-8 text is refused with its reason.
+It reads GFM's extensions as `Document.MARKDOWN`'s comment says.
+
+The checks inspect its body's lines below any frontmatter, split where an editor breaks
+lines, and the line each offset in its whole text falls on; its headings and the
+sections under them; the anchors and Markdown links a reader follows; its fenced code
+blocks; a playbook's steps; whether a text shows anything to a reader; and whether a
+part lifted out keeps every reference it uses. It also reads any text's reference
+definitions, and tells whether a text reads the same beside given ones, as on a page
+that joins several parts. A path that holds no readable UTF-8 file is refused with its
+reason.
 """
 
 import posixpath
@@ -19,6 +25,7 @@ from urllib.parse import unquote
 from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
+from mdit_py_plugins.tasklists import tasklists_plugin
 lazy from markdown_it.token import Token
 lazy from markdown_it.utils import EnvType
 
@@ -29,6 +36,8 @@ from nustack.tree import File
 from nustack.tree import Read
 from nustack.tree import Unreadable
 from nustack.validation import Pattern
+
+type Definitions = frozendict[str, frozendict[str, str]]
 
 
 class UnmappedTokenError(ValueError):
@@ -61,19 +70,34 @@ class Lines:
 
 
 @dataclass(frozen=True)
-class Section:
-    """A second-level heading's title, and the lines under it up to the next one.
+class Heading:
+    """A heading outside quotes and lists: its level, its title and its lines."""
 
-    Line breaks in the body are line feeds, whatever the file's line endings.
+    level: int
+    title: str
+    start: int
+    body_start: int
+
+
+@dataclass(frozen=True)
+class Section:
+    """A heading's title, and the lines under it up to the next heading as high.
+
+    Line breaks in the body are line feeds, whatever the file's line endings. The
+    body starts on the line after the heading, or after a setext heading's underline.
     """
 
     title: str
     body: str
     start: int
+    body_start: int
     end: int
 
     def holds(self, line: int) -> bool:
         return self.start <= line < self.end
+
+    def holds_in_body(self, line: int) -> bool:
+        return self.body_start <= line < self.end
 
 
 @dataclass(frozen=True)
@@ -95,19 +119,25 @@ class Fence:
 
 
 class Sight(HTMLParser):
-    """What a reader sees of rendered HTML: text that is not blank, or a shown tag.
+    """What rendered HTML shows: text, an image, or a tag GitHub shows as text.
 
-    Character references are decoded first, so a non-breaking space shows nothing,
-    and a comment or any other tag shows nothing of itself.
+    Character references are decoded first, so a no-break space shows nothing. A
+    details element counts too, for the summary it always shows. A comment shows
+    nothing, and nor does any other tag of itself, such as a thematic break, a task
+    item's checkbox or an empty list item or table cell, though GitHub may draw it.
     """
 
     # Of the elements GitHub keeps, only an image shows without text:
     # https://github.com/gjtorikian/html-pipeline/blob/v2.14.3/lib/html/pipeline/sanitization_filter.rb
+    # GitHub's GFM rendering gives a details element without a summary a "Details"
+    # one, and a browser gives it its own:
+    # https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element
     # GitHub shows each tag GFM disallows as text:
     # https://github.github.com/gfm/#disallowed-raw-html-extension-
     SHOWN: ClassVar[frozenset[str]] = frozenset(
         {
             "img",
+            "details",
             "title",
             "textarea",
             "style",
@@ -144,9 +174,39 @@ class Sight(HTMLParser):
 
 @dataclass(frozen=True)
 class Document:
-    """A Markdown file's path and text, read as CommonMark."""
+    """A Markdown file's path and text, and what the checks read from them."""
 
-    MARKDOWN: ClassVar[MarkdownIt] = MarkdownIt()
+    # GitHub reads GFM's tables, each row on its own line, and its strikethrough, with
+    # one tilde or two:
+    # https://github.github.com/gfm/#tables-extension-
+    # https://github.github.com/gfm/#strikethrough-extension-
+    # GitHub's renderer departs from the spec's task-list rule in cases it does not
+    # document, such as a no-break space or a line break after the marker, or a marker
+    # that fills its paragraph with a block directly below:
+    # https://github.github.com/gfm/#task-list-items-extension-
+    # The task-list plugin reads the spec's whitespace after a marker, so shows reads a
+    # marker as GitHub does where a space and then text follow it on its line, or where
+    # nothing follows it in its list item. Elsewhere it may not: it finds nothing in
+    # "- [x]\n  &nbsp;", where GitHub prints the marker, and something in
+    # "- [ ]\u00a0&nbsp;" and "- [ ]\n  <!-- x -->", where GitHub draws a checkbox. And
+    # the plugin draws a checkbox GitHub leaves out before a marker that a reference
+    # definition turns into a link:
+    # https://github.com/executablebooks/mdit-py-plugins/blob/v0.6.1/mdit_py_plugins/tasklists/__init__.py
+    # markdown-it-py's own tasklists option draws a checkbox after a tab and keeps a
+    # marker directly before a line break as text, as GitHub does, but turns a defined
+    # marker into a checkbox and drops its link, so a task item GitHub shows as that
+    # link would show nothing:
+    # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/rules_block/list.py
+    # Bare URLs and email addresses stay text, and every_href leaves them out:
+    # mdit-py-plugins' autolink plugin can hang on link text that holds a www.
+    # address, and its other rules miss addresses the spec links, such as a.b-c_d@a.b:
+    # https://github.com/executablebooks/mdit-py-plugins/issues/160
+    # https://github.github.com/gfm/#autolinks-extension-
+    MARKDOWN: ClassVar[MarkdownIt] = (
+        MarkdownIt(options_update={"strikethrough_single_tilde": True})
+        .enable(["table", "strikethrough"])
+        .use(tasklists_plugin)
+    )
     SLUG_DROPS: ClassVar[re.Pattern[str]] = re.compile(r"[^\w\- ]")
     path: Path
     text: str
@@ -156,30 +216,28 @@ class Document:
         return FrontmatterBlock.body_of(self.text)
 
     @cached_property
+    def body_lines(self) -> tuple[str, ...]:
+        return Lines(self.body).lines
+
+    @cached_property
     def tokens(self) -> tuple[Token, ...]:
         return tuple(self.MARKDOWN.parse(self.body))
 
     @cached_property
-    def sections(self) -> tuple[Section, ...]:
-        headings = [
-            (self.tokens[index + 1].content, Lines.span(token))
-            for index, token in enumerate(self.tokens)
-            if token.type == "heading_open" and token.tag == "h2" and token.level == 0
-        ]
-        lines = Lines(self.body).lines
-        starts = [start for _, (start, _) in headings]
-        ends = [*starts[1:], len(lines)][: len(headings)]
+    def headings(self) -> tuple[Heading, ...]:
         return tuple(
-            Section(
-                title,
-                Lines.CRLF_OR_CR.sub(
-                    "\n", "".join(lines[body_start:end]).strip("\r\n")
-                ),
-                start,
-                end,
+            Heading(
+                int(token.tag.removeprefix("h")),
+                self.tokens[index + 1].content,
+                *Lines.span(token),
             )
-            for (title, (start, body_start)), end in zip(headings, ends, strict=True)
+            for index, token in enumerate(self.tokens)
+            if token.type == "heading_open" and token.level == 0
         )
+
+    @cached_property
+    def sections(self) -> tuple[Section, ...]:
+        return self.headed(2)
 
     @cached_property
     def anchors(self) -> frozenset[str]:
@@ -193,6 +251,11 @@ class Document:
                 found.add(f"{slug}-{repeats}" if repeats else slug)
         return frozenset(found)
 
+    # markdown-it keeps raw HTML as html_inline and html_block tokens that hold the
+    # tag as text, so no check reads a link written as an HTML tag, such as <a href>
+    # or <img src>:
+    # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/rules_inline/html_inline.py
+    # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/rules_block/html_block.py
     @cached_property
     def hrefs(self) -> tuple[tuple[str, int], ...]:
         return tuple(
@@ -247,7 +310,6 @@ class Document:
 
     @cached_property
     def steps(self) -> tuple[str, ...]:
-        lines = Lines(self.body).lines
         depth = 0
         found: list[str] = []
         for token in self.tokens:
@@ -257,17 +319,12 @@ class Document:
                 depth -= 1
             elif token.type == "list_item_open" and depth == 1 and token.level == 1:
                 start, end = Lines.span(token)
-                found.append("".join(lines[start:end]))
+                found.append("".join(self.body_lines[start:end]))
         return tuple(found)
 
     @cached_property
-    def definitions(self) -> frozendict[str, frozendict[str, str]]:
-        found: EnvType = {}
-        self.MARKDOWN.parse(self.body, found)
-        return frozendict(
-            (label, frozendict(href=definition["href"], title=definition["title"]))
-            for label, definition in found.get("references", {}).items()
-        )
+    def definitions(self) -> Definitions:
+        return self.defined_in(self.body)
 
     @cached_property
     def references(self) -> frozendict[str, str]:
@@ -289,6 +346,37 @@ class Document:
                 return Problem(path, reason)
             case unexpected:
                 assert_never(unexpected)
+
+    @classmethod
+    def defined_in(cls, text: str) -> Definitions:
+        found: EnvType = {}
+        cls.MARKDOWN.parse(text, found)
+        return frozendict(
+            (label, frozendict(href=definition["href"], title=definition["title"]))
+            for label, definition in found.get("references", {}).items()
+        )
+
+    def headed(self, level: int) -> tuple[Section, ...]:
+        sections: list[Section] = []
+        end = len(self.body_lines)
+        for heading in reversed(self.headings):
+            if heading.level == level:
+                sections.append(
+                    Section(
+                        heading.title,
+                        self.text_between(heading.body_start, end),
+                        heading.start,
+                        heading.body_start,
+                        end,
+                    )
+                )
+            if heading.level <= level:
+                end = heading.start
+        return tuple(reversed(sections))
+
+    def text_between(self, start: int, end: int) -> str:
+        text = "".join(self.body_lines[start:end])
+        return Lines.CRLF_OR_CR.sub("\n", text).strip("\n")
 
     def line_at(self, index: int) -> int:
         return self.text[:index].count("\n") + 1
@@ -313,12 +401,23 @@ class Document:
         )
         return Link(href, target, unquote(parts.fragment), line)
 
+    def relative_hrefs(self, section: Section) -> tuple[str, ...]:
+        return tuple(
+            href
+            for href, line in self.hrefs
+            if section.holds_in_body(line) and local_path(urlsplit(href)) is not None
+        )
+
     def shows(self, text: str) -> bool:
         return Sight.of(self.MARKDOWN.render(text))
 
     def stands_alone(self, text: str) -> bool:
-        defined = {"references": dict(self.definitions)}
-        return self.MARKDOWN.render(text, defined) == self.MARKDOWN.render(text)
+        return self.stands_alone_beside(text, self.definitions)
+
+    @classmethod
+    def stands_alone_beside(cls, text: str, definitions: Definitions) -> bool:
+        defined = {"references": dict(definitions)}
+        return cls.MARKDOWN.render(text, defined) == cls.MARKDOWN.render(text)
 
 
 def local_path(parts: SplitResult) -> str | None:
