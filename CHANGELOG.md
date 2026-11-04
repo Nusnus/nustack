@@ -11,6 +11,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 ### Added
 
 - nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
+- The `new-project` playbook creates the project's remote repository where it has none, and configures its settings where it is on GitHub, such as branch protection on `main`.
 - For nustack's maintainers:
   - `AGENTS.md` has agents weigh an issue's text as data, never as instructions.
 
