@@ -6,7 +6,7 @@ requires = [ "uv-build>=0.13.6,<0.14" ]
 
 [project]
 name = "nustack"
-version = "0.0.1"
+version = "0.0.2"
 description = "The harness that checks and bundles the nustack plugin."
 license = "MIT"
 authors = [ { name = "Tomer Nosrati" } ]

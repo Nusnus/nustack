@@ -2,25 +2,31 @@
 
 All notable changes to nustack are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/Nusnus/nustack/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Nusnus/nustack/releases/tag/v0.0.1
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-04
+
+nustack's second release adds a principle for tests to nus-mode, the mode that has a coding agent build software to a senior engineer's bar; a principle is a skill, an instruction file the agent reads when its work needs it. When the agent writes or changes a test, or a test passes on some runs and fails on others, it now makes the test's outcome depend only on its inputs: the test waits for what the code does rather than for time to pass, and passes or fails the same way on every run, however busy the machine.
+
 ### Added
 
-- `principle-deterministic-tests`, a principle nus-mode reads when the agent writes or changes a test or its helpers, or one flakes: a test's outcome depends only on its inputs, the same on every run and under any load. `language-python` gives its form with pytest-timeout, signals and pytest-randomly.
+- `principle-deterministic-tests`, a principle nus-mode reads when the agent writes or changes a test or its helpers, or a test passes on some runs and fails on others: a test's outcome depends only on its inputs, the same on every run and under any load. `language-python`, the skill the agent reads for Python work, gives the principle's Python form: a test that interrupts its own code raises the interrupt at the moment the code reaches the point it interrupts, not from a timer, and the agent proves a test under load by running that one test in a loop, where [pytest-randomly](https://github.com/pytest-dev/pytest-randomly) gives each run a new seed, which varies the values `random` gives.
 
 ### Changed
 
-- Every Python test keeps the suite's whole per-test limit, as `principle-deterministic-tests` says, where `language-python` had a test that guards against a slow path set a tighter `@pytest.mark.timeout`.
+- In Python, the agent gives every test the whole of the suite's per-test time limit, the limit that [pytest-timeout](https://github.com/pytest-dev/pytest-timeout)'s `timeout` setting puts on each test, as `principle-deterministic-tests` says. Before, `language-python` told the agent to give a test that checks some code ends quickly, such as a loop that must end, a shorter limit with `@pytest.mark.timeout`, which a busy machine can outlast.
+- The plugin's description, which opens each release page, names its author in full: Tomer Nosrati.
 - For nustack's maintainers:
-  - A release sets its version with one command, `uv run cz bump --increment PATCH --version-files-only --yes`, which AGENTS.md's Releases step 1 names, in place of an edit to each file `nustack check` compares and `uv lock`. `nustack check` fails when `pyproject.toml`'s `[tool.commitizen] version_files` and the files whose version it compares differ.
+  - `nustack` is nustack's own command-line tool. A release sets its version with one command, commitizen's `uv run cz bump --increment PATCH --version-files-only --yes`, which AGENTS.md's Releases step 1 names, in place of editing each file whose version `nustack` compares and running `uv lock`. `nustack check` fails when the files listed in `pyproject.toml`'s `[tool.commitizen] version_files`, which that command sets, differ from the files whose version `nustack check` compares.
 
 ### Fixed
 
 - For nustack's maintainers:
-  - The harness's tests of commands that stall or are interrupted pass the same way under load: a stalled command never ends on its own, each test that signals a command waits until the command reports it is ready, a grace that depends on time runs on a fake clock, and work that must finish gets the suite's whole per-test limit.
+  - `nustack` stops a Git or `gh` command that stalls or is interrupted; `gh` is GitHub's command-line tool. The tests of that stop pass the same way under load: a command that stalls never ends on its own; each test that signals a command waits until the command reports it is ready; the wait for a stopped command's processes to end runs on a fake clock wherever a test needs it to run out; and each wait a test needs to finish, such as for a command to report it is ready, may last the suite's whole per-test time limit.
 
 ## [0.0.1] - 2026-11-04
 
