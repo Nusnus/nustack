@@ -1,7 +1,8 @@
 """The harness's project settings, down to what the checks compare with other files.
 
-That is the project's version and the folders Ruff leaves alone. A file that is not
-valid TOML, or holds no version, is refused with the fix.
+That is the project's version, the files commitizen's `cz bump` sets the version in
+beside it, and the folders Ruff leaves alone. A file that is not valid TOML, or holds
+no version, is refused with the fix.
 """
 
 import tomllib
@@ -28,6 +29,14 @@ class Project(BaseModel):
     version: Version
 
 
+class Commitizen(BaseModel):
+    """The `[tool.commitizen]` table, down to the files `cz bump` versions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    version_files: tuple[str, ...] = ()
+
+
 class Ruff(BaseModel):
     """The `[tool.ruff]` table, down to the folders it leaves alone."""
 
@@ -37,15 +46,16 @@ class Ruff(BaseModel):
 
 
 class Tools(BaseModel):
-    """The `[tool]` table, down to Ruff's."""
+    """The `[tool]` table, down to commitizen's and Ruff's."""
 
     model_config = ConfigDict(frozen=True)
 
+    commitizen: Commitizen = Commitizen()
     ruff: Ruff = Ruff()
 
 
 class Pyproject(BaseModel):
-    """A `pyproject.toml`, down to its `[project]` and `[tool.ruff]` tables."""
+    """A `pyproject.toml`, down to its `[project]`, commitizen and Ruff tables."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -59,7 +69,8 @@ class Pyproject(BaseModel):
         except ValidationError as error:
             msg = (
                 "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project] "
-                "table, and a list of strings as any [tool.ruff] extend-exclude"
+                "table, and a list of strings as any [tool.commitizen] version_files "
+                "and any [tool.ruff] extend-exclude"
             )
             raise InvalidPyprojectError(msg) from error
         except tomllib.TOMLDecodeError as error:

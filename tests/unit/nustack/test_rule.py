@@ -15,6 +15,8 @@ class TestRule:
             " marketplace lists only the plugin, with the manifests' name and"
             " description and its host's source, and names the manifests' author as"
             " its owner; and both marketplaces have one name and one description;\n"
+            "- commitizen's version_files in pyproject.toml lists, once each, every"
+            " other file whose version the check compares;\n"
             "- plugin/ holds only the host manifests, skills, playbooks, the OpenCode"
             " loader with its package.json, the Claude Code hook that reloads the"
             " mode, and a LICENSE equal to the repository's;\n"

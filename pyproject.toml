@@ -162,6 +162,18 @@ report.exclude_lines = [
 report.partial_branches = []
 report.show_missing = true
 
+# https://commitizen-tools.github.io/commitizen/config/bump/
+[tool.commitizen]
+version_provider = "uv"
+# nustack check holds this list to the files whose version it compares, beside
+# pyproject.toml, which the uv provider sets along with uv.lock.
+version_files = [
+  "plugin/.claude-plugin/plugin.json:version",
+  "plugin/.cursor-plugin/plugin.json:version",
+  "plugin/.devin-plugin/plugin.json:version",
+  "plugin/package.json:version",
+]
+
 [tool.importlinter]
 root_packages = [ "nustack" ]
 include_external_packages = true
