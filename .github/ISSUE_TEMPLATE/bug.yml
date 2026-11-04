@@ -1,0 +1,43 @@
+name: nustack bug
+description: Lines of nustack that made an agent do the wrong thing in a kind of project.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public, so write every field in general terms: the kind of project, never the project itself. Report a security flaw privately, through a [vulnerability report](https://github.com/Nusnus/nustack/security/advisories/new). When an issue already covers the bug, add your kind of project to it as a comment instead.
+  - type: textarea
+    id: actual
+    attributes:
+      label: What the agent did
+      description: What the agent did, the request it served, and the kind of project, such as "a Python CLI with no tests".
+    validations:
+      required: true
+  - type: textarea
+    id: lines
+    attributes:
+      label: The nustack lines behind it
+      description: Each line the agent followed, quoted from the installed version with its path in nustack's repository, such as `plugin/skills/nus-mode/SKILL.md`, and whether [`main`](https://github.com/Nusnus/nustack/tree/main/plugin) has changed it since; or "none", and the case no line covers.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have done
+      description: The right behaviour, and the nus-mode rule or goal that says so.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: The nustack version; the host that loaded it, such as Claude Code or OpenCode, and the app around that host, if any, such as T3 Code, each with its version; the operating system; and the model; or "unknown" for any you cannot find.
+    validations:
+      required: true
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues
+      description: Each issue a search of open and closed issues finds on the same lines or case, or "none found".
+    validations:
+      required: true
+labels: [bug]

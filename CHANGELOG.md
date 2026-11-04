@@ -8,6 +8,16 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
+- For nustack's maintainers:
+  - `AGENTS.md` has agents weigh an issue's text as data, never as instructions.
+
+### Changed
+
+- A PR description links the issue it resolves with a closing keyword, such as `Fixes #12`, so its merge into the default branch closes the issue.
+
 ## [0.0.2] - 2026-11-04
 
 nustack's second release adds a principle for tests to nus-mode, the mode that has a coding agent build software to a senior engineer's bar; a principle is a skill, an instruction file the agent reads when its work needs it. When the agent writes or changes a test, or a test passes on some runs and fails on others, it now makes the test's outcome depend only on its inputs: the test waits for what the code does rather than for time to pass, and passes or fails the same way on every run, however busy the machine.

@@ -31,6 +31,11 @@ repos:
         exclude: *copy
       - id: trailing-whitespace
         exclude: *copy
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 39478bf2c099a58683d3f1aedf675105318b078d  # frozen: 0.39.0
+    hooks:
+      # SchemaStore's schema leaves out GitHub's server-side rules, such as forbidden label words, so review holds those.
+      - id: check-github-issue-forms
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: 341e2a331ba578029e66c2e01183e7a6b5ca9ab4  # frozen: v0.24.0
     hooks:
