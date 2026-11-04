@@ -380,7 +380,9 @@ class TestRepositoryMarketplaces:
 class TestRepositoryVersions:
     """The changelog and the harness carry the plugin's version.
 
-    Nothing compares when no file holds a readable version. The changelog's links are
+    commitizen's version_files lists each other file whose version is compared, by its
+    path, with or without a pattern. Nothing compares when no file holds a readable
+    version. The changelog's links are
     checked against the plugin version and reported beside its entry's problems. A
     changelog without `[Unreleased]` is asked no link to it, and a repository URL's
     trailing slash is dropped.
@@ -457,6 +459,45 @@ class TestRepositoryVersions:
                 " compares to the release's version",
             ),
         ]
+
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ('  "plugin/package.json:version",\n', ""),
+            (
+                '  "plugin/package.json:version",\n',
+                '  "plugin/package.json:version",\n  "plugin/LICENSE",\n',
+            ),
+            (
+                '  "plugin/package.json:version",\n',
+                '  "plugin/package.json:version",\n  "plugin/package.json",\n',
+            ),
+            ("[tool.commitizen]\n", "[tool.other]\n"),
+        ],
+        ids=["missing", "extra", "twice", "no-table"],
+    )
+    def test_reports_version_files_that_differ_from_the_compared_files(
+        self, repository: ModelRepository, old: str, new: str
+    ) -> None:
+        repository.edit("pyproject.toml", old, new)
+        assert repository.problems() == [
+            Problem(
+                repository.where("pyproject.toml"),
+                "has a [tool.commitizen] version_files that differs from the other"
+                " files whose version nustack check compares; list each of"
+                " plugin/.claude-plugin/plugin.json, plugin/.cursor-plugin/plugin.json,"
+                " plugin/.devin-plugin/plugin.json, plugin/package.json once, so cz"
+                " bump sets the version in each",
+            )
+        ]
+
+    def test_accepts_a_version_file_listed_with_no_pattern(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "pyproject.toml", '"plugin/package.json:version"', '"plugin/package.json"'
+        )
+        assert repository.problems() == []
 
     def test_reports_a_changelog_that_opens_with_another_version(
         self, repository: ModelRepository
@@ -613,8 +654,8 @@ class TestRepositoryVersions:
             Problem(
                 repository.where("pyproject.toml"),
                 "is invalid: needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its"
-                " [project] table, and a list of strings as any [tool.ruff]"
-                " extend-exclude",
+                " [project] table, and a list of strings as any [tool.commitizen]"
+                " version_files and any [tool.ruff] extend-exclude",
             )
         ]
 

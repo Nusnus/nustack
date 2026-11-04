@@ -13,6 +13,10 @@ class Rule(StrEnum):
         "host's source, and names the manifests' author as its owner; and both "
         "marketplaces have one name and one description"
     )
+    VERSION_FILES = (
+        "commitizen's version_files in pyproject.toml lists, once each, every other "
+        "file whose version the check compares"
+    )
     PLUGIN_FILES = (
         "plugin/ holds only the host manifests, skills, playbooks, the OpenCode "
         "loader with its package.json, the Claude Code hook that reloads the mode, "

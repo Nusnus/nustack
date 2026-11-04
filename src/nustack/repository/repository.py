@@ -2,8 +2,9 @@
 
 Every file a release needs is present and readable, and every source and test
 folder lists. The marketplaces list the plugin as its manifests describe it, the
-changelog and the harness carry its version, the loader's package agrees with it,
-and it ships the repository's license unchanged. The vendored copy is left as
+changelog and the harness carry its version, the harness's commitizen settings name
+every file that holds it, the loader's package agrees with it, and it ships the
+repository's license unchanged. The vendored copy is left as
 written, the test suite mirrors what it tests, and the README activates nus-mode as
 its playbook says, gives each principle and language skill its description, and
 holds the install and use steps the release page copies. Joined on the page,
@@ -27,6 +28,7 @@ from nustack.plugin.manifest import InvalidMetadataError
 from nustack.plugin.manifest import Manifest
 from nustack.plugin.manifest import Marketplace
 from nustack.plugin.manifest import Package
+from nustack.plugin.manifest import Version
 from nustack.plugin.plugin import Plugin
 from nustack.plugin.skill import Frontmatter
 from nustack.plugin.skill import Skill
@@ -205,6 +207,7 @@ class Repository:
             *plugin_problems,
             *self.marketplace_problems(manifest),
             *self.version_problems(),
+            *self.version_files_problems(),
             *self.changelog_problems(manifest),
             *self.pyproject_problems(),
             *self.package_problems(manifest),
@@ -329,57 +332,83 @@ class Repository:
         ]
 
     def version_problems(self) -> list[Problem]:
-        pyproject, package = self.pyproject, self.package
         versions = [
-            *(
-                (self.plugin.root / path, f"the {host} manifest", reading.version)
-                # Both come from Plugin.MANIFESTS, so their lengths never differ and no
-                # test tells strict from its default; Ruff asks for it:
-                # https://docs.astral.sh/ruff/rules/zip-without-explicit-strict/
-                # mutmut skips every mutant of a node that spans a pragma's line, so
-                # this one also skips versions = None and dropping manifest_readings
-                # from the zip, which tests kill.
-                for (path, host), reading in zip(
-                    Plugin.MANIFESTS.items(),
-                    self.plugin.manifest_readings,
-                    strict=True,  # pragma: no mutate
-                )
-                if isinstance(reading, Manifest)
-            ),
-            *(
-                [
-                    (
-                        self.root / VendoredCopy.PYPROJECT,
-                        str(VendoredCopy.PYPROJECT),
-                        pyproject.project.version,
-                    )
-                ]
-                if isinstance(pyproject, Pyproject)
-                else []
-            ),
-            *(
-                [
-                    (
-                        self.plugin.root / Plugin.PACKAGE,
-                        str(self.PLUGIN / Plugin.PACKAGE),
-                        package.version,
-                    )
-                ]
-                if isinstance(package, Package)
-                else []
-            ),
+            (path, owner, version)
+            for path, owner, version in self.versioned_files()
+            if version is not None
         ]
         if not versions:
             return []
         _, owner, newest = max(versions, key=lambda each: version_order(each[2]))
         return [
             Problem(
-                path,
+                self.root / path,
                 f"has version {version}, older than {owner}'s {newest}; set every"
                 " file nustack check compares to the release's version",
             )
             for path, _, version in versions
             if version != newest
+        ]
+
+    def version_files_problems(self) -> list[Problem]:
+        pyproject = self.pyproject
+        if isinstance(pyproject, Problem):
+            return []
+        # commitizen's uv provider sets pyproject.toml's version, so version_files
+        # lists only the other files:
+        # https://commitizen-tools.github.io/commitizen/config/version_provider/#uv
+        others = sorted(
+            path
+            for path, _, _ in self.versioned_files()
+            if path != VendoredCopy.PYPROJECT
+        )
+        listed = sorted(
+            PurePosixPath(entry.partition(":")[0])
+            for entry in pyproject.tool.commitizen.version_files
+        )
+        if listed == others:
+            return []
+        return [
+            Problem(
+                self.root / VendoredCopy.PYPROJECT,
+                "has a [tool.commitizen] version_files that differs from the other"
+                " files whose version nustack check compares; list each of "
+                f"{', '.join(map(str, others))} once, so cz bump sets the version in"
+                " each",
+            )
+        ]
+
+    def versioned_files(self) -> list[tuple[PurePosixPath, str, Version | None]]:
+        pyproject, package = self.pyproject, self.package
+        return [
+            *(
+                (
+                    self.PLUGIN / path,
+                    f"the {host} manifest",
+                    reading.version if isinstance(reading, Manifest) else None,
+                )
+                # Both come from Plugin.MANIFESTS, so their lengths never differ and no
+                # test tells strict from its default; Ruff asks for it:
+                # https://docs.astral.sh/ruff/rules/zip-without-explicit-strict/
+                # mutmut skips every mutant of a node that spans a pragma's line, so
+                # this one also skips dropping manifest_readings from the zip, which
+                # tests kill.
+                for (path, host), reading in zip(
+                    Plugin.MANIFESTS.items(),
+                    self.plugin.manifest_readings,
+                    strict=True,  # pragma: no mutate
+                )
+            ),
+            (
+                VendoredCopy.PYPROJECT,
+                str(VendoredCopy.PYPROJECT),
+                pyproject.project.version if isinstance(pyproject, Pyproject) else None,
+            ),
+            (
+                self.PLUGIN / Plugin.PACKAGE,
+                str(self.PLUGIN / Plugin.PACKAGE),
+                package.version if isinstance(package, Package) else None,
+            ),
         ]
 
     def changelog_problems(self, manifest: Manifest | None) -> list[Problem]:

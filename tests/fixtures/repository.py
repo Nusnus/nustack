@@ -130,6 +130,11 @@ class ModelRepository:
             ),
             "pyproject.toml": (
                 '[project]\nname = "kit"\nversion = "1.2.3"\n\n'
+                "[tool.commitizen]\nversion_files = [\n"
+                '  "plugin/.claude-plugin/plugin.json:version",\n'
+                '  "plugin/.cursor-plugin/plugin.json:version",\n'
+                '  "plugin/.devin-plugin/plugin.json:version",\n'
+                '  "plugin/package.json:version",\n]\n\n'
                 '[tool.ruff]\nextend-exclude = [".agents/skills/vendored"]\n'
             ),
             ".pre-commit-config.yaml": "repos:\n  - repo: local\n    hooks:\n"

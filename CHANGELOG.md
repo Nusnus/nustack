@@ -14,6 +14,8 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 ### Changed
 
 - Every Python test keeps the suite's whole per-test limit, as `principle-deterministic-tests` says, where `language-python` had a test that guards against a slow path set a tighter `@pytest.mark.timeout`.
+- For nustack's maintainers:
+  - A release sets its version with one command, `uv run cz bump --increment PATCH --version-files-only --yes`, which AGENTS.md's Releases step 1 names, in place of an edit to each file `nustack check` compares and `uv lock`. `nustack check` fails when `pyproject.toml`'s `[tool.commitizen] version_files` and the files whose version it compares differ.
 
 ### Fixed
 
