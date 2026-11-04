@@ -74,6 +74,7 @@ Invoke the mode with the task. In Claude Code:
 ```text
 /nustack:nus-mode Start a CLI that tracks expenses.
 /nustack:nus-mode Investigate why the nightly export times out.
+/nustack:nus-mode Align this repository with nus-mode.
 ```
 
 Devin uses the same [`/<plugin>:<skill>`](https://docs.devin.ai/desktop/devin-local/customizations) form: `/nustack:nus-mode <task>`. In [Cursor](https://cursor.com/docs/skills), type `/`, pick nus-mode, then write the task. In OpenCode, [mention](https://opencode.ai/v2/docs/skills/) it: `@nus-mode <task>`.
@@ -82,7 +83,7 @@ The agent works on its own once you say so, and offers to once it is highly conf
 
 ### 3️⃣ Turn it on for a project
 
-Add this line to the project's `AGENTS.md` so each session whose host reads that file works in nus-mode. For Claude Code, which reads `AGENTS.md` only in some setups, also put `@AGENTS.md` in the project's `CLAUDE.md`, creating that file if needed, [as Claude Code's docs say](https://code.claude.com/docs/en/memory#agents-md). The new-project playbook does both for you.
+Add this line to the project's `AGENTS.md` so each session whose host reads that file works in nus-mode. For Claude Code, which reads `AGENTS.md` only in some setups, also put `@AGENTS.md` in the project's `CLAUDE.md`, creating that file if needed, [as Claude Code's docs say](https://code.claude.com/docs/en/memory#agents-md). The new-project playbook does both for you, and the align playbook proposes them for an existing project.
 
 ```markdown
 Work in this repository in nus-mode: load the skill before you start.

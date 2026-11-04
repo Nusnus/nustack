@@ -51,6 +51,7 @@ Match the task to one playbook, read it in full, and copy its numbered steps to 
 | --- | --- |
 | Start a new project | [new project](playbooks/new-project.md) |
 | Investigate a problem | [investigate](playbooks/investigate.md) |
+| Align existing code with nus-mode | [align](playbooks/align.md) |
 
 ## Principles
 
@@ -72,6 +73,6 @@ Before you apply or cite a principle, read its `SKILL.md` in full as a file, so 
 
 ## Languages
 
-Each language skill holds one language's tools, and the form a principle takes where that language changes it. Read each as you read a principle. Each applies when:
+Read each language skill as you read a principle. Each applies when:
 
 - [Python](../language-python/SKILL.md): you write, review or set up Python, or a Python project's tool config.
