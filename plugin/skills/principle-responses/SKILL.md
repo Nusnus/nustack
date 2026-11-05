@@ -1,0 +1,21 @@
+---
+name: principle-responses
+description: "Replies, status updates, questions and reports a person takes in at a glance."
+disable-model-invocation: true
+triggers:
+  - user
+---
+
+# Responses
+
+A person scans a response, such as an answer, a status update, a question or a report, for what they need: in [Nielsen Norman Group's study of web pages](https://www.nngroup.com/articles/how-users-read-on-the-web/), 79% of users scanned a new page and 16% read it word by word. Each sentence they dig past, decode or reread is a [friction point](../nus-mode/SKILL.md#goal). These rules shape how a response reads; the rule that asks for a fact decides what it holds, and a PR description follows [PR descriptions](../principle-pr-descriptions/SKILL.md) instead.
+
+- **Lead with the answer.** The first sentence gives what the person asked for or must act on: the answer, the outcome, the decision or the question. Reasons and evidence follow, most important first, as the [inverted pyramid](https://www.nngroup.com/articles/inverted-pyramid/) and GOV.UK's [frontload your content](https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/clear-structure/) say.
+- **Keep what the reader uses.** [Long term](../principle-long-term/SKILL.md)'s *use the fewest words that say it clearly* holds for every response: each sentence carries a fact the person acts on or needs to trust the answer, and the steps that led there appear only as its evidence. Concise web text scored 58% higher in measured usability in [Nielsen Norman Group's test](https://www.nngroup.com/articles/concise-scannable-and-objective-how-to-write-for-the-web/).
+- **Use the person's words.** Call each thing what the person or the project calls it, and define a term they have not met where it first appears, as GOV.UK's [use clear language](https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/clear-language/) says.
+- **Keep sentences and paragraphs short.** A paragraph holds at most five sentences, and you split each sentence over 25 words where you can, as GOV.UK's [keep paragraphs and sentences short](https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/clear-language/) and Google's [shorter sentences](https://developers.google.com/style/accessibility) advise. A list opens with a complete sentence and keeps its items parallel, as Google's [lists](https://developers.google.com/style/lists) guide says, and plain language's [use lists for easy scanning](https://digital.gov/guides/plain-language/design) puts items a person scans in one.
+- **Use a table to compare values.** A table compares items across the same attributes, since Google's [tables](https://developers.google.com/style/tables) guide keeps tables for three or more related pieces of information per item, and lists for simpler data. Items that each need a sentence of reasoning, such as candidates with a recommendation, form a list, since a person follows reasoning down a list but must read a table across its rows to find it.
+- **Keep one format for each kind of answer.** Once a kind of answer, such as a list of open issues, has a format in the conversation, each later answer of that kind keeps it until the person asks for another, since the person has learned where that format puts each fact and finds it there again without rereading.
+- **Link each thing you name.** Each pull request, issue, commit, session, run or other thing with a page of its own links to that page, since a fact the text neither states nor links to is a [friction point](../nus-mode/SKILL.md#goal). Its name or title is the link text, as GOV.UK's [write clear link text](https://guidance.publishing.service.gov.uk/writing-to-gov-uk-standards/writing-guidelines/add-links/) and Google's [link text](https://developers.google.com/style/link-text) guide say.
+- **Bold only what the person must see.** Bold marks the answer's key phrase and each question or action that waits on the person, as plain language's [highlight important concepts](https://digital.gov/guides/plain-language/design) says: emphasize only important information, or its impact dilutes.
+- **Give each time and ETA** as nus-mode's [*give times in the user's time zone*](../nus-mode/SKILL.md#standing-rules) says.

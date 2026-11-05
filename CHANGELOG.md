@@ -10,6 +10,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ### Added
 
+- `principle-responses` shapes how a reply, status update, question or report reads, so a person takes it in at a glance: the answer first, short sentences and paragraphs, a table only to compare values, one format for each kind of answer, a link for each thing named, and bold only for what the person must see. nus-mode reads it whenever the agent writes to a person.
 - `long term` spends each mutation run where it can find something: none for a change it cannot reach, only what a pull request's changes reach, and every mutant from an empty cache after each merge to the default branch and before each release. `language-python` says what mutmut's cache keeps through a change, and how a run that keeps a full run's verdicts makes up for it.
 - nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
 - The `new-project` playbook creates the project's remote repository where it has none, and configures its settings where it is on GitHub, such as branch protection on `main`.

@@ -139,6 +139,7 @@ Because they are hidden, the principle and language skills stay out of the model
 | 🧪 [principle-deterministic-tests](plugin/skills/principle-deterministic-tests/SKILL.md) | Tests whose outcome depends only on their inputs, the same on every run and under any load. |
 | 📖 [principle-self-explanatory-code](plugin/skills/principle-self-explanatory-code/SKILL.md) | Code that explains itself, and docs for what it cannot say. |
 | 📝 [principle-pr-descriptions](plugin/skills/principle-pr-descriptions/SKILL.md) | PR descriptions a reviewer takes in at a glance. |
+| 💬 [principle-responses](plugin/skills/principle-responses/SKILL.md) | Replies, status updates, questions and reports a person takes in at a glance. |
 | 🐍 [language-python](plugin/skills/language-python/SKILL.md) | Python's tools, and where Python changes how a principle applies. |
 | 📓 [obsidian-markdown](plugin/skills/obsidian-markdown/SKILL.md) | Obsidian Flavored Markdown. |
 | 📓 [obsidian-bases](plugin/skills/obsidian-bases/SKILL.md) | Obsidian Bases, `.base` files. |

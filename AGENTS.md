@@ -65,7 +65,7 @@ CI runs `make check` and `make smoke`, holds commit messages to Conventional Com
 
 ### Onboarding a Devin organization
 
-nustack is onboarded once every item below holds; each item about the repository's blueprint is a setting the [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) guide describes. Set up each missing one yourself where your tools allow; otherwise walk the user through it one step at a time, linking the Devin web app page that sets it:
+nustack is onboarded once every item below holds; each item about the repository's blueprint is a setting the [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) guide describes. Set up each missing one yourself where your tools allow; otherwise walk the user through it one step at a time, as [responses](plugin/skills/principle-responses/SKILL.md) words it, with the Devin web app page that sets it:
 
 1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, so the session lists `/nustack:nus-mode`. Install it at organization scope, with the user's approval, or have the user add it, as the [Plugins guide](https://docs.devin.ai/product-guides/plugins) describes.
 2. The repository's blueprint is included in the organization's environment. Including it starts a build.
