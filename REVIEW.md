@@ -36,7 +36,7 @@ What Devin Review holds every pull request to, beyond what `make check` enforces
 
 ## Pull request description
 
-- **The description starts from the PR template and matches the diff at the head commit:** each change it claims is in the diff, and each check it reports carries the mark for its current state.
+- **The description starts from the PR template and matches the diff at the head commit:** each change it claims is in the diff, and each check it reports, in its badge and in the fold, shows its current state.
 
 ## Leave alone
 

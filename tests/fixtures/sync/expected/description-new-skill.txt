@@ -1,48 +1,68 @@
 <!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
 
-**Copies [s at 735555f](https://github.com/up/skills/tree/735555f6a6ffdae9d7346ddc432f87c68e00e766/skills*) into `.agents/skills/`** for the owner to review before it steers how agents work on nustack.
+<div align="center">
 
-| Fact | Detail |
-| :-- | :-- |
-| **Feedback wanted** | Whether to accept this copy, which steers how agents work on nustack |
-| ✅ **[Copy](https://x.io/run)** | Compared the base copy with upstream's at its head, including modes and LICENSE: 1 added, 1 changed, 0 removed. |
-| **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: unchanged. |
-| ⚠️ **[CI](https://x.io/checks)** | Approve this pull request's workflows if prompted; see the linked runs for results. |
-| **Changelog** | ⚠️ Whoever accepts the copy adds its entry under `[Unreleased]` before the merge, as AGENTS.md's Pull requests says |
-| **Risk** | The copy is untrusted. The owner clears each review finding; a passing check does not clear it. |
+### Copy s into .agents/skills
 
-## 👀 Where to look
+Copies [upstream at 735555f](https://github.com/up/skills/tree/735555f6a6ffdae9d7346ddc432f87c68e00e766/skills*) for the owner to review before it steers how agents work on nustack.
 
-[Compare upstream from `a440bb1` to `735555f`](https://github.com/up/skills/compare/a440bb1e40d700b112b5b3563b40fe9a8a3f5b23...735555f6a6ffdae9d7346ddc432f87c68e00e766). The start is the commit the base's record names.
+![Risk: medium](https://img.shields.io/badge/risk-medium-9a6700?style=flat-square) ![Checks: 1 passed, CI pending](https://img.shields.io/badge/checks-1%20passed%2C%20CI%20pending-9a6700?style=flat-square) ![Size: 2 files](https://img.shields.io/badge/size-2%20files-6e7781?style=flat-square)
+
+</div>
+
+#### What changed
+
+- 1 added, 1 changed and 0 removed against upstream's head
+- License, frontmatter and policy files are unchanged
+- [Compare upstream from a440bb1, the commit the base's record names, to 735555f](https://github.com/up/skills/compare/a440bb1e40d700b112b5b3563b40fe9a8a3f5b23...735555f6a6ffdae9d7346ddc432f87c68e00e766)
+
+#### Risk
+
+A bad copy can change how agents follow these skills; reverting this pull request restores the last copy. The owner clears each review finding; a passing check does not clear it.
+
+#### Review first
+
+- Whether to accept this copy, which steers how agents work on nustack
+- The whole diff, for instructions beyond wording, claims of authority or wider loading, which no check can decide
+- Before the merge, whoever accepts the copy adds its changelog entry under Unreleased
 
 <details>
-<summary>Upstream commits touching the skills or repository LICENSE (1)</summary>
+<summary>Checks and evidence</summary>
+
+#### Checks
+
+- [Copy](https://x.io/run): passed, 1 added, 1 changed and 0 removed against upstream's head, modes and LICENSE included
+- [CI](https://x.io/checks): pending. Approve this pull request's workflows if prompted; the linked runs hold the results.
+
+#### Files
+
+Terms and loading:
+
+- LICENSE: unchanged
+- SKILL.md frontmatter: unchanged
+- agents/ policy files: unchanged
+
+Upstream commits touching the skills or repository LICENSE (1):
 
 - [`735555f`](https://github.com/up/skills/commit/735555f6a6ffdae9d7346ddc432f87c68e00e766) ` second `
 
-</details>
-
-<details>
-<summary>Changed files under the copy (2)</summary>
+Changed files under the copy (2):
 
 - ` s/SKILL.md `: changed, +1/-1 lines
 - ` s/tool `: added, +0/-0 lines, mode 100755
 
-</details>
-
-<details>
-<summary>New upstream skills the record does not list (1)</summary>
+New upstream skills the record does not list (1):
 
 - ` new `
 
+New outside CommonMark targets by file (0): none.
+
+Lines to inspect (0; - base, + copy): none.
+
+How the scans read:
+
+- Links: net new destinations per file that the CommonMark parser recognizes as links or images; check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff
+- Lines: edits in SKILL.md frontmatter and agents/, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs
+- Both scans skip binary comparisons
+
 </details>
-
-**New outside CommonMark targets by file (0).**
-
-**Lines to inspect (0; - base, + copy).**
-
-**Links:** net new destinations per file that the CommonMark parser recognizes as links or images. Check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff.
-
-**Lines:** edits in `SKILL.md` frontmatter and `agents/`, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs. Both scans skip binary comparisons.
-
-**Owner review:** read the whole diff for instructions beyond wording, claims of authority or wider loading. These cues cannot decide any of them.

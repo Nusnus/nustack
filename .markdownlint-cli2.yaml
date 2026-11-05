@@ -11,15 +11,23 @@ config:
     style: compact
 # The first-line title rule skips only the files that cannot open on a title:
 # https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
-# The PR template opens on the comments and table a description starts from,
-# where an inline disable comment would land in every description, and CLAUDE.md
-# is a single import line: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
+# The PR template opens on the comment and centered header a description starts
+# from, where an inline disable comment would land in every description, and
+# CLAUDE.md is a single import line: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
 overrides:
   - filter:
       - .github/pull_request_template.md
       - CLAUDE.md
     config:
       MD041: false
+      # The template centers its header and folds its detail with the HTML
+      # GitHub renders in a description, as principle-pr-descriptions asks.
+      MD033:
+        allowed_elements:
+          - details
+          - div
+          - sub
+          - summary
     combine: merge
   # README.md's front page centres its title, tagline and links, folds its
   # skills tables and shows the wordmark for the reader's theme, which only

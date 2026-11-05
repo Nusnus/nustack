@@ -35,7 +35,7 @@ class TestProposal:
         commit=None,
         files=frozendict(),
     )
-    BODY = "| ✅ **[Copy](https://x.io/runs/2)** | Compared. |\n"
+    BODY = "- [Copy](https://x.io/runs/2): passed.\n"
     CREATE = (
         "pr",
         "create",
@@ -200,7 +200,7 @@ class TestProposal:
     @pytest.mark.parametrize(
         ("posted", "edits"),
         [
-            ("| ✅ **[Copy](https://x.io/runs/1)** | Compared. |\n", []),
+            ("- [Copy](https://x.io/runs/1): passed.\n", []),
             ("Edited.\n", [(EDIT, BODY)]),
         ],
     )

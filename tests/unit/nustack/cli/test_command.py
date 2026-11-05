@@ -781,25 +781,20 @@ class TestSyncDescription:
     ) -> None:
         repository.write(
             ".github/pull_request_template.md",
-            "<!-- Lead -->\n\n"
-            "| **Feedback wanted** | |\n"
-            "| <!-- mark --> **[<!-- check -->](<!-- run link -->)** |"
-            " <!-- result --> |\n\n<!-- Files -->\n\n<!-- One heading per idea -->\n",
+            "### <!-- Headline -->\n\n<!-- Badges -->\n\n<!-- Changes -->\n\n"
+            "<!-- Risk -->\n\n<!-- Review -->\n\n<!-- Checks -->\n\n<!-- Files -->\n",
         )
         root = repository.save()
         assert stopped.report(root) == (
             1,
             "",
             (
-                f'{root}/.github/pull_request_template.md: lost "| **Changelog** | |",'
-                " which the sync's description needs; restore it, or change"
-                " SyncTemplate to match\n"
-                f'{root}/.github/pull_request_template.md: lost "| **Risk** | |", which'
-                " the sync's description needs; restore it, or change SyncTemplate to"
-                " match\n"
-                f'{root}/.github/pull_request_template.md: lost "## ⚖️ Decisions", which'
-                " the sync's description needs; restore it, or change SyncTemplate to"
-                " match\n"
+                f"{root}/.github/pull_request_template.md: lost"
+                ' "<!-- What the change does for its reader -->", which the sync\'s'
+                " description needs; restore it, or change SyncTemplate to match\n"
+                f"{root}/.github/pull_request_template.md: lost"
+                ' "<summary><!-- Fold summary --></summary>", which the sync\'s'
+                " description needs; restore it, or change SyncTemplate to match\n"
             ),
         )
 

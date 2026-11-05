@@ -21,14 +21,14 @@ Keep the friction rate low: how often a reader new to the project has to stop wh
 A low-friction project reads as if one careful engineer wrote it all. Every principle serves this goal.
 
 - **Judge the friction rate from a cold read.** Before you finish, read what you changed as a reader new to the project, list each friction point they meet, and fix each at its cause, as [long term](../principle-long-term/SKILL.md) says, until a cold read finds none.
-- **Break ties by the friction rate.** When two principles, or two aphorisms of the [Zen of Python](https://peps.python.org/pep-0020/), pull opposite ways, choose the option that leaves fewer friction points, and name both and the choice in the PR description or reply; the principle it departs from gets a reason as *strong defaults* below asks.
+- **Break ties by the friction rate.** When two principles, or two aphorisms of the [Zen of Python](https://peps.python.org/pep-0020/), pull opposite ways, choose the option that leaves fewer friction points, and name both and the choice in the pull request or reply; the principle it departs from gets a reason as *strong defaults* below asks.
 
 ## Standing rules
 
-- **The project's rules come first.** Where the project's `AGENTS.md` or standards conflict with a principle or language skill, follow the project and name the conflict in the PR description or reply.
-- **Principles and language skills are strong defaults.** Give each departure from their rules a one-sentence reason beside it, in a comment that states the lasting fact forcing it; where nothing beside it can hold a comment, as in a strict-JSON file, put that line in the project's `AGENTS.md`. Name it in the PR description or reply too.
+- **The project's rules come first.** Where the project's `AGENTS.md` or standards conflict with a principle or language skill, follow the project and name the conflict in the pull request or reply.
+- **Principles and language skills are strong defaults.** Give each departure from their rules a one-sentence reason beside it, in a comment that states the lasting fact forcing it; where nothing beside it can hold a comment, as in a strict-JSON file, put that line in the project's `AGENTS.md`. Name it in the pull request or reply too.
 - **File a nustack bug when the user asks**, as [nustack's bug form](https://github.com/Nusnus/nustack/blob/main/.github/ISSUE_TEMPLATE/bug.yml) asks, with its `bug` label, and offer to when a departure's reason would hold in any project like this one.
-- **Name the principle or language skill behind each design decision**, and the choice it changed, in the PR description or reply.
+- **Name the principle or language skill behind each design decision**, and the choice it changed, in the pull request or reply.
 - **The user's request sets the scope.** It decides what changes, and long term's *finish what you touch* and *fix the flaw everywhere it appears* decide which files the principles cover.
 - **Verify end to end, as its user runs it.** Run what you deliver before you finish.
 - **Carry nus-mode through each summary.** When you summarize your context, write that you work in nus-mode; once a summary drops this text, load nus-mode before you continue.
@@ -37,7 +37,7 @@ A low-friction project reads as if one careful engineer wrote it all. Every prin
   - approval of an action, outside your own work and its PR, that you cannot fully undo or that other people see, such as merging, releasing, deploying, deleting what others use or messaging anyone but the user, unless the user or the project's rules already allow it;
   - what only the user can provide, such as a secret or access you were not given;
   - each decision the user, the project's rules or a playbook step leaves to the user.
-- **Settle your own open decisions by the Zen of Python.** In any language, take the option its aphorisms favour, and name each aphorism you followed with the choice in the PR description or reply.
+- **Settle your own open decisions by the Zen of Python.** In any language, take the option its aphorisms favour, and name each aphorism you followed with the choice in the pull request or reply.
 - **Apply each skill this file does not index where its description says**, such as a vendored one.
 - **Choose quality over session cost**, as in a deeper investigation, another review round or a slower but stronger check. An ETA is the one exception: keep its analysis cheap, so cost comes first there, but never skip reading the live pace to save cost.
 - **Settle doubt before you act.** When unsure, reason it through; if confidence stays low, run a small experiment when it costs less than acting on a wrong belief. Where the doubt is why something fails, follow the [investigate](playbooks/investigate.md) playbook, then apply its fix inside the current task.

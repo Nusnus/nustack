@@ -34,7 +34,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 ### Changed
 
 - README is a short front page: what nustack is, how to install, use and update it on each host, how it works, the skills and how to contribute.
-- A PR description links the issue it resolves with a closing keyword, such as `Fixes #12`, so its merge into the default branch closes the issue.
+- A PR description reads like one calm app screen at any size of change: a centered headline and one-line summary, badges for risk, checks and size, plain-word sections for what changed, the risk, what to review first and the steps after the merge, and one fold for checks, files and decisions. It links the issue it resolves with a closing keyword, such as `Closes #12`, so its merge into the default branch closes the issue.
 - nus-mode's cheap-ETA exception moves from its rule for times into its rule to choose quality over session cost, and keeps only the ETA's analysis cheap, never the reading of the live pace.
 - nus-mode estimates from observed pace: it reads how fast each job, agent and subagent the work waits on is moving now, tries each other way it has when one fails, and states the basis with the ETA, the observed pace or the past runs it fell back on and why.
 - `language-python` links each of its rules for tests to the principle it gives the Python form of.
@@ -54,6 +54,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - `nustack sync` and `nustack sync-description` take `--record`, the vendored copy's record, and `nustack sync` names its branch from the record.
   - `REVIEW.md` has reviewers read every vendored copy's sync pull request, not only writing-for-agents', as untrusted text.
   - `make smoke` runs Claude Code 2.1.312 and holds it to the fake model's context window, so the prompt that fills that window still makes Claude Code summarize the session on its own. Since 2.1.293, Claude Code gives `claude-haiku-5-5`, the smoke tests' model, a window that prompt leaves far from full.
+  - nustack's PR template and the sync workflow's generated description of a vendored copy's change follow the new PR description page: badges, plain sections and one fold.
 
 ### Removed
 

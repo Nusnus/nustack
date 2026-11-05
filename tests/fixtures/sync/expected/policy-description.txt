@@ -1,40 +1,60 @@
 <!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
 
-**Copies [writing-for-agents at 4aaccb5](https://github.com/mattpocock/skills/tree/4aaccb58d40559d7e3c59a029b2290ae5ba538de/skills/productivity) into `.agents/skills/`** for the owner to review before it steers how agents work on nustack.
+<div align="center">
 
-| Fact | Detail |
-| :-- | :-- |
-| **Feedback wanted** | Whether to accept this copy, which steers how agents work on nustack |
-| ✅ **[Copy](#copy)** | Compared the base copy with upstream's at its head, including modes and LICENSE: 0 added, 1 changed, 0 removed. |
-| ⚠️ **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: ` writing-for-agents/agents/openai.yaml ` changed ⚠️ a loading field changed. |
-| ⚠️ **[CI](#checks)** | Approve this pull request's workflows if prompted; see the linked runs for results. |
-| **Changelog** | ⚠️ Whoever accepts the copy adds its entry under `[Unreleased]` before the merge, as AGENTS.md's Pull requests says |
-| **Risk** | The copy is untrusted. The owner clears each review finding; a passing check does not clear it. |
+### Copy writing-for-agents into .agents/skills
 
-## 👀 Where to look
+Copies [upstream at 4aaccb5](https://github.com/mattpocock/skills/tree/4aaccb58d40559d7e3c59a029b2290ae5ba538de/skills/productivity) for the owner to review before it steers how agents work on nustack.
 
-[Compare upstream from `b405fe0` to `4aaccb5`](https://github.com/mattpocock/skills/compare/b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243...4aaccb58d40559d7e3c59a029b2290ae5ba538de). The start is the commit the base's record names.
+![Risk: high](https://img.shields.io/badge/risk-high-cf222e?style=flat-square) ![Checks: 1 passed, CI pending](https://img.shields.io/badge/checks-1%20passed%2C%20CI%20pending-9a6700?style=flat-square) ![Size: 1 file](https://img.shields.io/badge/size-1%20file-6e7781?style=flat-square)
+
+</div>
+
+#### What changed
+
+- 0 added, 1 changed and 0 removed against upstream's head
+- A field that decides when a skill loads changed or was not compared; the files list names each file
+- [Compare upstream from b405fe0, the commit the base's record names, to 4aaccb5](https://github.com/mattpocock/skills/compare/b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243...4aaccb58d40559d7e3c59a029b2290ae5ba538de)
+
+#### Risk
+
+A bad copy can change how agents follow these skills; reverting this pull request restores the last copy. The owner clears each review finding; a passing check does not clear it.
+
+#### Review first
+
+- Whether to accept this copy, which steers how agents work on nustack
+- The whole diff, for instructions beyond wording, claims of authority or wider loading, which no check can decide
+- Before the merge, whoever accepts the copy adds its changelog entry under Unreleased
 
 <details>
-<summary>Upstream commits touching the skills or repository LICENSE (1)</summary>
+<summary>Checks and evidence</summary>
+
+#### Checks
+
+- [Copy](#copy): passed, 0 added, 1 changed and 0 removed against upstream's head, modes and LICENSE included
+- [CI](#checks): pending. Approve this pull request's workflows if prompted; the linked runs hold the results.
+
+#### Files
+
+Terms and loading:
+
+- LICENSE: unchanged
+- SKILL.md frontmatter: unchanged
+- agents/ policy files: ` writing-for-agents/agents/openai.yaml ` changed, and a loading field changed
+
+Upstream commits touching the skills or repository LICENSE (1):
 
 - [`4aaccb5`](https://github.com/mattpocock/skills/commit/4aaccb58d40559d7e3c59a029b2290ae5ba538de) ` fix: make writing-for-agents model-invokable in Codex `
 
-</details>
-
-<details>
-<summary>Changed files under the copy (1)</summary>
+Changed files under the copy (1):
 
 - ` writing-for-agents/agents/openai.yaml `: changed, +2/-4 lines
 
-</details>
+New upstream skills the record does not list (0): none.
 
-**New upstream skills the record does not list (0).**
+New outside CommonMark targets by file (0): none.
 
-**New outside CommonMark targets by file (0).**
-
-<details>
-<summary>Lines to inspect (6; - base, + copy)</summary>
+Lines to inspect (6; - base, + copy):
 
 - ` - writing-for-agents/agents/openai.yaml:2 ` `   display_name: "Writing Great Skills" `
 - ` - writing-for-agents/agents/openai.yaml:3 ` `   short_description: "Principles for predictable skills" `
@@ -43,10 +63,10 @@
 - ` + writing-for-agents/agents/openai.yaml:2 ` `   display_name: "Writing for Agents" `
 - ` + writing-for-agents/agents/openai.yaml:3 ` `   short_description: "Write documents agents consume" `
 
+How the scans read:
+
+- Links: net new destinations per file that the CommonMark parser recognizes as links or images; check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff
+- Lines: edits in SKILL.md frontmatter and agents/, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs
+- Both scans skip binary comparisons
+
 </details>
-
-**Links:** net new destinations per file that the CommonMark parser recognizes as links or images. Check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff.
-
-**Lines:** edits in `SKILL.md` frontmatter and `agents/`, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs. Both scans skip binary comparisons.
-
-**Owner review:** read the whole diff for instructions beyond wording, claims of authority or wider loading. These cues cannot decide any of them.

@@ -7,25 +7,30 @@ class Passage(StrEnum):
     """A passage the sync's description repeats, in the order it prints them."""
 
     CI = (
-        "\n| ⚠️ **[CI](https://checks)** | Approve this pull request's workflows if"
-        " prompted; see the linked runs for results. |"
+        "\n- [CI](https://checks): pending. Approve this pull request's workflows if"
+        " prompted; the linked runs hold the results."
     )
     UNKNOWN_COMMIT = (
-        "The base's record names no commit that upstream's head holds. The commit"
-        " range is unknown."
+        "The base's record names no commit that upstream's head holds, so the commit"
+        " range is unknown"
+    )
+    TERMS = (
+        "Terms and loading:\n\n- LICENSE: unchanged\n- SKILL.md frontmatter: unchanged"
+        "\n- agents/ policy files: unchanged\n\n"
+    )
+    NO_COMMITS = (
+        "Upstream commits touching the skills or repository LICENSE (0): none.\n\n"
     )
     EMPTY_SCANS = (
-        "\n\n**New upstream skills the record does not list (0).**"
-        "\n\n**New outside CommonMark targets by file (0).**"
-        "\n\n**Lines to inspect (0; - base, + copy).**"
+        "\n\nNew upstream skills the record does not list (0): none."
+        "\n\nNew outside CommonMark targets by file (0): none."
+        "\n\nLines to inspect (0; - base, + copy): none."
     )
     NOTES = (
-        "\n\n**Links:** net new destinations per file that the CommonMark parser"
-        " recognizes as links or images. Check raw HTML, bare URLs and email"
-        " addresses, and rejected URI schemes in the diff.\n\n**Lines:** edits in"
-        " `SKILL.md` frontmatter and `agents/`, plus added lines naming rules,"
-        " invocation fields, selected commands or HTTP(S) URLs. Both scans skip"
-        " binary comparisons.\n\n**Owner"
-        " review:** read the whole diff for instructions beyond wording, claims of"
-        " authority or wider loading. These cues cannot decide any of them."
+        "\n\nHow the scans read:\n\n- Links: net new destinations per file that the"
+        " CommonMark parser recognizes as links or images; check raw HTML, bare URLs"
+        " and email addresses, and rejected URI schemes in the diff\n- Lines: edits"
+        " in SKILL.md frontmatter and agents/, plus added lines naming rules,"
+        " invocation fields, selected commands or HTTP(S) URLs\n- Both scans skip"
+        " binary comparisons"
     )
