@@ -179,6 +179,7 @@ nustack/
 ├── tests/                      unit, integration and smoke tests
 ├── .devin/blueprint.yaml       the Devin environment
 ├── .agents/skills/             skills for working on nustack
+├── .claude/skills              a symlink to .agents/skills/, where Claude Code reads them
 ├── vendored/                   one record per vendored copy, which the sync workflow updates
 ├── package.json                the loader's tools; their config sits beside it
 ├── AGENTS.md                   the rules for changing nustack

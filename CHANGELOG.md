@@ -24,6 +24,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - A vendored copy's sync pull request lists each skill upstream added that its record does not name.
   - `nustack upstream` prints a vendored copy's upstream once its record passes the check's rules for records, so the sync workflow clones it without checking the rest of the repository first.
   - `nustack records` prints each record the sync reads, with its copy's branch, so the sync workflow's matrix comes from a tested command.
+  - `.claude/skills` is a symlink to `.agents/skills/`, so Claude Code offers each skill for working on nustack, such as writing-for-agents, as the other hosts do.
 
 ### Changed
 
