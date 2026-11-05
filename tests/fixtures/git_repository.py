@@ -1,10 +1,13 @@
-"""Real Git repositories shaped like the sync's upstream and nustack's checkout."""
+"""A real Git repository whose commits hash the same on every run."""
 
 import os
 import subprocess
 from dataclasses import dataclass
 from typing import ClassVar
+from typing import Literal
 lazy from pathlib import Path
+
+from nustack.sha import Sha
 
 
 @dataclass(frozen=True)
@@ -18,12 +21,16 @@ class GitRepository:
     root: Path
 
     @classmethod
-    def init(cls, root: Path) -> GitRepository:
+    def init(
+        cls,
+        root: Path,
+        # The sync's expected descriptions hold these repositories' SHA-1 commit names,
+        # and Git 3.0 makes SHA-256 the default: https://git-scm.com/docs/BreakingChanges
+        object_format: Literal["sha1", "sha256"] = "sha1",
+    ) -> GitRepository:
         repository = cls(root)
         root.mkdir()
-        # The expected descriptions hold these repositories' SHA-1 commit names, and Git
-        # 3.0 makes SHA-256 the default: https://git-scm.com/docs/BreakingChanges
-        repository.git("init", "-q", "-b", "main", "--object-format=sha1")
+        repository.git("init", "-q", "-b", "main", f"--object-format={object_format}")
         return repository
 
     def write(self, path: str, text: str) -> Path:
@@ -32,14 +39,17 @@ class GitRepository:
         file.write_text(text)
         return file
 
-    def commit(self, message: str) -> str:
+    def commit(self, message: str) -> Sha:
+        return Sha(self.record(message))
+
+    def record(self, message: str) -> str:
         self.git("add", "-A")
         self.git("commit", "-qm", message)
         return self.git("rev-parse", "HEAD").strip()
 
     def git(self, *args: str) -> str:
         return subprocess.run(  # noqa: S603 -- argv only, no shell
-            ["git", *args],  # noqa: S607 -- the Git on PATH, as the sync uses
+            ["git", *args],  # noqa: S607 -- the Git on PATH, as nustack uses
             cwd=self.root,
             check=True,
             capture_output=True,
@@ -56,19 +66,3 @@ class GitRepository:
                 "GIT_COMMITTER_DATE": self.DATE,
             },
         ).stdout
-
-
-@dataclass(frozen=True)
-class Sync:
-    """An upstream skill that moved on once, and a checkout copying its first state.
-
-    The skill's folder name is a glob pattern, so Git reading it as a pattern
-    instead of a path shows.
-    """
-
-    SOURCE_FOLDER: ClassVar[str] = "skills/*"
-    FOLDER: ClassVar[str] = "copy"
-    upstream: GitRepository
-    checkout: GitRepository
-    first: str
-    second: str

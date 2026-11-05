@@ -59,6 +59,7 @@ class Plugin:
     )
     SKILLS: ClassVar[PurePosixPath] = PurePosixPath("skills")
     PLAYBOOKS: ClassVar[str] = "playbooks"
+    PLAYBOOKS_SECTION: ClassVar[str] = "Playbooks"
     SYMLINK: ClassVar[str] = (
         "is a symlink, which the check never reads through, so it stops here; "
         "put the file itself here, or close the editor whose lock file it is"
@@ -229,10 +230,9 @@ class Plugin:
             case Unreadable():
                 return None
             case File(content=content):
-                try:
-                    return Manifest.parse(content)
-                except InvalidMetadataError as error:
-                    return Problem(self.root / path, f"is invalid: {error}")
+                return Problem.parsed(
+                    self.root / path, content, Manifest.parse, InvalidMetadataError
+                )
             case unexpected:
                 assert_never(unexpected)
 
@@ -334,11 +334,14 @@ class Plugin:
             if section.holds(link.line)
         }
         expected = [
-            (skill.path, skill.kind)
+            (skill.path, section)
             for skill in self.skills
-            if skill.kind is not Kind.MODE and not isinstance(skill.read, Absent)
+            if (section := skill.kind.section) is not None
+            and not isinstance(skill.read, Absent)
         ]
-        expected += [(self.root / path, Kind.MODE) for path in self.playbooks]
+        expected += [
+            (self.root / path, self.PLAYBOOKS_SECTION) for path in self.playbooks
+        ]
         problems = (
             []
             if opening == [title]
@@ -365,11 +368,11 @@ class Plugin:
         problems += [
             Problem(
                 mode.path,
-                f"does not index {path} under ## {kind.section}; add a link to it "
+                f"does not index {path} under ## {section}; add a link to it "
                 "there with when it applies",
             )
-            for path, kind in sorted(expected)
-            if (path, kind.section) not in indexed
+            for path, section in sorted(expected)
+            if (path, section) not in indexed
         ]
         problems += [
             Problem(

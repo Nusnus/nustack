@@ -8,7 +8,7 @@ triggers:
 
 # Layout
 
-The folder and file layout is as much a part of the design as the code inside it, and the part a newcomer sees first: on its own, it says what the parts are and which belong together.
+The folder and file layout is as much a part of the design as the code inside it, and the part a reader new to the project sees first: on its own, it says what the parts are and which belong together.
 
 - **Fit the shape to the project.** Choose the top-level split, by domain area, by layer or both, that makes this design readable.
 - **Split by responsibility.** Each folder is one area of the design, and each file holds one responsibility you can state in a line. A second responsibility splits the file; size alone does not.

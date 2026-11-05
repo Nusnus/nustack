@@ -1,25 +1,30 @@
 /**
  * The OpenCode loader reads each skill folder into the skill OpenCode registers, registers every skill the plugin ships
  * with only the mode left for the model to invoke, and fails with one error naming each skill folder or SKILL.md it
- * cannot load, or the skills folder it cannot read. It puts the mode back in a session's context once a summarization
- * drops it.
+ * cannot load, or the skills folder it cannot read; once every skill loads, a missing mode fails it with an error naming
+ * the mode's SKILL.md. It puts the mode back in a session's context once a summarization drops it.
  */
 import { afterEach, describe, expect, test } from "bun:test"
 import { chmod, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Skill } from "@opencode/plugin"
 import plugin, {
+  errorCode,
+  errorMessage,
   type ModelRequest,
   ModeReload,
+  SkillError,
   SkillFile,
   SkillFolder,
   type UserPrompt,
 } from "../../../plugin/opencode.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
+import { skipAsRoot } from "../../fixtures/permissions.ts"
 import { FakeRegistry } from "../../fixtures/registry.ts"
 import { FakeSession, FakeStorage } from "../../fixtures/session.ts"
+import { thrown } from "../../fixtures/thrown.ts"
 
-const SKILLS = join(import.meta.dirname, "..", "..", "..", "plugin", "skills")
+const SKILLS = new SkillFolder(join(import.meta.dirname, "..", "..", "..", "plugin", "skills"))
 
 /** One request OpenCode passed a session hook, as the recording plugin wrote it down. */
 interface Recorded<Request = ModelRequest> {
@@ -92,11 +97,8 @@ const otherInvoked = await recorded("other-skill/context")
 // stands in for the shipped one; the smoke tests reload the shipped body in OpenCode itself.
 const loaded = String(Object(Object(loading.request.messages[2]).content[0]).result.value)
 const MODE: Skill.Info = {
-  ...ModeReload.mode(await new SkillFolder(SKILLS).skills()),
-  content: loaded.slice(
-    loaded.indexOf("\n\n") + 2,
-    loaded.indexOf("\nBase directory for this skill:"),
-  ),
+  ...ModeReload.mode(SKILLS, await SKILLS.skills()),
+  content: shownBody(loaded),
 }
 
 /** Temporary skill folders, removed after each test. */
@@ -119,9 +121,12 @@ async function recorded<Request = ModelRequest>(name: string): Promise<Recorded<
   return JSON.parse(await readFile(path, "utf8"))
 }
 
-// A store that writes through set and reads what storage holds.
-function wrapping(storage: FakeStorage, set: FakeStorage["set"]): FakeStorage {
+function withSet(storage: FakeStorage, set: FakeStorage["set"]): FakeStorage {
   return Object.assign(new FakeStorage(), { set, get: storage.get })
+}
+
+function shownBody(text: string, endMarker = "\n\nBase directory for this skill:"): string {
+  return text.slice(text.indexOf("\n\n") + 2, text.indexOf(endMarker))
 }
 
 /**
@@ -131,14 +136,14 @@ function wrapping(storage: FakeStorage, set: FakeStorage["set"]): FakeStorage {
 describe("SkillFile", () => {
   const path = "/s/a-skill/SKILL.md"
 
-  test("decodes a UTF-8 SKILL.md and refuses one that is not UTF-8, naming the fix", () => {
+  test("decodes a UTF-8 SKILL.md and refuses one that is not UTF-8, naming the fix", async () => {
     const text = "---\nname: café\ndescription: A.\n---\n"
     expect(SkillFile.decode(path, new TextEncoder().encode(text)).text).toBe(text)
     expect(SkillFile.decode(path, new TextEncoder().encode(`\ufeff${text}`)).text).toBe(
       `\ufeff${text}`,
     )
-    expect(() => SkillFile.decode(path, Uint8Array.of(0x2d, 0xff))).toThrow(
-      new Error(
+    expect(await thrown(() => SkillFile.decode(path, Uint8Array.of(0x2d, 0xff)))).toEqual(
+      new SkillError(
         "/s/a-skill/SKILL.md is not valid UTF-8; save it as UTF-8, or reinstall the nustack plugin",
       ),
     )
@@ -199,23 +204,35 @@ describe("SkillFile", () => {
     ],
     [
       "# A\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a --- block, or reinstall the nustack plugin",
+      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
+    ],
+    [
+      "---\nname: a\ndescription: A.\n",
+      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
+    ],
+    [
+      "---",
+      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
+    ],
+    [
+      "---\r\nname: a\r\ndescription: A.\r\n",
+      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
     ],
     [
       "A\n---\nname: a\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a --- block, or reinstall the nustack plugin",
+      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
     ],
     [
       "---\nname: a\ndescription: A.\n---x\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a --- block, or reinstall the nustack plugin",
+      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
     ],
     [
       "--- \nname: a\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a --- block, or reinstall the nustack plugin",
+      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
     ],
     [
       "---\nname: a\ndescription: A.\n--- \n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a --- block, or reinstall the nustack plugin",
+      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
     ],
     [
       "---\n- a\n---\n",
@@ -226,13 +243,19 @@ describe("SkillFile", () => {
       "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
     ],
     [
+      "---\n\n\n---\n",
+      "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
+    ],
+    [
       "---\n7\n---\n",
       "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
     ],
   ])(
     "refuses a file %j whose frontmatter does not split from its body, naming the fix",
-    (text, message) => {
-      expect(() => new SkillFile(path, text).info("a")).toThrow(new Error(message))
+    async (text, message) => {
+      expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(
+        new SkillError(message),
+      )
     },
   )
 
@@ -241,9 +264,9 @@ describe("SkillFile", () => {
     expect(new SkillFile(path, text).info("a").description).toBe("a\nb")
   })
 
-  test("refuses frontmatter that is not valid YAML, naming the fix", () => {
-    expect(() => new SkillFile(path, "---\nname: [a\n---\n").info("a")).toThrow(
-      new Error(
+  test("refuses frontmatter that is not valid YAML, naming the fix", async () => {
+    expect(await thrown(() => new SkillFile(path, "---\nname: [a\n---\n").info("a"))).toEqual(
+      new SkillError(
         "/s/a-skill/SKILL.md has frontmatter that is not valid YAML; fix it, or reinstall the nustack plugin",
       ),
     )
@@ -252,6 +275,10 @@ describe("SkillFile", () => {
   test.each([
     [
       "---\ndescription: A.\n---\n",
+      "/s/a-skill/SKILL.md has no name in its frontmatter; add one, or reinstall the nustack plugin",
+    ],
+    [
+      "---\n---\n# A\n",
       "/s/a-skill/SKILL.md has no name in its frontmatter; add one, or reinstall the nustack plugin",
     ],
     [
@@ -282,8 +309,8 @@ describe("SkillFile", () => {
       '---\nname: a\ndescription: "\\x85"\n---\n',
       "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
     ],
-  ])("refuses a field %j it cannot register, naming the fix", (text, message) => {
-    expect(() => new SkillFile(path, text).info("a")).toThrow(new Error(message))
+  ])("refuses a field %j it cannot register, naming the fix", async (text, message) => {
+    expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(new SkillError(message))
   })
 
   test.each([
@@ -296,14 +323,17 @@ describe("SkillFile", () => {
     expect(new SkillFile(path, text).info("a").autoinvoke).toBe(autoinvoke)
   })
 
-  test.each(["yes", "null"])("refuses disable-model-invocation: %s, naming the fix", (value) => {
-    const text = `---\nname: a\ndescription: A.\ndisable-model-invocation: ${value}\n---\n`
-    expect(() => new SkillFile(path, text).info("a")).toThrow(
-      new Error(
-        "/s/a-skill/SKILL.md has a disable-model-invocation that is not true or false; set it to true or false, or reinstall the nustack plugin",
-      ),
-    )
-  })
+  test.each(["yes", "null"])(
+    "refuses disable-model-invocation: %s, naming the fix",
+    async (value) => {
+      const text = `---\nname: a\ndescription: A.\ndisable-model-invocation: ${value}\n---\n`
+      expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(
+        new SkillError(
+          "/s/a-skill/SKILL.md has a disable-model-invocation that is not true or false; set it to true or false, or reinstall the nustack plugin",
+        ),
+      )
+    },
+  )
 })
 
 /**
@@ -325,11 +355,18 @@ describe("SkillFolder", () => {
     ])
   })
 
+  test("lets the model invoke the mode alone", async () => {
+    const skills = await SKILLS.skills()
+    expect(skills.filter((skill) => skill.autoinvoke).map((skill): string => skill.id)).toEqual([
+      "nus-mode",
+    ])
+  })
+
   test("refuses a skills folder it cannot read, naming the errno and the fix", async () => {
     const folder = join(await folders.with("a-skill"), "missing")
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+    const error = await thrown(() => new SkillFolder(folder).skills())
     expect(String(error)).toBe(
-      `Error: ${folder} cannot be read (ENOENT); restore the plugin's skills folder, or reinstall the nustack plugin`,
+      `SkillError: ${folder} cannot be read (ENOENT); restore the plugin's skills folder, or reinstall the nustack plugin`,
     )
   })
 
@@ -337,12 +374,10 @@ describe("SkillFolder", () => {
     const folder = await folders.with("a-skill")
     await mkdir(join(folder, "b-skill"))
     await writeFile(join(folder, "b-skill", "SKILL.md"), "# B\n")
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
-    expect(error).toEqual(
-      new Error(
-        `${join(folder, "a-skill", "SKILL.md")} cannot be read (ENOENT); give the skill a readable SKILL.md, or reinstall the nustack plugin\n` +
-          `${join(folder, "b-skill", "SKILL.md")} has no frontmatter; open it with a --- block, or reinstall the nustack plugin`,
-      ),
+    const error = await thrown(() => new SkillFolder(folder).skills())
+    expect(String(error)).toBe(
+      `SkillError: ${join(folder, "a-skill", "SKILL.md")} cannot be read (ENOENT); give the skill a readable SKILL.md, or reinstall the nustack plugin\n` +
+        `${join(folder, "b-skill", "SKILL.md")} has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin`,
     )
   })
 
@@ -351,7 +386,7 @@ describe("SkillFolder", () => {
     await Promise.all(
       ["g", "f", "e", "d", "c", "b", "a"].map((name) => mkdir(join(folder, `${name}-skill`))),
     )
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+    const error = await thrown(() => new SkillFolder(folder).skills())
     expect(
       String(error)
         .split("\n")
@@ -371,9 +406,9 @@ describe("SkillFolder", () => {
   test("refuses a symlinked skill folder, naming the fix", async () => {
     const folder = await folders.holding("---\nname: a-skill\ndescription: A skill.\n---\n")
     await symlink(join(folder, "a-skill"), join(folder, "b-skill"))
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+    const error = await thrown(() => new SkillFolder(folder).skills())
     expect(error).toEqual(
-      new Error(
+      new SkillError(
         `${join(folder, "b-skill")} is a symlink, which the loader does not follow; put the skill folder itself there, or reinstall the nustack plugin`,
       ),
     )
@@ -381,9 +416,9 @@ describe("SkillFolder", () => {
 
   test("refuses a skill folder without a SKILL.md, naming the errno and the fix", async () => {
     const folder = await folders.with("a-skill")
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+    const error = await thrown(() => new SkillFolder(folder).skills())
     expect(error).toEqual(
-      new Error(
+      new SkillError(
         `${join(folder, "a-skill", "SKILL.md")} cannot be read (ENOENT); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
       ),
     )
@@ -392,43 +427,25 @@ describe("SkillFolder", () => {
   test("refuses a SKILL.md that is not UTF-8, naming the fix", async () => {
     const folder = await folders.with("a-skill")
     await writeFile(join(folder, "a-skill", "SKILL.md"), Uint8Array.of(0x2d, 0xff))
-    const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+    const error = await thrown(() => new SkillFolder(folder).skills())
     expect(error).toEqual(
-      new Error(
+      new SkillError(
         `${join(folder, "a-skill", "SKILL.md")} is not valid UTF-8; save it as UTF-8, or reinstall the nustack plugin`,
       ),
     )
   })
 
-  test.skipIf(process.getuid?.() === 0)(
+  skipAsRoot(
     "keeps the errno of a SKILL.md it may not read; root reads every file, so it skips as root",
     async () => {
       const folder = await folders.holding("---\nname: a\ndescription: A.\n---\n")
       await chmod(join(folder, "a-skill", "SKILL.md"), 0)
-      const error = await new SkillFolder(folder).skills().catch((caught: unknown) => caught)
+      const error = await thrown(() => new SkillFolder(folder).skills())
       expect(String(error)).toBe(
-        `Error: ${join(folder, "a-skill", "SKILL.md")} cannot be read (EACCES); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
+        `SkillError: ${join(folder, "a-skill", "SKILL.md")} cannot be read (EACCES); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
       )
     },
   )
-
-  test("names an error without a code as one", () => {
-    expect([SkillFolder.code(new Error("x")), SkillFolder.code("x")]).toEqual([
-      "no error code",
-      "no error code",
-    ])
-  })
-
-  test("reads the reason of anything thrown", () => {
-    expect([SkillFolder.reason(new Error("x")), SkillFolder.reason("y")]).toEqual(["x", "y"])
-  })
-
-  test("lets the model invoke the mode alone", async () => {
-    const skills = await new SkillFolder(SKILLS).skills()
-    expect(skills.filter((skill) => skill.autoinvoke).map((skill): string => skill.id)).toEqual([
-      "nus-mode",
-    ])
-  })
 })
 
 /**
@@ -437,13 +454,13 @@ describe("SkillFolder", () => {
  * keeps which sessions loaded it. The requests are records of the real OpenCode sessions the setup above names. A
  * session that loaded a nus-mode from the config's skills folder, or whose other tool took the mode's id, gets nothing,
  * and one whose messages still hold the mode gets no second copy. A store that fails surfaces its error, and the next
- * request retries it.
+ * request retries it. Skills without the mode fail with an error that names the mode's SKILL.md and its fix.
  */
 describe("ModeReload", () => {
   const restored: ModelRequest["system"] = [
     {
       type: "text",
-      text: `${MODE.content.trim()}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+      text: `${MODE.content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
     },
   ]
 
@@ -459,7 +476,7 @@ describe("ModeReload", () => {
     }
 
     async start(): Promise<this> {
-      await new ModeReload([this.mode], this.storage).register(this.session)
+      await new ModeReload(this.mode, this.storage).register(this.session)
       return this
     }
 
@@ -479,14 +496,27 @@ describe("ModeReload", () => {
     }
   }
 
-  test("fails with the remedy for skills without the mode", () => {
-    expect(() => ModeReload.mode([])).toThrow(
-      "skills/nus-mode/SKILL.md is missing; restore the mode, or reinstall the nustack plugin",
+  test("gives back the trimmed body, CRLF lines kept, then the mode's folder", () => {
+    const skill = {
+      ...MODE,
+      content: "\n# nus-mode\r\nSay hi.\n\n",
+      path: "/plugin/skills/nus-mode/SKILL.md" as Skill.Info["path"],
+    }
+    expect(new ModeReload(skill, new FakeStorage()).reloadText).toBe(
+      "# nus-mode\r\nSay hi.\n\nBase directory for this skill: /plugin/skills/nus-mode\nRelative paths in this skill are relative to this base directory.",
+    )
+  })
+
+  test("fails with the remedy for skills without the mode", async () => {
+    expect(await thrown(() => ModeReload.mode(new SkillFolder("/plugin/skills"), []))).toEqual(
+      new SkillError(
+        "/plugin/skills/nus-mode/SKILL.md is missing; restore the mode, or reinstall the nustack plugin",
+      ),
     )
   })
 
   test("gives the mode from skills that hold it", () => {
-    expect(ModeReload.mode([MODE])).toBe(MODE)
+    expect(ModeReload.mode(new SkillFolder("/plugin/skills"), [MODE])).toBe(MODE)
   })
 
   test("gives its text back to a session the summarization caught loading the mode", async () => {
@@ -525,7 +555,7 @@ describe("ModeReload", () => {
   test("stores a session's load once, however often its requests hold it", async () => {
     let sets = 0
     const storage = new FakeStorage()
-    const counting = wrapping(storage, async (...args) => {
+    const counting = withSet(storage, async (...args) => {
       sets += 1
       await storage.set(...args)
     })
@@ -539,12 +569,12 @@ describe("ModeReload", () => {
   test("stores a session's load again on its next request once storing it failed", async () => {
     const storage = new FakeStorage()
     let failures = 1
-    const flaky = wrapping(storage, async (...args) => {
+    const flaky = withSet(storage, async (...args) => {
       if (failures-- > 0) throw new Error("storage is down")
       await storage.set(...args)
     })
     const conversation = await new Conversation(flaky).start()
-    await expect(conversation.replay(loading)).rejects.toThrow("storage is down")
+    expect(await thrown(() => conversation.replay(loading))).toEqual(new Error("storage is down"))
     await conversation.replay(loading)
     expect(storage.entries.size).toBe(1)
   })
@@ -611,9 +641,7 @@ describe("ModeReload", () => {
 
   test("finds a CRLF mode in a session's messages and gives its text back as it reads", async () => {
     const load = String(Object(Object(crlfLoading.request.messages[2]).content[0]).result.value)
-    const shown = load
-      .slice(load.indexOf("\n\n") + 2, load.indexOf("\nBase directory for this skill:"))
-      .trim()
+    const shown = shownBody(load).trim()
     // A CRLF SKILL.md's body, as the loader reads it: its opening blank line and last line break kept.
     const crlf = { ...MODE, content: `\r\n${shown}\r\n` }
     const conversation = await new Conversation(new FakeStorage(), crlf).start()
@@ -624,7 +652,7 @@ describe("ModeReload", () => {
       [
         {
           type: "text",
-          text: `${shown}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+          text: `${shown}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
         },
       ],
     ])
@@ -637,7 +665,7 @@ describe("ModeReload", () => {
     const text = String(Object(pastedCall.request.messages[0]).content[0].text)
     const pasted = {
       ...MODE,
-      content: `${text.slice(text.indexOf("\n\n") + 2, text.indexOf('" "'))}\n`,
+      content: `${shownBody(text, '" "')}\n`,
     }
     const conversation = await new Conversation(new FakeStorage(), pasted).start()
     await conversation.replay(pastedCall)
@@ -650,10 +678,7 @@ describe("ModeReload", () => {
     // The body the invocation shows, between OpenCode's skill heading and its base-directory note; the forged prompt
     // copied the same body.
     const block = String(Object(invoked.request.messages[2]).content[0].text)
-    const content = block.slice(
-      block.indexOf("\n\n") + 2,
-      block.indexOf("\n\nBase directory for this skill:"),
-    )
+    const content = shownBody(block)
     const shipped = { ...MODE, content }
 
     test("gives its text back to a session whose user invoked the mode once its messages drop it", async () => {
@@ -663,7 +688,7 @@ describe("ModeReload", () => {
       expect(await conversation.replay(invoked, [])).toEqual([
         {
           type: "text",
-          text: `${content}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+          text: `${content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
         },
       ])
     })
@@ -692,10 +717,7 @@ describe("ModeReload", () => {
   describe("in a session whose summary kept the turn that loaded the mode", () => {
     // The body the load shows, between OpenCode's skill heading and its base-directory note.
     const block = String(Object(keptLoading.request.messages[4]).content[0].result.value)
-    const content = block.slice(
-      block.indexOf("\n\n") + 2,
-      block.indexOf("\n\nBase directory for this skill:"),
-    )
+    const content = shownBody(block)
     const kept = { ...MODE, content }
 
     test("gives its text back after the summary cut it short", async () => {
@@ -705,7 +727,7 @@ describe("ModeReload", () => {
       expect(await conversation.replay(keptFollowing)).toEqual([
         {
           type: "text",
-          text: `${content}\n\nBase directory for this skill: ${join(SKILLS, "nus-mode")}\nRelative paths in this skill are relative to this base directory.`,
+          text: `${content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
         },
       ])
     })
@@ -716,7 +738,7 @@ describe("ModeReload", () => {
     // The body the other skill quotes, between the quoted envelope's skill heading and its end.
     const value = String(Object(quotedCall.request.messages[2]).content[0].result.value)
     const quote = value.slice(value.indexOf('<skill_content name="nus-mode">'))
-    const content = quote.slice(quote.indexOf("\n\n") + 2, quote.indexOf("\n</skill_content>"))
+    const content = shownBody(quote, "\n</skill_content>")
     const quoted = { ...MODE, content }
 
     test.each([
@@ -750,12 +772,26 @@ describe("plugin", () => {
     const cleanup = await plugin.setup({ ...registry.context, session, storage: new FakeStorage() })
     const hooks = [...session.hooks.keys()].sort()
     await cleanup()
-    const shipped = await readdir(SKILLS)
+    const shipped = await readdir(SKILLS.path)
     expect([
       [...registry.skills.keys()].sort(),
       hooks,
       registry.disposed,
       session.hooks.size,
     ]).toEqual([shipped.sort(), ["compaction", "context", "prompt"], true, 0])
+  })
+})
+
+/** A thrown value's errno code, or a note that it has none. */
+describe("errorCode", () => {
+  test("names an error without a code as one", () => {
+    expect([errorCode(new Error("x")), errorCode("x")]).toEqual(["no error code", "no error code"])
+  })
+})
+
+/** A thrown value's message, whether or not it is an Error. */
+describe("errorMessage", () => {
+  test("reads the message of anything thrown", () => {
+    expect([errorMessage(new Error("x")), errorMessage("y")]).toEqual(["x", "y"])
   })
 })

@@ -1,6 +1,6 @@
 <!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
 
-**Copies [writing-for-agents at 56b4467](https://x.io/up/tree/56b4467589d6468baf224cc6010d239945475cc5/skills/*) into `copy/`** for the owner to review before it steers how agents word nustack's docs.
+**Copies [writing-for-agents at 56b4467](https://x.io/up/skills/tree/56b4467589d6468baf224cc6010d239945475cc5/skills/*) into `copy/`** for the owner to review before it steers how agents word nustack's docs.
 
 | Fact | Detail |
 | :-- | :-- |
@@ -12,12 +12,12 @@
 
 ## 👀 Where to look
 
-[Compare upstream from `c11cac6` to `56b4467`](https://x.io/up/compare/c11cac6557897ad944a170c6e9ba5441977df0b4...56b4467589d6468baf224cc6010d239945475cc5). The start is the newest first-parent path revision matching the base copy, not a recorded sync SHA.
+[Compare upstream from `c11cac6` to `56b4467`](https://x.io/up/skills/compare/c11cac6557897ad944a170c6e9ba5441977df0b4...56b4467589d6468baf224cc6010d239945475cc5). The start is the newest first-parent path revision matching the base copy, not a recorded sync SHA.
 
 <details>
 <summary>Upstream commits touching the skill or repository LICENSE (1)</summary>
 
-- [`56b4467`](https://x.io/up/commit/56b4467589d6468baf224cc6010d239945475cc5) ` second `
+- [`56b4467`](https://x.io/up/skills/commit/56b4467589d6468baf224cc6010d239945475cc5) ` second `
 
 </details>
 

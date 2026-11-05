@@ -1,7 +1,8 @@
 /** The fakes that stand in for OpenCode's session hooks and plugin storage behave as those do. */
 import { describe, expect, test } from "bun:test"
 import type { ModelRequest } from "../../../plugin/opencode.ts"
-import { FakeSession, FakeStorage } from "../../fixtures/session.ts"
+import { FakeSession, FakeStorage, HookError } from "../../fixtures/session.ts"
+import { thrown } from "../../fixtures/thrown.ts"
 
 /** The fake keeps one hook per name, and running a name with no hook registered is an error. */
 describe("FakeSession", () => {
@@ -18,7 +19,9 @@ describe("FakeSession", () => {
     await session.run("context", request)
     await registration.dispose()
     expect(seen).toEqual([request])
-    await expect(session.run("context", request)).rejects.toThrow("no context hook is registered")
+    expect(await thrown(() => session.run("context", request))).toEqual(
+      new HookError("no context hook is registered"),
+    )
   })
 })
 

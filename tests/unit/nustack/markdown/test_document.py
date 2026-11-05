@@ -31,6 +31,12 @@ class TestLines:
             "f",
         )
 
+    @pytest.mark.parametrize(
+        ("index", "line"), [(0, 1), (2, 1), (3, 2), (5, 3), (6, 3), (7, 4)]
+    )
+    def test_number_the_line_an_index_sits_on(self, index: int, line: int) -> None:
+        assert Lines("a\r\nb\rc\nd").line_at(index) == line
+
     def test_span_a_token_with_a_line_range(self) -> None:
         assert Lines.span(Token("heading_open", "h2", 1, map=[3, 4])) == (3, 4)
 
@@ -341,6 +347,12 @@ class TestDocumentLineAt:
         self, index: int, line: int
     ) -> None:
         assert Document(Path("/a.md"), "ab\ncd\nef\n").line_at(index) == line
+
+    @pytest.mark.parametrize(("index", "line"), [(1, 1), (3, 2)])
+    def test_counts_a_lone_carriage_return_as_a_line_break(
+        self, index: int, line: int
+    ) -> None:
+        assert Document(Path("/a.md"), "ab\rcd\r").line_at(index) == line
 
 
 class TestDocumentFileLine:

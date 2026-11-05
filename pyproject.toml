@@ -120,6 +120,9 @@ skip_wrap_for_keys = [ "tool.coverage.report.exclude_lines" ]
 # https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/deprecations.rst?plain=1#L1460-L1469
 addopts = [ "--import-mode=importlib", "-ra", "-p", "pytester" ]
 filterwarnings = [ "error" ]
+markers = [
+  "caller_line: checks the file and line a warning names, which make mutate leaves out",
+]
 pythonpath = [ "." ]
 # strict turns on each strictness option, those that join it later included:
 # https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst?plain=1#L2437
@@ -173,6 +176,8 @@ version_files = [
   "plugin/.devin-plugin/plugin.json:version",
   "plugin/package.json:version",
 ]
+# The release workflow publishes from a v<version> tag.
+tag_format = "v$version"
 
 [tool.importlinter]
 root_packages = [ "nustack" ]
@@ -182,12 +187,16 @@ include_external_packages = true
 [[tool.importlinter.contracts]]
 name = "Each part of the harness builds only on the parts below it"
 type = "layers"
+# gh takes a release's tag as the release package's own type, so its publication
+# builds on nustack.github.gh and its tag lies below.
 layers = [
   "nustack.cli",
-  "nustack.release | nustack.repository | nustack.sync",
+  "nustack.release.publication | nustack.repository | nustack.sync",
   "nustack.plugin",
   "nustack.markdown",
-  "nustack.git | nustack.github",
+  "nustack.git | nustack.github.gh",
+  "nustack.github.name | nustack.release.tag",
+  "nustack.sha | nustack.version",
   "nustack.process_group | nustack.rule | nustack.tree | nustack.validation | nustack.yaml_reader",
   "nustack.problem",
 ]
@@ -197,41 +206,48 @@ layers = [
 name = "The modules that decide do no I/O; the disk, the bundle, Git, gh and what acts through them do it"
 type = "forbidden"
 source_modules = [
+  "nustack.github.name",
   "nustack.markdown",
   "nustack.plugin.manifest",
   "nustack.plugin.plugin",
   "nustack.plugin.skill",
   "nustack.problem",
+  "nustack.release.tag",
   "nustack.repository.changelog",
+  "nustack.repository.config",
   "nustack.repository.notes",
   "nustack.repository.page",
   "nustack.repository.pyproject",
+  "nustack.repository.release_workflow",
   "nustack.repository.repository",
   "nustack.repository.suite",
   "nustack.repository.vendored",
   "nustack.rule",
+  "nustack.sha",
+  "nustack.sync.action",
   "nustack.sync.change",
   "nustack.sync.description",
   "nustack.sync.history",
   "nustack.sync.tree",
   "nustack.tree",
   "nustack.validation",
+  "nustack.version",
   "nustack.yaml_reader",
 ]
 # Review keeps out builtins such as open, and Path's I/O methods, such as read_text,
 # since no import names them.
 forbidden_modules = [
+  "glob",
+  "io",
   "nustack.cli",
   "nustack.git",
-  "nustack.github",
+  "nustack.github.gh",
   "nustack.plugin.bundle",
   "nustack.process_group",
-  "nustack.release",
+  "nustack.release.publication",
   "nustack.repository.disk",
   "nustack.sync.git",
   "nustack.sync.proposal",
-  "glob",
-  "io",
   "os",
   "shutil",
   "socket",
@@ -249,10 +265,16 @@ source_paths = [ "src/nustack" ]
 # and Makefile for tests/unit/test_settings.py. The selection below leaves out
 # tests/integration/test_settings.py and tests/integration/fixtures/: they run none
 # of the harness's code, so no mutant can fail them, and they start processes, which
-# slow each mutmut run of the whole selection. tests/unit stays whole, since its tests
-# run in-process.
-pytest_add_cli_args_test_selection = [ "tests/unit", "tests/integration/nustack" ]
+# slow each mutmut run of the whole selection. It keeps tests/unit, whose tests run
+# in-process, but for the tests marked caller_line: mutmut's trampoline stands between
+# the reader and the caller whose line they check.
+pytest_add_cli_args_test_selection = [
+  "-m",
+  "not caller_line",
+  "tests/integration/nustack",
+  "tests/unit",
+]
 also_copy = [ ".github", "Makefile", "plugin" ]
 # ty proves each match exhaustive, so no input reaches its assert_never arm,
 # which coverage skips the same way.
-do_not_mutate_patterns = [ '^\s*case unexpected:$', '^\s*assert_never\(unexpected\)$' ]
+do_not_mutate_patterns = [ '^\s*assert_never\(unexpected\)$', '^\s*case unexpected:$' ]

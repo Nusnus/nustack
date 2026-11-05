@@ -25,17 +25,12 @@ class Suite:
     FIXTURES: ClassVar[PurePosixPath] = TESTS / "fixtures"
     CONFTEST: ClassVar[str] = "conftest.py"
     PYTHON_SOURCES: ClassVar[PurePosixPath] = PurePosixPath("src")
-    SETTINGS: ClassVar[frozendict[PurePosixPath, str]] = frozendict(
+    # Each tests the tools' settings, so mirrors no source file.
+    SETTINGS: ClassVar[frozenset[PurePosixPath]] = frozenset(
         {
-            TESTS / "unit/test_settings.py": (
-                "tests what pytest collects and how much coverage requires"
-            ),
-            TESTS / "integration/test_settings.py": (
-                "tests how pytest, coverage and Ruff run the Python suite"
-            ),
-            TESTS / "unit/settings.test.ts": (
-                "tests how Bun runs the loader's suite, and its version pin"
-            ),
+            TESTS / "unit/test_settings.py",
+            TESTS / "integration/test_settings.py",
+            TESTS / "unit/settings.test.ts",
         }
     )
     root: Path

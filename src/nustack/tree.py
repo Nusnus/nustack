@@ -91,7 +91,7 @@ class Blocked(Absent):
     what: str
 
     def absence(self, missing: str) -> str:  # noqa: ARG002 -- Absent.absence's form
-        return unreadable_since(self.place, self.what)
+        return Unreadable.since(self.place, self.what).reason
 
 
 @dataclass(frozen=True)
@@ -103,6 +103,10 @@ class Unreadable:
     @classmethod
     def of(cls, error: OSError) -> Unreadable:
         return cls(f"cannot be read ({error.strerror}); make it readable")
+
+    @classmethod
+    def since(cls, place: Path, what: str) -> Unreadable:
+        return cls(f"cannot be read, since {place} {what}")
 
 
 @dataclass(frozen=True)
@@ -191,7 +195,3 @@ class Snapshot:
 
     def read(self, path: PurePosixPath) -> Read:
         return self.files[path]
-
-
-def unreadable_since(place: Path, what: str) -> str:
-    return f"cannot be read, since {place} {what}"

@@ -20,6 +20,7 @@ from nustack.plugin.manifest import InvalidMetadataError
 from nustack.plugin.manifest import Manifest
 from nustack.plugin.manifest import Package
 from nustack.plugin.manifest import Person
+from tests.fixtures.repository import ModelRepository
 
 
 class TestManifest:
@@ -32,17 +33,6 @@ class TestManifest:
     """
 
     SMALL_STACK: ClassVar[int] = 1 << 20
-    FIELDS = frozendict(
-        {
-            "name": "kit",
-            "version": "1.2.3",
-            "description": "A kit.",
-            "author": {"name": "Ada"},
-            "homepage": "https://example.com/kit",
-            "repository": "https://example.com/kit",
-            "license": "MIT",
-        }
-    )
 
     @pytest.fixture
     def small_stack(self) -> Iterator[None]:
@@ -62,7 +52,7 @@ class TestManifest:
         )
 
     def test_parses_each_field(self) -> None:
-        manifest = Manifest.parse(json.dumps(dict(self.FIELDS)).encode())
+        manifest = Manifest.parse(ModelRepository.MANIFEST.encode())
         assert (manifest.name, manifest.version, manifest.author) == (
             "kit",
             "1.2.3",
@@ -70,7 +60,7 @@ class TestManifest:
         )
 
     def test_can_key_a_set_since_it_never_changes(self) -> None:
-        content = json.dumps(dict(self.FIELDS)).encode()
+        content = ModelRepository.MANIFEST.encode()
         assert len({Manifest.parse(content), Manifest.parse(content)}) == 1
 
     @pytest.mark.parametrize(
@@ -115,8 +105,20 @@ class TestManifest:
                 "homepage: use a full http or https URL, such as https://example.com",
             ),
             (
-                {"repository": "example.com/kit"},
-                "repository: use a full http or https URL, such as https://example.com",
+                {"repository": "https://example.com/kit"},
+                (
+                    "repository: give the repository's URL as"
+                    " https://<host>/<owner>/<name>, with no user, password, port,"
+                    " query or fragment"
+                ),
+            ),
+            (
+                {"repository": 5},
+                (
+                    "repository: give the repository's URL as"
+                    " https://<host>/<owner>/<name>, with no user, password, port,"
+                    " query or fragment"
+                ),
             ),
             (
                 {"name": "Not A Name", "version": "x"},
@@ -145,7 +147,9 @@ class TestManifest:
         self, change: dict[str, object], reason: str
     ) -> None:
         with pytest.raises(InvalidMetadataError) as caught:
-            Manifest.parse(json.dumps(dict(self.FIELDS) | change).encode())
+            Manifest.parse(
+                json.dumps(ModelRepository.MANIFEST_FIELDS | change).encode()
+            )
         assert str(caught.value) == reason
 
     @pytest.mark.parametrize(
@@ -164,12 +168,12 @@ class TestManifest:
                 "the file: fix the JSON (number out of range at line 1 column 4311)",
             ),
             (
-                b'{"name": "a", ' + json.dumps(dict(FIELDS)).encode()[1:],
+                b'{"name": "a", ' + ModelRepository.MANIFEST.encode()[1:],
                 "has the key 'name' more than once in the file; keep one",
             ),
             (
                 b'{"name": "a", "version": "1.2.3", '
-                + json.dumps(dict(FIELDS)).encode()[1:],
+                + ModelRepository.MANIFEST.encode()[1:],
                 (
                     "has the key 'name' more than once in the file; keep one; has the"
                     " key 'version' more than once in the file; keep one"
@@ -177,7 +181,7 @@ class TestManifest:
             ),
             (
                 b'{"token-canary": 1, "token-canary": 2, '
-                + json.dumps(dict(FIELDS)).encode()[1:],
+                + ModelRepository.MANIFEST.encode()[1:],
                 (
                     "has an unknown key more than once in the file; keep one; an"
                     " unknown key: rename it or remove it; nustack allows only name,"
@@ -187,9 +191,9 @@ class TestManifest:
             ),
             (
                 b'{"name": "a", '
-                + json.dumps(dict(FIELDS) | {"version": "x", "license": " "}).encode()[
-                    1:
-                ],
+                + json.dumps(
+                    ModelRepository.MANIFEST_FIELDS | {"version": "x", "license": " "}
+                ).encode()[1:],
                 (
                     "has the key 'name' more than once in the file; keep one; version:"
                     " use MAJOR.MINOR.PATCH without leading zeros, such as 0.0.1;"
@@ -204,7 +208,7 @@ class TestManifest:
         assert str(caught.value) == reason
 
     def test_names_no_field_when_two_manifests_agree(self) -> None:
-        manifest = Manifest.parse(json.dumps(dict(self.FIELDS)).encode())
+        manifest = Manifest.parse(ModelRepository.MANIFEST.encode())
         assert manifest.differing(manifest) == ()
 
     @pytest.mark.parametrize(
@@ -215,15 +219,17 @@ class TestManifest:
             ("description", "Other."),
             ("author", {"name": "Bo"}),
             ("homepage", "https://example.com/other"),
-            ("repository", "https://example.com/other"),
+            ("repository", "https://example.com/nus/other"),
             ("license", "Apache-2.0"),
         ],
     )
     def test_names_each_field_two_manifests_disagree_on(
         self, field: str, value: object
     ) -> None:
-        left = Manifest.parse(json.dumps(dict(self.FIELDS)).encode())
-        right = Manifest.parse(json.dumps(dict(self.FIELDS) | {field: value}).encode())
+        left = Manifest.parse(ModelRepository.MANIFEST.encode())
+        right = Manifest.parse(
+            json.dumps(ModelRepository.MANIFEST_FIELDS | {field: value}).encode()
+        )
         assert left.differing(right) == (field,)
 
 

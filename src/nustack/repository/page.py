@@ -3,7 +3,8 @@
 The page copies the changelog entry and README's install and use steps outside the
 repository, where a relative link breaks and a reference defined elsewhere in the
 file reads as text. So each part shows something, gives each link and image a full
-URL and defines the references it uses, and once the page joins the parts, none uses
+URL, even where a later README section links the same file by a relative one, and
+defines the references it uses, and once the page joins the parts, none uses
 a label another part defines differently. README holds exactly one section for each
 page step, PageStep, which the page copies.
 """

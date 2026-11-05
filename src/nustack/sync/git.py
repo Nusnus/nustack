@@ -8,9 +8,11 @@ it withdraws.
 
 from dataclasses import dataclass
 from typing import ClassVar
+lazy from collections.abc import Callable
 
 from nustack.git import Git
 from nustack.git import GitError
+from nustack.sha import Sha
 from nustack.sync.change import Blob
 from nustack.sync.change import FileChange
 from nustack.sync.history import Commit
@@ -37,19 +39,31 @@ class CopyGit(Git):
         }
     )
 
-    def history(self, tip: str, source_folder: str, base: CopyTree) -> History:
+    def history(self, tip: Sha, source_folder: str, base: CopyTree) -> History:
         paths = ("--", f"{source_folder}/", CopyTree.LICENSE)
-        log = self.run("log", "--first-parent", "--format=%H", tip, *paths)
-        revisions = log.decode().splitlines()
+        revisions = self.read_log(
+            lambda log: [Sha(name) for name in log.decode().splitlines()],
+            "--first-parent",
+            "--format=%H",
+            str(tip),
+            *paths,
+        )
         copied = revisions[0] if revisions else tip
         baseline = base.newest_match(
-            (sha, self.tree(sha, source_folder, CopyTree.LICENSE)) for sha in revisions
+            (sha, self.tree(str(sha), source_folder, CopyTree.LICENSE))
+            for sha in revisions
         )
         commits = ()
         if baseline is not None:
-            log = self.run("log", "-z", "--format=%H %s", f"{baseline}..{tip}", *paths)
-            commits = Commit.from_log(log)
+            commits = self.read_log(
+                Commit.from_log, "-z", "--format=%H %s", f"{baseline}..{tip}", *paths
+            )
         return History(copied, baseline, commits)
+
+    def read_log[T](self, parse: Callable[[bytes], T], *args: str) -> T:
+        log = self.run("log", *args)
+        with self.naming_by_sha("git log"):
+            return parse(log)
 
     def tree(self, revision: str, folder: str, *paths: str) -> CopyTree:
         listing = self.run("ls-tree", "-r", "-z", revision, "--", f"{folder}/", *paths)
@@ -93,7 +107,7 @@ class CopyGit(Git):
     def proposes(self, remote_url: str, branch: str) -> bool:
         self.run("fetch", remote_url, branch)
         parents = self.run("log", "-1", "--format=%P", "FETCH_HEAD").decode().split()
-        return parents == [self.head] and not self.staged("FETCH_HEAD")
+        return parents == [str(self.head)] and not self.staged("FETCH_HEAD")
 
     def push(self, remote_url: str, branch: str, title: str, body: str) -> None:
         self.run("commit", "-m", title, "-m", body, environment=self.BOT)

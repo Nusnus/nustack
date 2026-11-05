@@ -1,6 +1,6 @@
 /**
  * Bun's settings hold the loader's suite to the Python suite's rules, and a Bun older than package.json pins stops a
- * contributor at once.
+ * contributor at once, in a test the blueprint's message for a failed Bun check points to.
  */
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
@@ -15,6 +15,10 @@ class Pin {
     Object.freeze(this)
   }
 
+  get version(): string | undefined {
+    return typeof this.value === "string" ? Pin.PLAIN.exec(this.value)?.[1] : undefined
+  }
+
   static of(manifest: unknown): Pin {
     return new Pin(
       typeof manifest === "object" && manifest !== null && "packageManager" in manifest
@@ -23,16 +27,12 @@ class Pin {
     )
   }
 
-  get version(): string | undefined {
-    return typeof this.value === "string" ? Pin.PLAIN.exec(this.value)?.[1] : undefined
-  }
-
   metBy(version: string): boolean {
     return this.version !== undefined && Bun.semver.order(version, this.version) >= 0
   }
 }
 
-/** A file at the repository's root, which the settings tests read as the value its loader gives. */
+/** A file at the repository's root, which the settings tests read as its text or as the value its loader gives. */
 class RootFile {
   static readonly ROOT = join(import.meta.dirname, "..", "..")
   readonly path: string

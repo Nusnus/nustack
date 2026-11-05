@@ -1,7 +1,8 @@
 """A gh executable that replays the replies a test gives it and logs every call.
 
 Put first on PATH, it stands in for gh, so the harness runs its real subprocess
-calls.
+calls. Beside it are the repository tests run GitHub on and the argv of each read of
+it they replay.
 """
 
 import json
@@ -10,6 +11,81 @@ import sys
 from dataclasses import dataclass
 from typing import ClassVar
 lazy from pathlib import Path
+
+from nustack.github.name import NameWithOwner
+
+
+class GhArgv:
+    """The repository tests run GitHub on, and the argv of each read of it they replay.
+
+    Each argv is named for the GitHub method that runs it, and for the pull request
+    or tag it reads. The open pull requests are those from branch sync/w into main.
+    """
+
+    REPOSITORY: ClassVar[NameWithOwner] = NameWithOwner("o", "r")
+    DEFAULT_BRANCH: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r",
+        "--jq",
+        ".default_branch",
+    )
+    OPEN_PULLS: ClassVar[tuple[str, ...]] = (
+        "api",
+        "--method",
+        "GET",
+        "--paginate",
+        "repos/o/r/pulls",
+        "-f",
+        "state=open",
+        "-f",
+        "base=main",
+        "-f",
+        "head=o:sync/w",
+        "--jq",
+        ".[] | select(.head.repo.id == .base.repo.id) | .number",
+    )
+    PULL_BODY_5: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r/pulls/5",
+        "--jq",
+        ".body",
+    )
+    PULL_BODY_267: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r/pulls/267",
+        "--jq",
+        ".body",
+    )
+    TAG_COMMIT_V1_2_3: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r/commits/tags/v1.2.3",
+        "--jq",
+        ".sha",
+    )
+    TAG_COMMIT_V0_0_1: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r/commits/tags/v0.0.1",
+        "--jq",
+        ".sha",
+    )
+    TAG_COMMIT_V0_1_0: ClassVar[tuple[str, ...]] = (
+        "api",
+        "repos/o/r/commits/tags/v0.1.0",
+        "--jq",
+        ".sha",
+    )
+    RELEASE_STATE_V1_2_3: ClassVar[tuple[str, ...]] = (
+        *("release", "view", "v1.2.3", "-R", "o/r"),
+        *("--json", "isDraft", "--jq", ".isDraft"),
+    )
+    RELEASE_STATE_V0_0_1: ClassVar[tuple[str, ...]] = (
+        *("release", "view", "v0.0.1", "-R", "o/r"),
+        *("--json", "isDraft", "--jq", ".isDraft"),
+    )
+    RELEASE_STATE_V0_1_0: ClassVar[tuple[str, ...]] = (
+        *("release", "view", "v0.1.0", "-R", "o/r"),
+        *("--json", "isDraft", "--jq", ".isDraft"),
+    )
 
 
 @dataclass(frozen=True)

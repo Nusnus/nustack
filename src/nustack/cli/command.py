@@ -17,18 +17,18 @@ from typing import assert_never
 
 import typer
 
-from nustack.cli.parameter import path
-from nustack.cli.parameter import path_text
-from nustack.cli.parameter import text
+from nustack.cli import parameter
 from nustack.git import Git
 from nustack.git import GitError
-from nustack.github import GitHub
-from nustack.github import GitHubError
+from nustack.github.gh import GitHub
+from nustack.github.gh import GitHubError
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
 from nustack.markdown.document import Document
 from nustack.plugin.bundle import Bundle
 from nustack.problem import Problem
-from nustack.release import Publication
-from nustack.release import Tag
+from nustack.release.publication import Publication
+from nustack.release.tag import Tag
 from nustack.repository.disk import Disk
 from nustack.repository.repository import Release
 from nustack.repository.repository import Repository
@@ -44,7 +44,10 @@ from nustack.tree import Missing
 from nustack.tree import NotAFolder
 from nustack.tree import Symlink
 from nustack.tree import Unopened
+lazy from nustack.sha import Sha
 
+# Module constants, since the module holds commands and no type: the commands and
+# their options share them.
 # Package metadata matches a distribution's name in any case, so no test tells
 # "nustack" from another casing, and mutmut leaves module-level values alone:
 # https://peps.python.org/pep-0503/#normalized-names
@@ -65,32 +68,52 @@ app = typer.Typer(
 # its own `Path()` default.
 # https://github.com/fastapi/typer/blob/0.27.3/typer/utils.py#L140-L149
 RootOption = Annotated[
-    Path, typer.Option(parser=path, help="The nustack repository's folder.")
+    Path, typer.Option(parser=parameter.path, help="The nustack repository's folder.")
 ]
 NameWithOwnerOption = Annotated[
-    str, typer.Option(parser=text, help="The GitHub repository, as <owner>/<name>.")
+    NameWithOwner,
+    typer.Option(
+        parser=parameter.name_with_owner,
+        metavar="<owner>/<name>",
+        help="The GitHub repository.",
+    ),
 ]
-TagArgument = Annotated[str, typer.Argument(parser=text, help="The release's tag.")]
+TagArgument = Annotated[
+    Tag, typer.Argument(parser=parameter.tag, help="The release's tag.")
+]
 UpstreamUrlOption = Annotated[
-    str, typer.Option(parser=text, help="The upstream repository's URL.")
+    RepositoryUrl,
+    typer.Option(
+        parser=parameter.repository_url,
+        metavar="<url>",
+        help="The upstream repository's URL.",
+    ),
 ]
 RunOption = Annotated[
-    str, typer.Option(parser=text, help="The URL of the workflow run that syncs.")
+    str,
+    typer.Option(parser=parameter.text, help="The URL of the workflow run that syncs."),
 ]
 ChecksOption = Annotated[
-    str, typer.Option(parser=text, help="The URL of the sync branch's checks.")
+    str,
+    typer.Option(parser=parameter.text, help="The URL of the sync branch's checks."),
 ]
-CloneOption = Annotated[Path, typer.Option(parser=path, help="Upstream's clone.")]
+CloneOption = Annotated[
+    Path, typer.Option(parser=parameter.path, help="Upstream's clone.")
+]
 SourceFolderOption = Annotated[
     str,
     typer.Option(
-        parser=path_text, metavar="<path>", help="The skill's folder in upstream."
+        parser=parameter.path_text,
+        metavar="<path>",
+        help="The skill's folder in upstream.",
     ),
 ]
 FolderOption = Annotated[
     str,
     typer.Option(
-        parser=path_text, metavar="<path>", help="The copy's folder in the repository."
+        parser=parameter.path_text,
+        metavar="<path>",
+        help="The copy's folder in the repository.",
     ),
 ]
 
@@ -123,7 +146,8 @@ def check(root: RootOption = Path()) -> None:
 def bundle(
     root: RootOption = Path(),
     zip_folder: Annotated[
-        Path, typer.Option(parser=path, help="The folder to write the zip into.")
+        Path,
+        typer.Option(parser=parameter.path, help="The folder to write the zip into."),
     ] = ZIP_FOLDER,
 ) -> None:
     release = checked_release(root)
@@ -173,10 +197,11 @@ def sync(  # noqa: PLR0913 -- Typer reads each option from a parameter of its ow
     source_folder: SourceFolderOption,
     folder: FolderOption,
     branch: Annotated[
-        str, typer.Option(parser=text, help="The branch that proposes the copy.")
+        str,
+        typer.Option(parser=parameter.text, help="The branch that proposes the copy."),
     ],
     remote_url: Annotated[
-        str, typer.Option(parser=text, help="The URL to push the branch to.")
+        str, typer.Option(parser=parameter.text, help="The URL to push the branch to.")
     ],
     name_with_owner: NameWithOwnerOption,
     root: RootOption = Path(),
@@ -200,7 +225,7 @@ def sync(  # noqa: PLR0913 -- Typer reads each option from a parameter of its ow
     except GitError as error:
         fail([error.problem])
     except GitHubError as error:
-        fail([Problem(name_with_owner, error.what)])
+        fail([Problem(str(name_with_owner), error.what)])
     match outcome:
         case Problem() as problem:
             fail([problem])
@@ -218,7 +243,7 @@ def release_tag(
         on_main = Git(root.resolve()).is_ancestor("HEAD", "origin/main")
     except GitError as error:
         fail([error.problem])
-    if problems := Tag(tag).problems(release.manifest.version, on_main=on_main):
+    if problems := tag.problems(release.manifest.version, on_main=on_main):
         fail(problems)
     print(f"{tag} is on main and names the plugin version")
 
@@ -230,13 +255,17 @@ def publish(
     tag: TagArgument,
     *,
     commit: Annotated[
-        str, typer.Option(parser=text, help="The commit CI built the release from.")
+        Sha,
+        typer.Option(
+            parser=parameter.commit, help="The commit CI built the release from."
+        ),
     ],
     name_with_owner: NameWithOwnerOption,
     zip_folder: Annotated[
         Path,
         typer.Option(
-            parser=path, help="The folder that holds the zip and notes.md CI built."
+            parser=parameter.path,
+            help="The folder that holds the zip and notes.md CI built.",
         ),
     ] = ZIP_FOLDER,
 ) -> None:
@@ -266,7 +295,7 @@ def described(
         base = checkout_git.tree("HEAD", sync_copy.folder)
         history = upstream_git.history(upstream_git.head, sync_copy.source_folder, base)
         proposed = upstream_git.tree(
-            history.copied, sync_copy.source_folder, CopyTree.LICENSE
+            str(history.copied), sync_copy.source_folder, CopyTree.LICENSE
         )
         changes = checkout_git.changes(base, upstream_git, proposed)
     except GitError as error:

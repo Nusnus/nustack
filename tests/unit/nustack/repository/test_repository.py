@@ -40,12 +40,12 @@ class TestRepositoryRelease:
             File(b"MIT License\n"),
             "1.2.3",
             (
-                "> **[kit](https://example.com/kit)** · A kit.\n\n"
+                "> **[kit](https://example.com/nus/kit)** · A kit.\n\n"
                 "## 🆕 What's new\n\n### Added\n\n- Adds the kit.\n\n"
                 "## 🚀 Quick start\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
                 "### 2️⃣ Use\n\nRun `kit`.\n\n"
                 "**Full changelog:** [`v1.2.2...v1.2.3`]"
-                "(https://example.com/kit/compare/v1.2.2...v1.2.3)"
+                "(https://example.com/nus/kit/compare/v1.2.2...v1.2.3)"
             ),
         )
 
@@ -214,14 +214,6 @@ class TestRepositoryMarketplaces:
 
     CLAUDE = ".claude-plugin/marketplace.json"
     CURSOR = ".cursor-plugin/marketplace.json"
-    CLAUDE_FIELDS = frozendict(
-        {
-            "name": "kit",
-            "description": "Ada's kit.",
-            "owner": {"name": "Ada"},
-            "plugins": [{"name": "kit", "source": "./plugin", "description": "A kit."}],
-        }
-    )
 
     def test_reports_a_file_in_place_of_a_marketplaces_folder(
         self, repository: ModelRepository
@@ -238,7 +230,8 @@ class TestRepositoryMarketplaces:
 
     def test_reports_an_invalid_marketplace(self, repository: ModelRepository) -> None:
         repository.write(
-            self.CLAUDE, json.dumps(dict(self.CLAUDE_FIELDS) | {"plugins": "kit"})
+            self.CLAUDE,
+            json.dumps(ModelRepository.CLAUDE_MARKETPLACE_FIELDS | {"plugins": "kit"}),
         )
         assert repository.problems() == [
             Problem(
@@ -271,7 +264,9 @@ class TestRepositoryMarketplaces:
         entry = {"name": "kit", "source": "./plugin", "description": "A kit."}
         repository.write(
             self.CLAUDE,
-            json.dumps(dict(self.CLAUDE_FIELDS) | {"plugins": [entry] * count}),
+            json.dumps(
+                ModelRepository.CLAUDE_MARKETPLACE_FIELDS | {"plugins": [entry] * count}
+            ),
         )
         assert repository.problems() == [Problem(repository.where(self.CLAUDE), what)]
 
@@ -281,7 +276,7 @@ class TestRepositoryMarketplaces:
         repository.write(
             self.CLAUDE,
             json.dumps(
-                dict(self.CLAUDE_FIELDS)
+                ModelRepository.CLAUDE_MARKETPLACE_FIELDS
                 | {
                     "plugins": [
                         {"name": "kat", "source": "plugin", "description": "A kat."}
@@ -358,7 +353,9 @@ class TestRepositoryMarketplaces:
     def test_reports_marketplaces_that_disagree(
         self, repository: ModelRepository, change: dict[str, object], what: str
     ) -> None:
-        repository.write(self.CLAUDE, json.dumps(dict(self.CLAUDE_FIELDS) | change))
+        repository.write(
+            self.CLAUDE, json.dumps(ModelRepository.CLAUDE_MARKETPLACE_FIELDS | change)
+        )
         assert repository.problems() == [Problem(repository.where(self.CURSOR), what)]
 
     def test_reports_an_owner_other_than_the_author(
@@ -366,7 +363,9 @@ class TestRepositoryMarketplaces:
     ) -> None:
         repository.write(
             self.CLAUDE,
-            json.dumps(dict(self.CLAUDE_FIELDS) | {"owner": {"name": "Bo"}}),
+            json.dumps(
+                ModelRepository.CLAUDE_MARKETPLACE_FIELDS | {"owner": {"name": "Bo"}}
+            ),
         )
         assert repository.problems() == [
             Problem(
@@ -381,11 +380,13 @@ class TestRepositoryVersions:
     """The changelog and the harness carry the plugin's version.
 
     commitizen's version_files lists each other file whose version is compared, by its
-    path, with or without a pattern. Nothing compares when no file holds a readable
-    version. The changelog's links are
-    checked against the plugin version and reported beside its entry's problems. A
-    changelog without `[Unreleased]` is asked no link to it, and a repository URL's
-    trailing slash is dropped.
+    path, with or without a pattern, and its tag_format names a release's tag as
+    v$version, as the release workflow's push tags filter does with v*; a missing
+    [tool.commitizen] table breaks both commitizen settings. Nothing compares when no
+    file holds a readable version. The changelog's links are checked against the
+    plugin version and reported beside its entry's problems. A changelog without
+    `[Unreleased]` is asked no link to it, and a repository URL's trailing slash is
+    dropped.
     """
 
     def test_reports_a_harness_version_that_differs(
@@ -472,9 +473,8 @@ class TestRepositoryVersions:
                 '  "plugin/package.json:version",\n',
                 '  "plugin/package.json:version",\n  "plugin/package.json",\n',
             ),
-            ("[tool.commitizen]\n", "[tool.other]\n"),
         ],
-        ids=["missing", "extra", "twice", "no-table"],
+        ids=["missing", "extra", "twice"],
     )
     def test_reports_version_files_that_differ_from_the_compared_files(
         self, repository: ModelRepository, old: str, new: str
@@ -499,6 +499,171 @@ class TestRepositoryVersions:
         )
         assert repository.problems() == []
 
+    def test_reports_a_missing_commitizen_table(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit("pyproject.toml", "[tool.commitizen]\n", "[tool.other]\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where("pyproject.toml"),
+                "has a [tool.commitizen] version_files that differs from the other"
+                " files whose version nustack check compares; list each of"
+                " plugin/.claude-plugin/plugin.json, plugin/.cursor-plugin/plugin.json,"
+                " plugin/.devin-plugin/plugin.json, plugin/package.json once, so cz"
+                " bump sets the version in each",
+            ),
+            Problem(
+                repository.where("pyproject.toml"),
+                "has no [tool.commitizen] tag_format; set it to v$version, so cz bump"
+                " finds the last release",
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        ("old", "new", "what"),
+        [
+            (
+                'tag_format = "v$version"\n',
+                "",
+                (
+                    "has no [tool.commitizen] tag_format; set it to v$version, so cz"
+                    " bump finds the last release"
+                ),
+            ),
+            (
+                'tag_format = "v$version"',
+                'tag_format = "$version"',
+                (
+                    "has a [tool.commitizen] tag_format other than the release tags'"
+                    " form; set it to v$version, so cz bump finds the last release"
+                ),
+            ),
+        ],
+        ids=["missing", "other"],
+    )
+    def test_reports_a_tag_format_missing_or_other_than_the_release_tags(
+        self, repository: ModelRepository, old: str, new: str, what: str
+    ) -> None:
+        repository.edit("pyproject.toml", old, new)
+        assert repository.problems() == [
+            Problem(repository.where("pyproject.toml"), what)
+        ]
+
+    @pytest.mark.parametrize(
+        ("triggers", "what"),
+        [
+            (
+                "on:\n  push:\n    branches: [main]\n",
+                (
+                    'has no push tags filter; set on.push.tags to ["v*"], so each'
+                    " release tag starts it"
+                ),
+            ),
+            (
+                "on:\n  workflow_dispatch:\n",
+                (
+                    'has no push tags filter; set on.push.tags to ["v*"], so each'
+                    " release tag starts it"
+                ),
+            ),
+            (
+                'on:\n  push:\n    tags: ["*"]\n',
+                (
+                    "has a push tags filter other than the release tags' form; set"
+                    ' on.push.tags to ["v*"], so each release tag starts it'
+                ),
+            ),
+            (
+                'on:\n  push:\n    tags: ["v*", "w*"]\n',
+                (
+                    "has a push tags filter other than the release tags' form; set"
+                    ' on.push.tags to ["v*"], so each release tag starts it'
+                ),
+            ),
+        ],
+        ids=["no-tags", "no-push", "other", "extra"],
+    )
+    def test_reports_a_push_tags_filter_missing_or_other_than_the_release_tags(
+        self, repository: ModelRepository, triggers: str, what: str
+    ) -> None:
+        repository.write(".github/workflows/release.yml", triggers)
+        assert repository.problems() == [
+            Problem(repository.where(".github/workflows/release.yml"), what)
+        ]
+
+    def test_reports_both_tag_forms_when_each_differs(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "pyproject.toml", 'tag_format = "v$version"', 'tag_format = "$version"'
+        )
+        repository.edit(".github/workflows/release.yml", '"v*"', '"*"')
+        assert repository.problems() == [
+            Problem(
+                repository.where("pyproject.toml"),
+                "has a [tool.commitizen] tag_format other than the release tags'"
+                " form; set it to v$version, so cz bump finds the last release",
+            ),
+            Problem(
+                repository.where(".github/workflows/release.yml"),
+                "has a push tags filter other than the release tags' form; set"
+                ' on.push.tags to ["v*"], so each release tag starts it',
+            ),
+        ]
+
+    def test_reports_a_missing_release_workflow(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "pyproject.toml", 'tag_format = "v$version"', 'tag_format = "$version"'
+        )
+        repository.remove(".github/workflows/release.yml")
+        assert repository.problems() == [
+            Problem(
+                repository.where("pyproject.toml"),
+                "has a [tool.commitizen] tag_format other than the release tags'"
+                " form; set it to v$version, so cz bump finds the last release",
+            ),
+            Problem(
+                repository.where(".github/workflows/release.yml"),
+                "is missing; restore it from the repository",
+            ),
+        ]
+
+    def test_reports_a_release_workflow_that_does_not_parse(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.edit(
+            "pyproject.toml", 'tag_format = "v$version"', 'tag_format = "$version"'
+        )
+        repository.write(".github/workflows/release.yml", "jobs: {}\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where("pyproject.toml"),
+                "has a [tool.commitizen] tag_format other than the release tags'"
+                " form; set it to v$version, so cz bump finds the last release",
+            ),
+            Problem(
+                repository.where(".github/workflows/release.yml"),
+                "is invalid: on: add it",
+            ),
+        ]
+
+    def test_reports_a_release_workflow_whose_on_reads_as_true(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.write(
+            ".github/workflows/release.yml",
+            '%YAML 1.1\n---\non:\n  push:\n    tags: ["v*"]\n',
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where(".github/workflows/release.yml"),
+                "is invalid: the file: %YAML 1.1 reads its on key as true; drop the"
+                ' %YAML 1.1 directive, or quote the key as "on"',
+            ),
+        ]
+
     def test_reports_a_changelog_that_opens_with_another_version(
         self, repository: ModelRepository
     ) -> None:
@@ -513,7 +678,7 @@ class TestRepositoryVersions:
             Problem(
                 repository.where("CHANGELOG.md"),
                 "has no link for [1.2.4]; add"
-                " '[1.2.4]: https://example.com/kit/releases/tag/v1.2.4' above the"
+                " '[1.2.4]: https://example.com/nus/kit/releases/tag/v1.2.4' above the"
                 " first ## heading",
             ),
         ]
@@ -523,7 +688,9 @@ class TestRepositoryVersions:
     ) -> None:
         repository.edit("CHANGELOG.md", "### Added\n\n", "")
         repository.edit(
-            "CHANGELOG.md", "[1.2.3]: https://example.com/kit/releases/tag/v1.2.3\n", ""
+            "CHANGELOG.md",
+            "[1.2.3]: https://example.com/nus/kit/releases/tag/v1.2.3\n",
+            "",
         )
         assert repository.problems() == [
             Problem(
@@ -535,7 +702,7 @@ class TestRepositoryVersions:
             Problem(
                 repository.where("CHANGELOG.md"),
                 "has no link for [1.2.3]; add"
-                " '[1.2.3]: https://example.com/kit/releases/tag/v1.2.3' above the"
+                " '[1.2.3]: https://example.com/nus/kit/releases/tag/v1.2.3' above the"
                 " first ## heading",
             ),
         ]
@@ -557,14 +724,14 @@ class TestRepositoryVersions:
     ) -> None:
         repository.edit(
             "CHANGELOG.md",
-            "[1.2.3]: https://example.com/kit/releases/tag/v1.2.3",
-            "[1.2.3]: https://example.com/kit",
+            "[1.2.3]: https://example.com/nus/kit/releases/tag/v1.2.3",
+            "[1.2.3]: https://example.com/nus/kit",
         )
         assert repository.problems() == [
             Problem(
                 repository.where("CHANGELOG.md"),
-                "links [1.2.3] to https://example.com/kit;"
-                " link it to https://example.com/kit/releases/tag/v1.2.3",
+                "links [1.2.3] to https://example.com/nus/kit;"
+                " link it to https://example.com/nus/kit/releases/tag/v1.2.3",
             )
         ]
 
@@ -574,76 +741,53 @@ class TestRepositoryVersions:
         repository.edit("CHANGELOG.md", "## [Unreleased]\n\n", "")
         repository.edit(
             "CHANGELOG.md",
-            "[Unreleased]: https://example.com/kit/compare/v1.2.3...HEAD\n",
+            "[Unreleased]: https://example.com/nus/kit/compare/v1.2.3...HEAD\n",
             "",
         )
         assert repository.problems() == []
 
-    def test_drops_one_slash_a_repository_url_ends_in(
+    def test_refuses_a_repository_url_that_ends_in_a_slash(
         self, repository: ModelRepository
     ) -> None:
-        repository.edit(
+        for path in (
             "plugin/.devin-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit/"',
-        )
-        repository.edit(
             "plugin/.claude-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit/"',
-        )
-        repository.edit(
             "plugin/.cursor-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit/"',
-        )
-        assert repository.problems() == []
-
-    def test_keeps_a_second_slash_a_repository_url_ends_in(
-        self, repository: ModelRepository
-    ) -> None:
-        repository.edit(
-            "plugin/.devin-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit//"',
-        )
-        repository.edit(
-            "plugin/.claude-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit//"',
-        )
-        repository.edit(
-            "plugin/.cursor-plugin/plugin.json",
-            '"repository": "https://example.com/kit"',
-            '"repository": "https://example.com/kit//"',
-        )
+        ):
+            repository.edit(
+                path,
+                '"repository": "https://example.com/nus/kit"',
+                '"repository": "https://example.com/nus/kit/"',
+            )
         assert repository.problems() == [
             Problem(
-                repository.where("CHANGELOG.md"),
-                "links [1.2.3] to https://example.com/kit/releases/tag/v1.2.3;"
-                " link it to https://example.com/kit//releases/tag/v1.2.3",
-            ),
-            Problem(
-                repository.where("CHANGELOG.md"),
-                "links [1.2.2] to https://example.com/kit/releases/tag/v1.2.2;"
-                " link it to https://example.com/kit//releases/tag/v1.2.2",
-            ),
-            Problem(
-                repository.where("CHANGELOG.md"),
-                "links [Unreleased] to https://example.com/kit/compare/v1.2.3...HEAD;"
-                " link it to https://example.com/kit//compare/v1.2.3...HEAD",
-            ),
+                repository.where(path),
+                "is invalid: repository: give the repository's URL as"
+                " https://<host>/<owner>/<name>, with no user, password, port, query"
+                " or fragment",
+            )
+            for path in (
+                "plugin/.devin-plugin/plugin.json",
+                "plugin/.claude-plugin/plugin.json",
+                "plugin/.cursor-plugin/plugin.json",
+            )
         ]
 
     def test_reports_an_invalid_pyproject_once(
         self, repository: ModelRepository
     ) -> None:
         repository.write("pyproject.toml", "[project\n")
+        repository.edit(".github/workflows/release.yml", '"v*"', '"*"')
         assert repository.problems() == [
+            Problem(
+                repository.where(".github/workflows/release.yml"),
+                "has a push tags filter other than the release tags' form; set"
+                ' on.push.tags to ["v*"], so each release tag starts it',
+            ),
             Problem(
                 repository.where("pyproject.toml"),
                 "is invalid: it is not valid TOML on line 1; fix it",
-            )
+            ),
         ]
 
     def test_reports_a_harness_version_that_is_no_release_version(
@@ -653,9 +797,8 @@ class TestRepositoryVersions:
         assert repository.problems() == [
             Problem(
                 repository.where("pyproject.toml"),
-                "is invalid: needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its"
-                " [project] table, and a list of strings as any [tool.commitizen]"
-                " version_files and any [tool.ruff] extend-exclude",
+                "is invalid: project.version: use MAJOR.MINOR.PATCH without leading"
+                " zeros, such as 0.0.1",
             )
         ]
 

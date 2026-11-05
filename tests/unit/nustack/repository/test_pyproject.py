@@ -9,75 +9,65 @@ from nustack.repository.pyproject import Pyproject
 class TestPyproject:
     """The settings other checks compare with come from pyproject.toml, or a Problem.
 
-    Without commitizen's table, `cz bump` versions no file; without Ruff's, no folder
-    is excluded.
+    Without commitizen's table, no tag format is named and `cz bump` versions no file;
+    without Ruff's, no folder is excluded.
     """
 
-    def test_reads_the_version_the_bumped_files_and_ruffs_excluded_folders(
+    def test_reads_the_version_tag_format_bumped_files_and_ruffs_excluded_folders(
         self,
     ) -> None:
         pyproject = Pyproject.parse(
             b'[project]\nversion = "1.2.3"\n\n'
-            b'[tool.commitizen]\nversion_files = ["f:version"]\n\n'
+            b'[tool.commitizen]\ntag_format = "v$version"\n'
+            b'version_files = ["f:version"]\n\n'
             b'[tool.ruff]\nextend-exclude = ["v"]\n'
         )
         assert (
             pyproject.project.version,
+            pyproject.tool.commitizen.tag_format,
             pyproject.tool.commitizen.version_files,
             pyproject.tool.ruff.extend_exclude,
-        ) == ("1.2.3", ("f:version",), ("v",))
+        ) == ("1.2.3", "v$version", ("f:version",), ("v",))
 
-    def test_bumps_no_file_and_excludes_no_folder_without_their_tables(
+    def test_names_no_tag_format_bumps_no_file_and_excludes_no_folder_without_tables(
         self,
     ) -> None:
         pyproject = Pyproject.parse(b'[project]\nversion = "1.2.3"\n')
         assert (
+            pyproject.tool.commitizen.tag_format,
             pyproject.tool.commitizen.version_files,
             pyproject.tool.ruff.extend_exclude,
-        ) == ((), ())
+        ) == (None, (), ())
 
     @pytest.mark.parametrize(
         ("content", "reason"),
         [
             (
                 b"[project]\nname = 'x'\n",
-                (
-                    "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
-                    " table, and a list of strings as any [tool.commitizen]"
-                    " version_files and any [tool.ruff] extend-exclude"
-                ),
+                "project.version: add it",
             ),
             (
                 b'[project]\nversion = "999"\n',
                 (
-                    "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
-                    " table, and a list of strings as any [tool.commitizen]"
-                    " version_files and any [tool.ruff] extend-exclude"
+                    "project.version: use MAJOR.MINOR.PATCH without leading zeros,"
+                    " such as 0.0.1"
                 ),
             ),
             (
                 b"[project]\nversion = 1\n",
-                (
-                    "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
-                    " table, and a list of strings as any [tool.commitizen]"
-                    " version_files and any [tool.ruff] extend-exclude"
-                ),
+                "project.version: make it a string",
             ),
             (
                 b'[project]\nversion = "1.2.3"\n[tool.ruff]\nextend-exclude = 1\n',
-                (
-                    "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
-                    " table, and a list of strings as any [tool.commitizen]"
-                    " version_files and any [tool.ruff] extend-exclude"
-                ),
+                "tool.ruff.extend-exclude: make it a list",
+            ),
+            (
+                b'[project]\nversion = "1.2.3"\n[tool.commitizen]\ntag_format = 1\n',
+                "tool.commitizen.tag_format: make it a string",
             ),
             (
                 b'[project]\nversion = "1.2.3"\n[tool.commitizen]\nversion_files = 1\n',
-                (
-                    "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project]"
-                    " table, and a list of strings as any [tool.commitizen]"
-                    " version_files and any [tool.ruff] extend-exclude"
-                ),
+                "tool.commitizen.version_files: make it a list",
             ),
             (
                 b"[project]\nsecret = canary\n",

@@ -1,10 +1,12 @@
 """YAML reads into plain data and placed values, and every refusal is the reader's."""
 
+import contextlib
 import sys
+import warnings
 
 import pytest
-from ruamel.yaml.error import MantissaNoDotYAML1_1Warning
 
+from nustack import yaml_reader
 from nustack.yaml_reader import YamlAnchorReusedError
 from nustack.yaml_reader import YamlDuplicateKeyError
 from nustack.yaml_reader import YamlError
@@ -16,8 +18,11 @@ from nustack.yaml_reader import YamlUnbuildableError
 from nustack.yaml_reader import YamlUnhashableKeyError
 from nustack.yaml_reader import YamlValue
 from nustack.yaml_reader import YamlVersionError
+from nustack.yaml_reader import YamlWarning
 from nustack.yaml_reader import read_yaml
 from nustack.yaml_reader import yaml_values
+from tests.fixtures import reader_caller
+from tests.fixtures.reader_caller import Caller
 
 
 class TestReadYaml:
@@ -29,8 +34,22 @@ class TestReadYaml:
     cannot build as its type, an integer too long to convert, a reused anchor, a
     repeated key, text that does not parse, nesting too deep or a character YAML
     cannot read is refused, and a refusal ruamel marks names its line, counted from 0.
-    A warning other than a reused anchor reaches the caller as a warning.
+    A YAML 1.1 float with no dot in its mantissa reaches the caller as the reader's
+    warning, naming its line from 1 and the fix, at the line that called the reader,
+    even when the text is then refused; where warnings are errors, a refusal stays the
+    refusal and notes each. Any other warning passes on as the same warning, at its own
+    line.
     """
+
+    # The files a warning skips to reach the reader's caller.
+    READER_FILES = frozenset({yaml_reader.__file__, contextlib.__file__})
+    CALLERS = pytest.mark.parametrize(
+        "caller", [Caller(read_yaml), Caller.deeper()], ids=["read_yaml", "deeper"]
+    )
+    MANTISSA = (
+        "line 3 holds a YAML 1.1 float with no dot in its mantissa; add one, such as"
+        " 1.0e3, or declare %YAML 1.2"
+    )
 
     @pytest.mark.parametrize(
         ("text", "value"),
@@ -137,6 +156,17 @@ class TestReadYaml:
             sys.set_int_max_str_digits(limit)
         assert loaded == {"a": 1, "b": 10**4300}
 
+    def test_refuses_a_long_unbuildable_integer_as_unbuildable_with_no_limit(
+        self,
+    ) -> None:
+        limit = sys.get_int_max_str_digits()
+        sys.set_int_max_str_digits(0)
+        try:
+            with pytest.raises(YamlUnbuildableError):
+                read_yaml(f"%YAML 1.1\n---\na: !!int X1{'0' * 4300}\n")
+        finally:
+            sys.set_int_max_str_digits(limit)
+
     @pytest.mark.parametrize(
         ("text", "line"),
         [
@@ -219,6 +249,8 @@ class TestReadYaml:
         "value",
         [
             "!!str [1]",
+            "!!int [1]",
+            "!!int {b: 1}",
             "!!map x",
             "!!seq x",
             "!!int x",
@@ -269,9 +301,78 @@ class TestReadYaml:
         with pytest.raises(YamlAnchorReusedError):
             read_yaml("a: &x 1\nb: &x 2\n")
 
-    def test_lets_a_warning_other_than_a_reused_anchor_reach_the_caller(self) -> None:
-        with pytest.warns(MantissaNoDotYAML1_1Warning):
-            assert read_yaml("%YAML 1.1\n---\nx: 1e3\n") == {"x": 1000.0}
+    @CALLERS
+    def test_warns_the_caller_of_a_float_with_no_dot_as_its_own(
+        self, caller: Caller
+    ) -> None:
+        _, heard = caller.read("%YAML 1.1\n---\nx: 1e3\n")
+        assert [
+            (str(each.message), each.category, each.filename not in self.READER_FILES)
+            for each in heard
+        ] == [(self.MANTISSA, YamlWarning, True)]
+
+    # make mutate leaves this test out, as [tool.mutmut] in pyproject.toml says.
+    @pytest.mark.caller_line
+    @CALLERS
+    def test_names_the_line_that_called_the_reader(self, caller: Caller) -> None:
+        line, heard = caller.read("%YAML 1.1\n---\nx: 1e3\n")
+        assert [(each.category, each.filename, each.lineno) for each in heard] == [
+            (YamlWarning, reader_caller.__file__, line)
+        ]
+
+    def test_names_in_its_warning_the_source_its_caller_gives(self) -> None:
+        with pytest.warns(YamlWarning) as heard:
+            read_yaml("%YAML 1.1\n---\nx: 1e3\n", "a.yaml")
+        assert [str(each.message) for each in heard] == [
+            (
+                "line 3 of a.yaml holds a YAML 1.1 float with no dot in its mantissa;"
+                " add one, such as 1.0e3, or declare %YAML 1.2"
+            )
+        ]
+
+    def test_gives_the_caller_a_warning_heard_before_a_refusal(self) -> None:
+        with pytest.warns(YamlWarning) as heard, pytest.raises(YamlTagError):
+            read_yaml("%YAML 1.1\n---\na: 1e3\nb: !!foo x\n")
+        assert [str(each.message) for each in heard] == [self.MANTISSA]
+
+    def test_keeps_a_refusal_with_its_warnings_as_notes_where_warnings_are_errors(
+        self,
+    ) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(YamlTagError) as caught:
+                read_yaml("%YAML 1.1\n---\na: 1e3\nb: 2e3\nc: !!foo x\n")
+        assert caught.value.__notes__ == [
+            f"YamlWarning: {self.MANTISSA}",
+            (
+                "YamlWarning: line 4 holds a YAML 1.1 float with no dot in its"
+                " mantissa; add one, such as 1.0e3, or declare %YAML 1.2"
+            ),
+        ]
+
+    def test_passes_on_a_warning_the_yaml_does_not_earn_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No input makes ruamel warn outside its YAMLWarning, so this stands in for a
+        # warning that ruamel, or Python under it, gives while it loads. Its class
+        # needs two arguments, so no warning rebuilt from its text can stand in for it,
+        # and is no UserWarning, the category warn gives a bare text.
+        class PairWarning(RuntimeWarning):
+            def __init__(self, first: str, second: str) -> None:
+                super().__init__(first, second)
+
+        given = PairWarning("not YAML's", "second")
+
+        def load(_loader: object, _text: str) -> None:
+            warnings.warn_explicit(given, PairWarning, "loader.py", 7)
+
+        monkeypatch.setattr("nustack.yaml_reader.YAML.load", load)
+        with pytest.warns(PairWarning) as heard:
+            _ = read_yaml("a: 1\n")
+        assert [
+            (each.message is given, each.category, each.filename, each.lineno)
+            for each in heard
+        ] == [(True, PairWarning, "loader.py", 7)]
 
     def test_loads_each_distinct_key(self) -> None:
         assert read_yaml("a: 1\nb: 2\n") == {"a": 1, "b": 2}

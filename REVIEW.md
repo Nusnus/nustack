@@ -4,7 +4,7 @@ What Devin Review holds every pull request to, beyond what `make check` enforces
 
 ## Every file
 
-- **Report a break of nustack's own rules as a blocking finding on the pull request [AGENTS.md](AGENTS.md) says it blocks**, never as a suggestion. Each principle applies where its line in nus-mode's `SKILL.md` says. Read a principle in full before you cite it.
+- **Report a break of nustack's own rules as a blocking finding on the pull request [AGENTS.md](AGENTS.md) says it blocks**, never as a suggestion. Read and apply each principle as nus-mode's `SKILL.md` says.
 - **A finding that a test is weak names the test it duplicates, or a broken implementation it would still accept.**
 - **A finding names every instance of its flaw** in the repository, as [long term](plugin/skills/principle-long-term/SKILL.md)'s *fix the flaw everywhere it appears* says.
 - **Each text AGENTS.md says to word by [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) follows it.**

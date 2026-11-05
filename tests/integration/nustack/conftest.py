@@ -16,9 +16,9 @@ import pytest
 
 from nustack import process_group
 from nustack.sync.description import SyncTemplate
+from tests.fixtures.git_repository import GitRepository
 from tests.fixtures.processes import Ready
-from tests.fixtures.sync.git_repository import GitRepository
-from tests.fixtures.sync.git_repository import Sync
+from tests.fixtures.sync.repositories import Sync
 
 
 @pytest.fixture

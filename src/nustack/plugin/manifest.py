@@ -22,13 +22,15 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import HttpUrl
 from pydantic import ValidationError
+from pydantic import field_validator
 
+from nustack.github.name import RepositoryUrl
 from nustack.validation import Pattern
 from nustack.validation import Schema
+from nustack.version import Version
 
 type NonEmptyStr = Annotated[str, Field(pattern=Pattern.NON_BLANK.value)]
 type Name = Annotated[str, Field(pattern=Pattern.NAME.value)]
-type Version = Annotated[str, Field(pattern=Pattern.VERSION.value)]
 type LoaderExport = Literal["./opencode.ts"]
 
 
@@ -112,12 +114,14 @@ class Manifest(Metadata):
     description: NonEmptyStr
     author: Person
     homepage: HttpUrl
-    repository: HttpUrl
+    repository: RepositoryUrl
     license: NonEmptyStr
 
-    @property
-    def repository_url(self) -> str:
-        return str(self.repository).removesuffix("/")
+    # The changelog's and release page's links add GitHub's paths to it.
+    @field_validator("repository", mode="before")
+    @classmethod
+    def repository_of_url(cls, value: object) -> object:
+        return RepositoryUrl.parse(str(value))
 
     def differing(self, other: Manifest) -> tuple[str, ...]:
         mine, theirs = self.model_dump(), other.model_dump()

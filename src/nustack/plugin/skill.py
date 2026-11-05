@@ -57,10 +57,10 @@ class Kind(StrEnum):
                 assert_never(unexpected)
 
     @property
-    def section(self) -> str:
+    def section(self) -> str | None:
         match self:
             case Kind.MODE:
-                return "Playbooks"
+                return None
             case Kind.PRINCIPLE:
                 return "Principles"
             case Kind.LANGUAGE:
@@ -92,18 +92,26 @@ class Frontmatter(BaseModel):
     # The Agent Skills limits: https://agentskills.io/specification
     name: str = Field(pattern=Pattern.NAME.value, max_length=64)
     description: str = Field(pattern=Pattern.NON_BLANK.value, max_length=1024)
-    disable_model_invocation: StrictBool = Field(
-        default=False, alias="disable-model-invocation"
+    # None leaves the field to each host's default.
+    disable_model_invocation: StrictBool | None = Field(
+        default=None, alias="disable-model-invocation"
     )
-    triggers: tuple[Literal["user", "model"], ...] = ("user", "model")
+    triggers: tuple[Literal["user", "model"], ...] | None = None
 
     @property
     def hidden_from_model(self) -> bool:
-        return self.disable_model_invocation and self.triggers == ("user",)
+        return self.disable_model_invocation is True and self.triggers == ("user",)
 
     @property
     def sets_invocation(self) -> bool:
-        return bool({"disable_model_invocation", "triggers"} & self.model_fields_set)
+        return self.disable_model_invocation is not None or self.triggers is not None
+
+    @field_validator("disable_model_invocation", mode="before")
+    @classmethod
+    def disable_model_invocation_not_null(cls, disable: object) -> object:
+        if disable is not None:
+            return disable
+        raise ValueError(Schema.FIXES["bool_type"])
 
     @field_validator("triggers", mode="before")
     @classmethod

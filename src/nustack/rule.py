@@ -17,6 +17,10 @@ class Rule(StrEnum):
         "commitizen's version_files in pyproject.toml lists, once each, every other "
         "file whose version the check compares"
     )
+    RELEASE_TAG = (
+        "commitizen's tag_format in pyproject.toml, and the release workflow's push "
+        "tags filter, each name the tag form nustack release-tag takes"
+    )
     PLUGIN_FILES = (
         "plugin/ holds only the host manifests, skills, playbooks, the OpenCode "
         "loader with its package.json, the Claude Code hook that reloads the mode, "

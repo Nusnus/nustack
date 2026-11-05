@@ -748,3 +748,21 @@ class TestFrontmatterBlockFencedOf:
         self, text: str, fenced: str
     ) -> None:
         assert FrontmatterBlock.fenced_of(text) == fenced
+
+
+class TestFrontmatterBlockOpens:
+    """A file opens a frontmatter block when its first line is ---."""
+
+    @pytest.mark.parametrize(
+        ("text", "opened"),
+        [
+            ("---\nname: a\n", True),
+            ("---\r\n", True),
+            ("---", True),
+            ("--- a\n", False),
+        ],
+    )
+    def test_on_a_first_line_of_three_dashes_only(
+        self, text: str, *, opened: bool
+    ) -> None:
+        assert FrontmatterBlock.opens(text) is opened

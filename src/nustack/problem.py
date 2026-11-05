@@ -1,10 +1,12 @@
 """What every check reports: one place that breaks one rule, and the fix.
 
-A Problem reads the same in every check's output.
+A Problem reads the same in every check's output. A file whose parser refuses its
+content reads as a Problem that the file is invalid.
 """
 
 from dataclasses import dataclass
 from typing import ClassVar
+lazy from collections.abc import Callable
 lazy from pathlib import Path
 
 
@@ -21,3 +23,16 @@ class Problem:
 
     def __str__(self) -> str:
         return f"{self.where}: {self.what}"
+
+    @classmethod
+    def parsed[T](
+        cls,
+        where: Path,
+        content: bytes,
+        parse: Callable[[bytes], T],
+        invalid: type[ValueError],
+    ) -> T | Problem:
+        try:
+            return parse(content)
+        except invalid as error:
+            return cls(where, f"is invalid: {error}")

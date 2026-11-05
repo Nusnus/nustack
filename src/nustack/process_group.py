@@ -19,6 +19,8 @@ from typing import overload
 lazy from collections.abc import Mapping
 lazy from pathlib import Path
 
+# Module constants, since the module holds functions and no type: run and
+# wait_for_group share them.
 # Two seconds leaves a process room to clean up on a loaded machine before SIGKILL,
 # which no process can clean up after.
 GRACE = 2.0

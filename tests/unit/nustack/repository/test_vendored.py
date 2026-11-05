@@ -8,82 +8,25 @@ from pathlib import PurePosixPath
 import pytest
 
 from nustack.problem import Problem
+from nustack.repository.config import InvalidConfigError
 from nustack.repository.vendored import Hooks
-from nustack.repository.vendored import InvalidConfigError
+from nustack.repository.vendored import SyncWorkflow
 from nustack.repository.vendored import VendoredCopy
-from nustack.repository.vendored import Workflow
 lazy from tests.fixtures.repository import ModelRepository
 
 
 class TestHooks:
     """The check sees each hook that could rewrite a file.
 
-    A config it cannot read is refused naming why.
+    A hook with no id is refused, naming where it sits.
     """
 
-    @pytest.mark.parametrize(
-        ("content", "reason"),
-        [
-            (b"repos: []\n# caf\xe9\n", "it is not valid UTF-8; save it as UTF-8"),
-            (
-                "repos: []\n".encode("utf-16"),
-                "it is not valid UTF-8; save it as UTF-8",
-            ),
-            (b"repos: [\n", "it is not valid YAML on line 2; fix it"),
-            (
-                b"repos: []\nx: !!set {}\n",
-                "it uses a tag on line 2 that nustack does not read; remove the tag",
-            ),
-            (
-                b"repos: []\nx: !!str [1]\n",
-                (
-                    "it holds a value on line 2 that YAML cannot build as its type;"
-                    " fix the value, or remove its tag or merge key"
-                ),
-            ),
-            (b"repos: []\nrepos: []\n", "it repeats a key on line 2; keep one"),
-            (
-                b"%YAML 1.3\n---\nrepos: []\n",
-                (
-                    "it names a YAML version other than 1.1 or 1.2 on line 1; set it"
-                    " to 1.2"
-                ),
-            ),
-            (
-                b"repos: []\na: &x 1\nb: &x 2\n",
-                "it reuses an anchor name; give each anchor its own name",
-            ),
-            (
-                b"repos:\n  - hooks:\n      - exclude: x\n",
-                (
-                    "needs a repos list, each with a hooks list of entries that each"
-                    " hold an id; fix its shape"
-                ),
-            ),
-        ],
-    )
-    def test_refuses_a_file_it_cannot_read(self, content: bytes, reason: str) -> None:
+    def test_refuses_a_hook_with_no_id_naming_where_it_sits(self) -> None:
         with pytest.raises(InvalidConfigError) as caught:
-            Hooks.parse(content)
-        assert str(caught.value) == reason
-
-    @pytest.mark.parametrize(
-        ("content", "ids"),
-        [
-            (b"repos: []\n# cafe\n", []),
-            (b"repos: []\n", []),
-            (b"repos: []\nx: !!map {}\n", []),
-            (b"repos: []\nx: !!str 1\n", []),
-            (b"repos: []\nx: []\n", []),
-            (b"%YAML 1.2\n---\nrepos: []\n", []),
-            (b"repos: []\na: &x 1\nb: &y 2\n", []),
-            (b"repos:\n  - hooks:\n      - id: x\n", ["x"]),
-        ],
-    )
-    def test_reads_a_file_each_refused_one_differs_from_only_where_it_breaks(
-        self, content: bytes, ids: list[str]
-    ) -> None:
-        assert [hook.id for hook in Hooks.parse(content).hooks] == ids
+            Hooks.parse(
+                b"repos:\n  - hooks:\n      - exclude: x\n  - hooks:\n      - id: b\n"
+            )
+        assert str(caught.value) == "repos.0.hooks.0.id: add it"
 
     def test_lists_every_hook_of_every_repository(self) -> None:
         hooks = Hooks.parse(
@@ -96,15 +39,16 @@ class TestHooks:
         ]
 
 
-class TestWorkflow:
+class TestSyncWorkflow:
     """The check learns where the sync writes the copy from the workflow itself.
 
-    A null env value stays null and a date reads as text; a job environment of the wrong
-    shape is refused.
+    A null env value stays null and a date reads as text. Jobs, a job, its key or its
+    environment of the wrong shape is refused, with a reason that names no key read
+    from the file, even a job named as Pydantic marks a key's own error.
     """
 
     def test_reads_each_jobs_environment(self) -> None:
-        workflow = Workflow.parse(
+        workflow = SyncWorkflow.parse(
             b"jobs:\n  a:\n    env:\n      X: y\n      N: 1\n      B: true\n"
             b"      Z: ~\n      D: 2026-01-01\n  b: {}\n"
         )
@@ -113,13 +57,45 @@ class TestWorkflow:
             "b": {},
         }
 
-    def test_refuses_a_job_environment_of_the_wrong_shape(self) -> None:
+    @pytest.mark.parametrize(
+        ("content", "reason"),
+        [
+            (
+                b"jobs:\n  a:\n    env: [x]\n",
+                (
+                    "jobs.<key>.env: make it an object of names to text, numbers,"
+                    " booleans or nulls"
+                ),
+            ),
+            (
+                b"jobs:\n  a:\n    env: {X: [1]}\n",
+                (
+                    "jobs.<key>.env: make it an object of names to text, numbers,"
+                    " booleans or nulls"
+                ),
+            ),
+            (
+                b"jobs:\n  a:\n    env: {1: x}\n",
+                (
+                    "jobs.<key>.env: make it an object of names to text, numbers,"
+                    " booleans or nulls"
+                ),
+            ),
+            (b"jobs:\n  1: {}\n", "jobs: for each key, make it a string"),
+            (b"jobs:\n  a: 1\n", "jobs.<key>: make it an object of keys and values"),
+            (
+                b'jobs:\n  "[key]": 1\n',
+                "jobs.<key>: make it an object of keys and values",
+            ),
+            (b"jobs: []\n", "jobs: make it an object of keys and values"),
+        ],
+    )
+    def test_refuses_jobs_of_the_wrong_shape_naming_no_key(
+        self, content: bytes, reason: str
+    ) -> None:
         with pytest.raises(InvalidConfigError) as caught:
-            Workflow.parse(b"jobs:\n  a:\n    env: [x]\n")
-        assert str(caught.value) == (
-            "needs a jobs mapping, each job with any env a mapping of scalars;"
-            " fix its shape"
-        )
+            SyncWorkflow.parse(content)
+        assert str(caught.value) == reason
 
 
 class TestVendoredCopy:
@@ -414,10 +390,7 @@ class TestVendoredCopy:
             (
                 WORKFLOW,
                 "jobs: []\n",
-                (
-                    "is invalid: needs a jobs mapping, each job with any env a mapping"
-                    " of scalars; fix its shape"
-                ),
+                "is invalid: jobs: make it an object of keys and values",
             ),
         ],
     )

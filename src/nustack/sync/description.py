@@ -21,6 +21,7 @@ from nustack.problem import Problem
 from nustack.sync.change import Comparison
 from nustack.sync.change import FileChange
 from nustack.sync.tree import CopyTree
+lazy from nustack.github.name import RepositoryUrl
 lazy from nustack.sync.history import History
 
 
@@ -28,7 +29,7 @@ lazy from nustack.sync.history import History
 class SyncLinks:
     """Trusted workflow links; copied text never supplies a Markdown destination."""
 
-    upstream_url: str
+    upstream_url: RepositoryUrl
     run: str
     checks: str
 
@@ -57,11 +58,10 @@ class SyncDescription:
 
     @property
     def lead(self) -> str:
-        source_url = (
-            f"{self.links.upstream_url}/tree/{self.history.copied}/{self.source_folder}"
-        )
+        copied = self.history.copied
+        source_url = f"{self.links.upstream_url}/tree/{copied}/{self.source_folder}"
         return (
-            f"**Copies [writing-for-agents at {self.history.copied[:7]}]({source_url}) "
+            f"**Copies [writing-for-agents at {copied.short}]({source_url}) "
             f"into `{self.folder}/`** for the owner to review before it steers "
             "how agents word nustack's docs."
         )
@@ -112,18 +112,18 @@ class SyncDescription:
                 "No first-parent change to the upstream paths matched the base "
                 "copy, including its license and modes. The commit range is unknown."
             )
-        baseline = self.history.baseline
+        baseline, copied = self.history.baseline, self.history.copied
         upstream_url = self.links.upstream_url
-        compare = f"{upstream_url}/compare/{baseline}...{self.history.copied}"
+        compare = f"{upstream_url}/compare/{baseline}...{copied}"
         return (
-            f"[Compare upstream from `{baseline[:7]}` to `{self.history.copied[:7]}`]"
+            f"[Compare upstream from `{baseline.short}` to `{copied.short}`]"
             f"({compare}). The start is the newest first-parent path revision "
             "matching the base copy, not a recorded sync SHA.\n\n"
             + fold(
                 f"Upstream commits touching the skill or repository {CopyTree.LICENSE} "
                 f"({len(self.history.commits)})",
                 (
-                    f"[`{commit.sha[:7]}`]({upstream_url}/commit/{commit.sha}) "
+                    f"[`{commit.sha.short}`]({upstream_url}/commit/{commit.sha}) "
                     f"{code(commit.subject)}"
                     for commit in self.history.commits
                 ),

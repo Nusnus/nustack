@@ -13,9 +13,11 @@ from nustack.problem import Problem
 from nustack.sync.change import Blob
 from nustack.sync.git import CopyGit
 from nustack.sync.history import Commit
+from nustack.sync.history import History
 from nustack.sync.tree import Mode
-from tests.fixtures.sync.git_repository import GitRepository
-lazy from tests.fixtures.sync.git_repository import Sync
+from tests.fixtures.git_repository import GitRepository
+lazy from nustack.sha import Sha
+lazy from tests.fixtures.sync.repositories import Sync
 
 
 class TestCopyGit:
@@ -24,9 +26,20 @@ class TestCopyGit:
     Without a match there is no commit range, a match only on a side branch is no
     base, a locally edited base reads from the checkout, and option-like or magic
     paths stay literal. Withdrawing deletes the branch once, and nothing where it is
-    absent. A failed command, or a remote or revision it cannot read, stops with a
-    Problem naming the fix.
+    absent. A failed command, a remote or revision it cannot read, or a history Git
+    names by other than SHA-1, stops with a Problem naming the fix.
     """
+
+    @pytest.fixture
+    def merged(self, sync: Sync) -> tuple[Sha, Sha]:
+        repo = sync.upstream
+        repo.git("switch", "-qc", "side", str(sync.first))
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "only on side\n")
+        side = repo.commit("side")
+        repo.git("switch", "-q", "main")
+        repo.git("merge", "--no-commit", "-s", "ours", "side")
+        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "different from both parents\n")
+        return side, repo.commit("merge")
 
     def test_finds_the_base_revision_and_reads_both_object_stores(
         self, sync: Sync
@@ -45,7 +58,7 @@ class TestCopyGit:
         changes = checkout_git.changes(
             base,
             upstream_git,
-            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(sync.second), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert [(change.path, change.before, change.after) for change in changes] == [
             ("SKILL.md", Blob(b"old\n", Mode.REGULAR), Blob(b"new\n", Mode.REGULAR)),
@@ -78,7 +91,7 @@ class TestCopyGit:
         head = repo.commit("unrelated")
         upstream_git = CopyGit(repo.root)
         history = upstream_git.history(
-            head, "missing", upstream_git.tree(head, "missing")
+            head, "missing", upstream_git.tree(str(head), "missing")
         )
         assert (history.copied, history.baseline, history.commits) == (head, None, ())
 
@@ -96,20 +109,15 @@ class TestCopyGit:
             (),
         )
 
-    def test_takes_a_match_on_main_before_a_merge_as_the_base(self, sync: Sync) -> None:
-        repo = sync.upstream
-        repo.git("switch", "-qc", "side", sync.first)
-        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "only on side\n")
-        side = repo.commit("side")
-        repo.git("switch", "-q", "main")
-        repo.git("merge", "--no-commit", "-s", "ours", "side")
-        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "different from both parents\n")
-        merge = repo.commit("merge")
-        upstream_git = CopyGit(repo.root)
+    def test_takes_a_match_on_main_before_a_merge_as_the_base(
+        self, sync: Sync, merged: tuple[Sha, Sha]
+    ) -> None:
+        side, merge = merged
+        upstream_git = CopyGit(sync.upstream.root)
         history = upstream_git.history(
             upstream_git.head,
             sync.SOURCE_FOLDER,
-            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(sync.second), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (
             merge,
@@ -118,21 +126,14 @@ class TestCopyGit:
         )
 
     def test_takes_no_match_on_a_side_branch_as_a_copy_from_main(
-        self, sync: Sync
+        self, sync: Sync, merged: tuple[Sha, Sha]
     ) -> None:
-        repo = sync.upstream
-        repo.git("switch", "-qc", "side", sync.first)
-        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "only on side\n")
-        side = repo.commit("side")
-        repo.git("switch", "-q", "main")
-        repo.git("merge", "--no-commit", "-s", "ours", "side")
-        repo.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "different from both parents\n")
-        merge = repo.commit("merge")
-        upstream_git = CopyGit(repo.root)
+        side, merge = merged
+        upstream_git = CopyGit(sync.upstream.root)
         history = upstream_git.history(
             upstream_git.head,
             sync.SOURCE_FOLDER,
-            upstream_git.tree(side, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(side), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (merge, None, ())
 
@@ -149,11 +150,36 @@ class TestCopyGit:
         history = upstream_git.history(
             tip,
             sync.SOURCE_FOLDER,
-            upstream_git.tree(sync.first, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(sync.first), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.baseline, history.commits) == (
             reverted,
             (Commit(tip, "newer"),),
+        )
+
+    def test_reads_a_history_git_names_by_sha1(self, tmp_path: Path) -> None:
+        repository = GitRepository.init(tmp_path / "repository", object_format="sha1")
+        repository.write("LICENSE", "MIT\n")
+        tip = repository.commit("license")
+        git = CopyGit(repository.root)
+        assert git.history(
+            tip, "skill", git.tree(str(tip), "skill", "LICENSE")
+        ) == History(tip, None, ())
+
+    def test_refuses_a_history_git_names_by_other_than_sha1(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository", object_format="sha256")
+        repository.write("LICENSE", "MIT\n")
+        # Git takes a SHA-256 name's first 40 digits as an abbreviation of it.
+        tip = Sha(repository.record("license")[:40])
+        git = CopyGit(repository.root)
+        with pytest.raises(GitError) as caught:
+            git.history(tip, "skill", git.tree(str(tip), "skill", "LICENSE"))
+        assert caught.value.problem == Problem(
+            repository.root,
+            "git log named a commit by other than its SHA-1; nustack reads only"
+            " repositories whose commits Git names by SHA-1, so use one",
         )
 
     def test_starts_the_history_at_the_matching_license_and_stops_at_the_pin(
@@ -172,7 +198,7 @@ class TestCopyGit:
         history = upstream_git.history(
             tip,
             sync.SOURCE_FOLDER,
-            upstream_git.tree(baseline, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(baseline), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert (history.copied, history.baseline, history.commits) == (
             tip,
@@ -187,7 +213,7 @@ class TestCopyGit:
         repo.write(":(exclude)skill/LICENSE", "only for the skill\n")
         revision = repo.commit("skill license")
         upstream_git = CopyGit(repo.root)
-        tree = upstream_git.tree(revision, ":(exclude)skill", "LICENSE")
+        tree = upstream_git.tree(str(revision), ":(exclude)skill", "LICENSE")
         assert upstream_git.blob(tree.files["LICENSE"]) == Blob(
             b"only for the skill\n", Mode.REGULAR
         )
@@ -198,7 +224,7 @@ class TestCopyGit:
         sync.upstream.write("-skill/agents/settings", "policy\n")
         revision = sync.upstream.commit("nested settings")
         upstream_git = CopyGit(sync.upstream.root)
-        tree = upstream_git.tree(revision, "-skill")
+        tree = upstream_git.tree(str(revision), "-skill")
         assert upstream_git.blob(tree.files["agents/settings"]) == Blob(
             b"policy\n", Mode.REGULAR
         )
@@ -213,7 +239,7 @@ class TestCopyGit:
         changes = checkout_git.changes(
             checkout_git.tree("HEAD", sync.FOLDER),
             upstream_git,
-            upstream_git.tree(sync.second, sync.SOURCE_FOLDER, "LICENSE"),
+            upstream_git.tree(str(sync.second), sync.SOURCE_FOLDER, "LICENSE"),
         )
         assert [(change.path, change.before) for change in changes] == [
             ("SKILL.md", Blob(b"local\n", Mode.REGULAR)),
@@ -327,9 +353,9 @@ class TestCopyGit:
     def test_fails_to_delete_a_branch_from_a_remote_it_cannot_read(
         self, sync: Sync, tmp_path: Path
     ) -> None:
-        with pytest.raises(GitError) as failed:
+        with pytest.raises(GitError) as caught:
             CopyGit(sync.checkout.root).withdraw(str(tmp_path / "none"), "sync/w")
-        assert failed.value.problem == Problem(
+        assert caught.value.problem == Problem(
             sync.checkout.root,
             "git ls-remote exited 128; fix the cause Git"
             " printed above, such as a missing clone or revision",
@@ -351,9 +377,9 @@ class TestCopyGit:
         assert (unchanged, checkout_git.staged()) == (False, True)
 
     def test_fails_to_compare_with_a_revision_it_cannot_read(self, sync: Sync) -> None:
-        with pytest.raises(GitError) as failed:
+        with pytest.raises(GitError) as caught:
             CopyGit(sync.checkout.root).staged("missing")
-        assert failed.value.problem == Problem(
+        assert caught.value.problem == Problem(
             sync.checkout.root,
             "git diff exited 128; fix the cause Git printed"
             " above, such as a missing clone or revision",

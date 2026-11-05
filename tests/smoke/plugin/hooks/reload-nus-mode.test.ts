@@ -6,12 +6,17 @@
  * A host's requests carry IDs and times that change on each run, so each test checks what the request holds.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Bundle } from "../../../fixtures/bundle.ts"
+import { TemporaryFolders } from "../../../fixtures/folders.ts"
 import { FakeModel } from "../../../fixtures/model.ts"
 import { finished } from "../../../fixtures/process.ts"
+
+/** claude failed while a smoke test drove it. */
+class ClaudeError extends Error {
+  override name = "ClaudeError"
+}
 
 const claude = join(
   import.meta.dirname,
@@ -25,10 +30,38 @@ const claude = join(
   "claude",
 )
 
+/**
+ * Claude Code runs each test's sessions in one temporary home, with the release zip's plugin, another plugin whose skill
+ * shares the mode's name and title, and the fake model.
+ */
 describe("reload-nus-mode.sh in Claude Code", () => {
+  const folders = new TemporaryFolders()
   let bundle: Bundle
   let model: FakeModel
   let home: string
+
+  beforeAll(async () => {
+    bundle = await Bundle.unpacked()
+    model = new FakeModel("claude-code")
+    home = await folders.make()
+    // Another plugin, installed beside nustack, whose skill shares the mode's name and title.
+    const other = join(home, "other")
+    await mkdir(join(other, ".claude-plugin"), { recursive: true })
+    await mkdir(join(other, "skills", "nus-mode"), { recursive: true })
+    await writeFile(
+      join(other, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "other", version: "1.0.0", description: "Another plugin." }),
+    )
+    await writeFile(
+      join(other, "skills", "nus-mode", "SKILL.md"),
+      "---\nname: nus-mode\ndescription: Another plugin's mode.\n---\n\n# nus-mode\n\nAnother plugin's mode.\n",
+    )
+  })
+
+  afterAll(async () => {
+    // beforeAll may stop before it sets each of these.
+    await Promise.all([bundle?.remove(), model?.stop(), folders.clear()])
+  })
 
   async function ask(session: string | null, text: string): Promise<string> {
     const resume = session === null ? [] : ["--resume", session]
@@ -41,7 +74,7 @@ describe("reload-nus-mode.sh in Claude Code", () => {
         "--plugin-dir",
         join(home, "other"),
         "--model",
-        "claude-haiku-5-5",
+        FakeModel.MODEL,
         "--output-format",
         "json",
         "--allowedTools=Skill",
@@ -62,32 +95,9 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     )
     const { code, stdout, stderr } = await finished(run)
     if (code !== 0)
-      throw new Error(`claude exited with ${code}\nstderr: ${stderr}\nstdout: ${stdout}`)
+      throw new ClaudeError(`claude exited with ${code}\nstderr: ${stderr}\nstdout: ${stdout}`)
     return JSON.parse(stdout).session_id
   }
-
-  beforeAll(async () => {
-    bundle = await Bundle.unpacked()
-    model = new FakeModel("claude-code")
-    home = await mkdtemp(join(tmpdir(), "nustack-claude-"))
-    // Another plugin, installed beside nustack, whose skill shares the mode's name and title.
-    const other = join(home, "other")
-    await mkdir(join(other, ".claude-plugin"), { recursive: true })
-    await mkdir(join(other, "skills", "nus-mode"), { recursive: true })
-    await writeFile(
-      join(other, ".claude-plugin", "plugin.json"),
-      JSON.stringify({ name: "other", version: "1.0.0", description: "Another plugin." }),
-    )
-    await writeFile(
-      join(other, "skills", "nus-mode", "SKILL.md"),
-      "---\nname: nus-mode\ndescription: Another plugin's mode.\n---\n\n# nus-mode\n\nAnother plugin's mode.\n",
-    )
-  })
-
-  afterAll(async () => {
-    // beforeAll may stop before it sets each of these.
-    await Promise.all([bundle?.remove(), model?.stop(), home && rm(home, { recursive: true })])
-  })
 
   test("sends nus-mode again after /compact", async () => {
     const session = await ask(null, FakeModel.LOAD)
@@ -95,7 +105,7 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
@@ -107,7 +117,7 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
@@ -120,7 +130,7 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(first),
     ]).toEqual([false, false, false])
@@ -133,7 +143,7 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(first),
     ]).toEqual([false, false, false])

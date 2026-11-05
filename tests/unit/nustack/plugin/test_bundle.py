@@ -5,7 +5,6 @@ leaves no partial file behind. A zip folder or zip path it cannot write to is a
 Problem naming the next step.
 """
 
-import os
 import re
 import resource
 import signal
@@ -25,6 +24,8 @@ from nustack.problem import Problem
 from nustack.tree import File
 from nustack.tree import Folder
 from nustack.tree import Tree
+from tests.fixtures.permissions import SKIP_AS_ROOT
+from tests.fixtures.repository import ModelRepository
 
 
 class TestBundle:
@@ -43,11 +44,7 @@ class TestBundle:
     can leave.
     """
 
-    MANIFEST = Manifest.parse(
-        b'{"name": "kit", "version": "1.2.3", "description": "A kit.",'
-        b' "author": {"name": "Ada"}, "homepage": "https://example.com/kit",'
-        b' "repository": "https://example.com/kit", "license": "MIT"}'
-    )
+    MANIFEST = Manifest.parse(ModelRepository.MANIFEST.encode())
     TREE = Tree(
         Path("/r/plugin"),
         frozendict(
@@ -83,9 +80,7 @@ class TestBundle:
             "is a file, not a folder; pass --zip-folder a folder, or remove the file",
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root writes in every folder, so none refuses it"
-    )
+    @SKIP_AS_ROOT
     def test_reports_a_folder_it_cannot_write_in(self, tmp_path: Path) -> None:
         (tmp_path / "locked").mkdir(mode=0o555)
         zip_folder = tmp_path / "locked" / "dist"
@@ -95,9 +90,7 @@ class TestBundle:
             " write to",
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root writes in every folder, so none refuses it"
-    )
+    @SKIP_AS_ROOT
     def test_reports_a_read_only_folder_as_the_folders_problem(
         self, tmp_path: Path
     ) -> None:

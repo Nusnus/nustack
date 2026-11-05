@@ -10,8 +10,6 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from unittest import mock
 
-import pytest
-
 from nustack.repository.disk import Disk
 from nustack.tree import Blocked
 from nustack.tree import File
@@ -23,6 +21,7 @@ from nustack.tree import Symlink
 from nustack.tree import Tree
 from nustack.tree import Unopened
 from nustack.tree import Unreadable
+from tests.fixtures.permissions import SKIP_AS_ROOT
 lazy from tests.fixtures.repository import ModelRepository
 
 
@@ -53,9 +52,7 @@ class TestDisk:
         repository.write(".claude-plugin", "x")
         assert Disk(repository.save()).snapshot() == repository.snapshot()
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so no folder is shut"
-    )
+    @SKIP_AS_ROOT
     def test_orders_the_folders_it_cannot_list_by_path(self, tmp_path: Path) -> None:
         for folder in ("tests/b", "tests/a", "src/shut"):
             (tmp_path / folder).mkdir(parents=True)
@@ -84,9 +81,7 @@ class TestDisk:
             tmp_path / "file" / "plugin", frozendict({PurePosixPath("."): Missing()})
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so every path has a kind"
-    )
+    @SKIP_AS_ROOT
     def test_reads_a_plugin_it_cannot_stat_as_one_unopened_entry(
         self, tmp_path: Path
     ) -> None:
@@ -130,9 +125,7 @@ class TestDisk:
             tmp_path / "plugin", frozendict({PurePosixPath("."): NotAFolder()})
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so no folder is shut"
-    )
+    @SKIP_AS_ROOT
     def test_reads_no_file_once_it_finds_a_folder_it_cannot_open(
         self, tmp_path: Path
     ) -> None:
@@ -213,9 +206,7 @@ class TestDisk:
                 Folder(),
             )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so every path has a kind"
-    )
+    @SKIP_AS_ROOT
     def test_reads_a_path_in_a_folder_it_cannot_open_as_unreadable_naming_the_folder(
         self, tmp_path: Path
     ) -> None:
@@ -257,9 +248,7 @@ class TestDisk:
             "is neither a file nor a folder; remove it, then add the folder",
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root reads every file, so no file is unreadable"
-    )
+    @SKIP_AS_ROOT
     def test_reads_a_file_it_cannot_open_as_unreadable(self, tmp_path: Path) -> None:
         (tmp_path / "a").write_text("x")
         (tmp_path / "a").chmod(0)
@@ -276,9 +265,7 @@ class TestDisk:
         (tmp_path / "src").write_text("")
         assert Disk(tmp_path).listing(PurePosixPath("src")) == ((), {})
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so no folder is shut"
-    )
+    @SKIP_AS_ROOT
     def test_lists_each_folder_it_cannot_open(self, tmp_path: Path) -> None:
         (tmp_path / "tests" / "shut").mkdir(parents=True)
         (tmp_path / "tests" / "a.py").write_text("")

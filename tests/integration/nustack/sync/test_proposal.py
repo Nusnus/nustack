@@ -8,13 +8,16 @@ lazy from pathlib import Path
 
 import pytest
 
-from nustack.github import GitHub
-from nustack.github import GitHubError
+from nustack.github.gh import GitHub
+from nustack.github.gh import GitHubError
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
 from nustack.problem import Problem
 from nustack.sync.git import CopyGit
 from nustack.sync.proposal import Proposal
+from tests.fixtures.gh import GhArgv
 lazy from tests.fixtures.gh import FakeGh
-lazy from tests.fixtures.sync.git_repository import Sync
+lazy from tests.fixtures.sync.repositories import Sync
 
 
 class TestProposal:
@@ -24,23 +27,8 @@ class TestProposal:
     the branch.
     """
 
-    UPSTREAM_URL = "https://github.com/mattpocock/skills"
+    UPSTREAM_URL = RepositoryUrl("github.com", NameWithOwner("mattpocock", "skills"))
     BODY = "| ✅ **[Copy](https://x.io/runs/2)** | Compared. |\n"
-    PULLS = (
-        "api",
-        "--method",
-        "GET",
-        "--paginate",
-        "repos/o/r/pulls",
-        "-f",
-        "state=open",
-        "-f",
-        "base=main",
-        "-f",
-        "head=o:sync/w",
-        "--jq",
-        ".[] | select(.head.repo.id == .base.repo.id) | .number",
-    )
     CREATE = (
         "pr",
         "create",
@@ -76,7 +64,7 @@ class TestProposal:
 
     @pytest.fixture
     def one_pull(self, gh: FakeGh, github_fixtures: Path) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/one.json")
+        gh.replay(*GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/one.json")
 
     def test_stops_when_more_than_one_pull_request_proposes_the_branch(
         self,
@@ -85,9 +73,11 @@ class TestProposal:
         checkout_git: CopyGit,
         proposal: Proposal,
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/several.json")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/several.json"
+        )
         outcome = proposal.propose(
-            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), self.BODY
         )
         assert outcome == Problem(
             "o/r",
@@ -102,9 +92,13 @@ class TestProposal:
         checkout_git: CopyGit,
         proposal: Proposal,
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
         _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
-        outcome = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), ""
+        )
         assert (
             outcome,
             len(gh.calls),
@@ -120,7 +114,9 @@ class TestProposal:
         self, gh: FakeGh, checkout_git: CopyGit, proposal: Proposal
     ) -> None:
         _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
-        outcome = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+        outcome = proposal.propose(
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), ""
+        )
         assert (
             outcome,
             gh.calls[1:],
@@ -168,7 +164,9 @@ class TestProposal:
         )
         _ = checkout_git.run("push", proposal.remote_url, "HEAD:refs/heads/sync/w")
         with pytest.raises(GitHubError):
-            _ = proposal.propose(self.UPSTREAM_URL, checkout_git, GitHub("o/r"), "")
+            _ = proposal.propose(
+                self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), ""
+            )
         assert checkout_git.run("ls-remote", proposal.remote_url) == (
             f"{checkout_git.head}\trefs/heads/sync/w\n".encode()
         )
@@ -192,9 +190,9 @@ class TestProposal:
         checkout_git.push(proposal.remote_url, "sync/w", "docs: sync", "Copies it.")
         _ = checkout_git.run("reset", "-q", "--soft", "HEAD~1")
         # Each row's body is one the sync posts, written by the test.
-        gh.reply("api", "repos/o/r/pulls/267", "--jq", ".body", stdout=posted)
+        gh.reply(*GhArgv.PULL_BODY_267, stdout=posted)
         outcome = proposal.propose(
-            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), self.BODY
         )
         assert (outcome, gh.calls[2:]) == (
             "Pull request #267 already proposes this copy on main's head.",
@@ -209,9 +207,11 @@ class TestProposal:
         checkout_git: CopyGit,
         proposal: Proposal,
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
         outcome = proposal.propose(
-            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), self.BODY
         )
         pushed = checkout_git.run("log", "-1", "--format=%B", "HEAD")
         assert (outcome, gh.calls[1:], pushed) == (
@@ -233,13 +233,18 @@ class TestProposal:
         sync.checkout.write(f"{sync.FOLDER}/SKILL.md", "newer\n")
         sync.checkout.git("add", f"{sync.FOLDER}/SKILL.md")
         outcome = proposal.propose(
-            self.UPSTREAM_URL, checkout_git, GitHub("o/r"), self.BODY
+            self.UPSTREAM_URL, checkout_git, GitHub(GhArgv.REPOSITORY), self.BODY
         )
         pushed = sync.checkout.git(
-            "--git-dir", proposal.remote_url, "rev-parse", "refs/heads/sync/w"
+            "--git-dir", proposal.remote_url, "log", "-1", "--format=%H%n%B", "sync/w"
         )
         assert (outcome, gh.calls[1:], pushed) == (
             "Updated pull request #267 with the new copy.",
             [(self.EDIT, self.BODY)],
-            f"{checkout_git.head}\n",
+            (
+                f"{checkout_git.head}\n"
+                "docs: sync writing-for-agents from mattpocock/skills\n\n"
+                "Copies the newest writing-for-agents skill from mattpocock/skills"
+                " main.\n\n"
+            ),
         )

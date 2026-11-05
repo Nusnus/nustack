@@ -3,13 +3,15 @@
  * beside its `<name>.reply`, with the reply the real API sent it, and the prompt that fills the context window with the
  * real reply to a full window. It answers OK to OpenCode's title request, to Claude Code's request to load sample-mode
  * and to a request whose last user message holds the result of loading a skill. It keeps every Messages API request it
- * answers and finds the last one holding a prompt, and refuses a request with no user message, as the real API does, or
- * a path it does not serve, with the Messages API's error body.
+ * answers and finds the last one holding a prompt, and refuses a request with no user message, as the real API does, a
+ * body that is not a Messages API request, naming the field that does not fit, or a path it does not serve, with the
+ * Messages API's error body.
  */
 import { afterAll, describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { FakeModel, type Host } from "../../fixtures/model.ts"
+import { FakeModel, type Host, PromptNotSentError } from "../../fixtures/model.ts"
+import { thrown } from "../../fixtures/thrown.ts"
 
 /**
  * FakeModel keeps each Messages API request it answers and finds the last one holding a prompt, and finding a prompt no
@@ -17,7 +19,8 @@ import { FakeModel, type Host } from "../../fixtures/model.ts"
  * cut to what the fake reads draw OK: OpenCode's title request, which quotes the load prompt but offers no skill tool,
  * and Claude Code's request after its skill tool loaded the mode, whose last user message holds no load prompt. Claude
  * Code's request that offers its skill tool and asks for sample-mode draws OK too, since only OpenCode's smoke tests
- * load it. The reply to a full context window goes only to the prompt that fills it.
+ * load it. The reply to a full context window goes only to the prompt that fills it. A body that breaks the shape the
+ * fake reads, in each field it reads, is refused with that field's path.
  */
 describe("FakeModel", () => {
   const models = {
@@ -25,29 +28,91 @@ describe("FakeModel", () => {
     opencode: new FakeModel("opencode"),
   }
 
-  async function post(host: Host, body: string): Promise<string> {
-    return (await fetch(`${models[host].url}/v1/messages`, { method: "POST", body })).text()
-  }
-
   afterAll(async () => {
     await Promise.all(Object.values(models).map((model) => model.stop()))
   })
+
+  async function post(host: Host, body: string): Promise<string> {
+    return (await fetch(`${models[host].url}/v1/messages`, { method: "POST", body })).text()
+  }
 
   test.each([
     [
       "a request with no user message",
       "/v1/messages",
+      { messages: [] },
       "the request holds no user message, which the Messages API requires",
+    ],
+    [
+      "a body that is not an object",
+      "/v1/messages",
+      [],
+      "the request body must be an object, got a list; send it as a JSON object",
+    ],
+    [
+      "a body without messages",
+      "/v1/messages",
+      {},
+      "messages must be a list, got nothing; send it as a JSON array",
+    ],
+    [
+      "a body whose messages are not a list",
+      "/v1/messages",
+      { messages: "Hi." },
+      "messages must be a list, got a string; send it as a JSON array",
+    ],
+    [
+      "a message that is not an object",
+      "/v1/messages",
+      { messages: ["Hi."] },
+      "messages[0] must be an object, got a string; send it as a JSON object",
+    ],
+    [
+      "a message without a role",
+      "/v1/messages",
+      { messages: [{ role: "user", content: "Hi." }, { content: "Hi." }] },
+      "messages[1].role must be text, got nothing; send it as a JSON string",
+    ],
+    [
+      "a message whose role is null",
+      "/v1/messages",
+      { messages: [{ role: null, content: "Hi." }] },
+      "messages[0].role must be text, got null; send it as a JSON string",
+    ],
+    [
+      "a message without content",
+      "/v1/messages",
+      { messages: [{ role: "user" }] },
+      "messages[0].content is missing; give the message its content",
+    ],
+    [
+      "tools that are not a list",
+      "/v1/messages",
+      { messages: [{ role: "user", content: "Hi." }], tools: {} },
+      "tools must be a list, got an object; send it as a JSON array",
+    ],
+    [
+      "a tool that is not an object",
+      "/v1/messages",
+      { messages: [{ role: "user", content: "Hi." }], tools: ["skill"] },
+      "tools[0] must be an object, got a string; send it as a JSON object",
+    ],
+    [
+      "a tool without a name",
+      "/v1/messages",
+      { messages: [{ role: "user", content: "Hi." }], tools: [{ name: "skill" }, {}] },
+      "tools[1].name must be text, got nothing; send it as a JSON string",
     ],
     [
       "a path it does not serve",
       "/v1/models",
+      { messages: [] },
       "the fake model serves only /v1/messages, not /v1/models",
     ],
-  ])("refuses %s with the Messages API's error body", async (_case, path, message) => {
+  ])("refuses %s with the Messages API's error body", async (_case, path, body, message) => {
     const reply = await fetch(`${models.opencode.url}${path}`, {
       method: "POST",
-      body: JSON.stringify({ messages: [] }),
+      body: JSON.stringify(body),
     })
     expect([reply.status, await reply.json()]).toEqual([
       400,
@@ -63,9 +128,9 @@ describe("FakeModel", () => {
     expect(models["claude-code"].sentWith("Kept.")).toBe(last)
   })
 
-  test("fails to find a prompt that no request held", () => {
-    expect(() => models.opencode.sentWith("Never sent.")).toThrow(
-      'no request held the prompt "Never sent."',
+  test("fails to find a prompt that no request held", async () => {
+    expect(await thrown(() => models.opencode.sentWith("Never sent."))).toEqual(
+      new PromptNotSentError('no request held the prompt "Never sent."'),
     )
   })
 

@@ -12,6 +12,8 @@ lazy from pathlib import Path
 
 import pytest
 
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
 from nustack.markdown.document import Document
 from nustack.problem import Problem
 from nustack.repository.changelog import Changelog
@@ -1080,7 +1082,7 @@ class TestChangelogLinks:
     left alone.
     """
 
-    REPOSITORY_URL = "https://github.com/o/r"
+    REPOSITORY_URL = RepositoryUrl("github.com", NameWithOwner("o", "r"))
     HEAD = (
         "# Changelog\n\n## [Unreleased]\n\n"
         "## [1.2.3] - 2026-01-02\n\n### Added\n\n- A.\n\n"

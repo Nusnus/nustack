@@ -17,6 +17,8 @@ class TestRule:
             " its owner; and both marketplaces have one name and one description;\n"
             "- commitizen's version_files in pyproject.toml lists, once each, every"
             " other file whose version the check compares;\n"
+            "- commitizen's tag_format in pyproject.toml, and the release workflow's"
+            " push tags filter, each name the tag form nustack release-tag takes;\n"
             "- plugin/ holds only the host manifests, skills, playbooks, the OpenCode"
             " loader with its package.json, the Claude Code hook that reloads the"
             " mode, and a LICENSE equal to the repository's;\n"

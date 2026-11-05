@@ -28,8 +28,8 @@ maintenance:
         sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
       fi
       if ! bun test ./tests/unit/settings.test.ts; then
-        echo "nustack needs Bun at least the version package.json pins, and found Bun $(bun --version) at $(command -v bun)." >&2
-        echo "If another repository's blueprint installs that Bun, raise its pin to nustack's. Otherwise install Bun from https://bun.sh/docs/installation." >&2
+        echo "tests/unit/settings.test.ts failed as bun test reports above, with Bun $(bun --version) at $(command -v bun)." >&2
+        echo "Where bun test reports the Bun pin's test failed above, nustack needs Bun at least the version package.json pins: if another repository's blueprint installs that Bun, raise its pin to nustack's; otherwise install Bun from https://bun.sh/docs/installation. Fix any other failure it reports, then rerun the build." >&2
         exit 1
       fi
   - name: The harness, the loader's tools, the commit hooks and their environments
@@ -41,6 +41,6 @@ maintenance:
       timeout --verbose 20m uv run --locked pre-commit install-hooks
 knowledge:
   - name: test
-    contents: make check, then make smoke; AGENTS.md › Checks says what each runs
+    contents: make check, then make smoke; make lists what each runs
   - name: build
     contents: make bundle

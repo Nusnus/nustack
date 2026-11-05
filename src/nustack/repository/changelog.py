@@ -21,9 +21,12 @@ from typing import ClassVar
 from typing import Literal
 
 from nustack.problem import Problem
+from nustack.release.tag import Tag
 from nustack.repository.page import PagePart
 from nustack.validation import Pattern
-from nustack.validation import version_order
+from nustack.version import Version
+from nustack.version import version_order
+lazy from nustack.github.name import RepositoryUrl
 lazy from nustack.markdown.document import Document
 lazy from nustack.markdown.document import Section
 
@@ -120,18 +123,18 @@ class Changelog:
         return self.titles[0][1] if self.titles else None
 
     @cached_property
-    def versions(self) -> tuple[str, ...]:
+    def versions(self) -> tuple[Version, ...]:
         return tuple(entry["version"] for entry in self.titled)
 
     @property
-    def previous(self) -> str | None:
+    def previous(self) -> Version | None:
         return self.versions[1] if len(self.versions) > 1 else None
 
     @cached_property
     def entry(self) -> Entry:
         return Entry(self.document, self.releases[0])
 
-    def problems(self, version: str | None) -> list[Problem]:
+    def problems(self, version: Version | None) -> list[Problem]:
         path = self.document.path
         sections = self.document.sections
         problems: list[Problem] = []
@@ -227,10 +230,10 @@ class Changelog:
             problems += self.group_problems(version)
         return problems
 
-    def opens_with(self, version: str) -> bool:
+    def opens_with(self, version: Version) -> bool:
         return self.top is not None and self.top["version"] == version
 
-    def opening(self, version: str) -> str:
+    def opening(self, version: Version) -> str:
         if self.newer(version):
             return (
                 "set the newest entry's version in every file whose version "
@@ -244,12 +247,12 @@ class Changelog:
             )
         return f"add a '## [{version}] - <release date>' section above the releases"
 
-    def newer(self, version: str) -> bool:
+    def newer(self, version: Version) -> bool:
         return any(
             version_order(listed) > version_order(version) for listed in self.versions
         )
 
-    def entry_part(self, version: str) -> PagePart:
+    def entry_part(self, version: Version) -> PagePart:
         return PagePart(
             self.document,
             self.entry.release,
@@ -257,7 +260,7 @@ class Changelog:
             "list what the release changes under it, which the release page copies",
         )
 
-    def group_problems(self, version: str) -> list[Problem]:
+    def group_problems(self, version: Version) -> list[Problem]:
         path = self.document.path
         groups = self.entry.groups
         if not groups:
@@ -314,18 +317,21 @@ class Changelog:
             ),
         ]
 
-    def link_problems(self, repository_url: str, version: str) -> list[Problem]:
+    def link_problems(
+        self, repository_url: RepositoryUrl, version: Version
+    ) -> list[Problem]:
         if not self.releases:
             return []
         versions = [*self.versions, version]
         # A version holds no letter, so upper-casing it, as markdown-it does
         # (UNRELEASED_LABEL's comment), leaves its label the version itself.
         targets = {
-            (each, each): f"{repository_url}/releases/tag/v{each}" for each in versions
+            (each, each): f"{repository_url}/releases/tag/{Tag(each)}"
+            for each in versions
         }
         if self.releases != self.document.sections:
             targets[self.UNRELEASED_LABEL, self.UNRELEASED_NAME] = (
-                f"{repository_url}/compare/v{version}...HEAD"
+                f"{repository_url}/compare/{Tag(version)}...HEAD"
             )
         references = self.document.references
         problems = [

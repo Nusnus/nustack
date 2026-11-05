@@ -7,8 +7,9 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
 import { mkdir, readdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { Bundle } from "../../fixtures/bundle.ts"
+import { Bundle, BundleError } from "../../fixtures/bundle.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
+import { thrown } from "../../fixtures/thrown.ts"
 
 /** A bundle's folder line names its root as a request's JSON escapes it. */
 describe("Bundle", () => {
@@ -21,8 +22,8 @@ describe("Bundle", () => {
 
 /**
  * The one zip a folder holds gives nus-mode's body and folder line as JSON escapes them, and leaves nothing unpacked
- * once removed. A folder holding no zip or two, a zip unzip cannot unpack or one without nus-mode fails naming the fix
- * and leaves no folder, and any other error reading nus-mode passes through.
+ * once removed. A missing folder, a folder holding no zip or two, a zip unzip cannot unpack or one without nus-mode
+ * fails naming the fix and leaves no folder, and any other error reading the folder or nus-mode passes through.
  */
 describe("Bundle.unpacked", () => {
   const folders = new TemporaryFolders()
@@ -46,7 +47,7 @@ describe("Bundle.unpacked", () => {
     expect([
       dirname(bundle.root),
       bundle.body,
-      bundle.needle,
+      bundle.escapedBody,
       bundle.base,
       existed,
       existsSync(bundle.root),
@@ -67,15 +68,33 @@ describe("Bundle.unpacked", () => {
   ])("fails on a folder holding %j", async (names, message) => {
     const zipFolder = await folders.make()
     await Promise.all(names.map((name) => writeFile(join(zipFolder, name), "")))
-    await expect(Bundle.unpacked(zipFolder)).rejects.toThrow(`${zipFolder} ${message}`)
+    expect(await thrown(() => Bundle.unpacked(zipFolder))).toEqual(
+      new BundleError(`${zipFolder} ${message}`),
+    )
+  })
+
+  test("fails on a missing folder", async () => {
+    const zipFolder = join(await folders.make(), "dist")
+    expect(await thrown(() => Bundle.unpacked(zipFolder))).toEqual(
+      new BundleError(`${zipFolder} does not exist; run make clean and make bundle`),
+    )
+  })
+
+  test("passes through another error reading the folder", async () => {
+    const zipFolder = join(await folders.make(), "dist")
+    await writeFile(zipFolder, "")
+    const error = await thrown(() => Bundle.unpacked(zipFolder))
+    expect(error).not.toBeInstanceOf(BundleError)
+    expect(error).toHaveProperty("code", "ENOTDIR")
   })
 
   test("fails on a zip unzip cannot unpack, and leaves no folder behind", async () => {
     const zipFolder = await folders.make()
     const parent = await folders.make()
     await writeFile(join(zipFolder, "nustack.zip"), "not a zip")
-    await expect(Bundle.unpacked(zipFolder, parent)).rejects.toThrow(
-      "unzip could not unpack nustack.zip:",
+    const error = await thrown(() => Bundle.unpacked(zipFolder, parent))
+    expect(String(error)).toMatch(
+      /^BundleError: unzip could not unpack nustack\.zip \(.+\); run make clean and make bundle$/s,
     )
     expect(await readdir(parent)).toEqual([])
   })
@@ -89,8 +108,10 @@ describe("Bundle.unpacked", () => {
     })
     expect(await zip.exited).toBe(0)
     const parent = await folders.make()
-    await expect(Bundle.unpacked(zipFolder, parent)).rejects.toThrow(
-      "nustack.zip holds no skills/nus-mode/SKILL.md; run make clean and make bundle",
+    expect(await thrown(() => Bundle.unpacked(zipFolder, parent))).toEqual(
+      new BundleError(
+        "nustack.zip holds no skills/nus-mode/SKILL.md; run make clean and make bundle",
+      ),
     )
     expect(await readdir(parent)).toEqual([])
   })
@@ -102,7 +123,9 @@ describe("Bundle.unpacked", () => {
     const zip = Bun.spawn(["zip", "-qr", join(zipFolder, "nustack.zip"), "skills"], { cwd: source })
     expect(await zip.exited).toBe(0)
     const parent = await folders.make()
-    await expect(Bundle.unpacked(zipFolder, parent)).rejects.toThrow("EISDIR")
+    const error = await thrown(() => Bundle.unpacked(zipFolder, parent))
+    expect(error).not.toBeInstanceOf(BundleError)
+    expect(error).toHaveProperty("code", "EISDIR")
     expect(await readdir(parent)).toEqual([])
   })
 })

@@ -2,8 +2,9 @@
 
 from datetime import timedelta
 
-from nustack.github import GitHub
-from nustack.github import GitHubError
+from nustack.github.gh import GitHub
+from nustack.github.gh import GitHubError
+from nustack.github.name import NameWithOwner
 
 
 class TestGitHubError:
@@ -19,4 +20,7 @@ class TestGitHub:
     """Each gh command GitHub runs has a time limit."""
 
     def test_gives_each_command_a_minute_by_default(self) -> None:
-        assert GitHub("o/r").timeout == timedelta(minutes=1).total_seconds()
+        assert (
+            GitHub(NameWithOwner("o", "r")).timeout
+            == timedelta(minutes=1).total_seconds()
+        )

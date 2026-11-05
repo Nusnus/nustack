@@ -12,6 +12,7 @@ same beside given ones, as on a page that joins several parts. A path that holds
 readable UTF-8 file is refused with its reason.
 """
 
+import bisect
 import posixpath
 import re
 from dataclasses import dataclass
@@ -49,13 +50,23 @@ class UnmappedTokenError(ValueError):
 class Lines:
     """Text split into lines, each keeping its own line ending."""
 
-    LINE: ClassVar[re.Pattern[str]] = re.compile(r".*?(?:\r\n|\r|\n)|.+\Z", re.DOTALL)
+    BREAK: ClassVar[re.Pattern[str]] = re.compile(r"\r\n|\r|\n")
+    LINE: ClassVar[re.Pattern[str]] = re.compile(
+        rf".*?(?:{BREAK.pattern})|.+\Z", re.DOTALL
+    )
     CRLF_OR_CR: ClassVar[re.Pattern[str]] = re.compile(r"\r\n?")
     text: str
 
     @cached_property
     def lines(self) -> tuple[str, ...]:
         return tuple(self.LINE.findall(self.text))
+
+    @cached_property
+    def break_ends(self) -> tuple[int, ...]:
+        return tuple(found.end() for found in self.BREAK.finditer(self.text))
+
+    def line_at(self, index: int) -> int:
+        return 1 + bisect.bisect_right(self.break_ends, index)
 
     @staticmethod
     def span(token: Token) -> tuple[int, int]:
@@ -218,8 +229,12 @@ class Document:
     text: str
 
     @cached_property
+    def whole_lines(self) -> Lines:
+        return Lines(self.text)
+
+    @cached_property
     def text_lines(self) -> tuple[str, ...]:
-        return Lines(self.text).lines
+        return self.whole_lines.lines
 
     @cached_property
     def body(self) -> str:
@@ -393,7 +408,7 @@ class Document:
         return Lines.CRLF_OR_CR.sub("\n", text).strip("\n")
 
     def line_at(self, index: int) -> int:
-        return self.text[:index].count("\n") + 1
+        return self.whole_lines.line_at(index)
 
     def file_line(self, body_line: int) -> int:
         return self.frontmatter_lines + body_line + 1

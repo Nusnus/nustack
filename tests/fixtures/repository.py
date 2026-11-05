@@ -20,6 +20,13 @@ from nustack.tree import Unopened
 lazy from nustack.problem import Problem
 
 
+class MissingTextError(LookupError):
+    """Text a test edits in a model file that the file does not hold."""
+
+    def __init__(self, path: str, text: str) -> None:
+        super().__init__(f"{path} does not hold {text!r}; edit text the file holds")
+
+
 class ModelRepository:
     """A small repository that passes every check, written out by hand.
 
@@ -27,15 +34,28 @@ class ModelRepository:
     disk for the tests of the commands and of the reads.
     """
 
-    MANIFEST: ClassVar[str] = json.dumps(
+    MANIFEST_FIELDS: ClassVar[frozendict[str, object]] = frozendict(
         {
             "name": "kit",
             "version": "1.2.3",
             "description": "A kit.",
-            "author": {"name": "Ada"},
-            "homepage": "https://example.com/kit",
-            "repository": "https://example.com/kit",
+            "author": frozendict({"name": "Ada"}),
+            "homepage": "https://example.com/nus/kit",
+            "repository": "https://example.com/nus/kit",
             "license": "MIT",
+        }
+    )
+    MANIFEST: ClassVar[str] = json.dumps(MANIFEST_FIELDS)
+    CLAUDE_MARKETPLACE_FIELDS: ClassVar[frozendict[str, object]] = frozendict(
+        {
+            "name": "kit",
+            "description": "Ada's kit.",
+            "owner": frozendict({"name": "Ada"}),
+            "plugins": (
+                frozendict(
+                    {"name": "kit", "source": "./plugin", "description": "A kit."}
+                ),
+            ),
         }
     )
     HIDDEN: ClassVar[str] = (
@@ -101,23 +121,14 @@ class ModelRepository:
             ),
             "CHANGELOG.md": (
                 "# Changelog\n\n"
-                "[Unreleased]: https://example.com/kit/compare/v1.2.3...HEAD\n"
-                "[1.2.3]: https://example.com/kit/releases/tag/v1.2.3\n"
-                "[1.2.2]: https://example.com/kit/releases/tag/v1.2.2\n\n"
+                "[Unreleased]: https://example.com/nus/kit/compare/v1.2.3...HEAD\n"
+                "[1.2.3]: https://example.com/nus/kit/releases/tag/v1.2.3\n"
+                "[1.2.2]: https://example.com/nus/kit/releases/tag/v1.2.2\n\n"
                 "## [Unreleased]\n\n## [1.2.3] - 2026-01-02\n\n"
                 "### Added\n\n- Adds the kit.\n\n"
                 "## [1.2.2] - 2026-01-01\n\n- Starts.\n"
             ),
-            ".claude-plugin/marketplace.json": json.dumps(
-                {
-                    "name": "kit",
-                    "description": "Ada's kit.",
-                    "owner": {"name": "Ada"},
-                    "plugins": [
-                        {"name": "kit", "source": "./plugin", "description": "A kit."}
-                    ],
-                }
-            ),
+            ".claude-plugin/marketplace.json": json.dumps(CLAUDE_MARKETPLACE_FIELDS),
             ".cursor-plugin/marketplace.json": json.dumps(
                 {
                     "name": "kit",
@@ -130,7 +141,7 @@ class ModelRepository:
             ),
             "pyproject.toml": (
                 '[project]\nname = "kit"\nversion = "1.2.3"\n\n'
-                "[tool.commitizen]\nversion_files = [\n"
+                '[tool.commitizen]\ntag_format = "v$version"\nversion_files = [\n'
                 '  "plugin/.claude-plugin/plugin.json:version",\n'
                 '  "plugin/.cursor-plugin/plugin.json:version",\n'
                 '  "plugin/.devin-plugin/plugin.json:version",\n'
@@ -145,6 +156,7 @@ class ModelRepository:
             ".github/workflows/sync-writing-for-agents.yml": (
                 "jobs:\n  sync:\n    env:\n      FOLDER: .agents/skills/vendored\n"
             ),
+            ".github/workflows/release.yml": 'on:\n  push:\n    tags: ["v*"]\n',
             ".github/pull_request_template.md": "# Template\n",
             "src/kit/tool.py": "",
             "tests/unit/kit/test_tool.py": "",
@@ -171,9 +183,10 @@ class ModelRepository:
         )
 
     def edit(self, path: str, old: str, new: str) -> None:
-        text = self.files[PurePosixPath(path)].decode()
-        start = text.index(old)
-        self.write(path, text[:start] + new + text[start + len(old) :])
+        before, found, after = self.files[PurePosixPath(path)].decode().partition(old)
+        if not found:
+            raise MissingTextError(path, old)
+        self.write(path, before + new + after)
 
     def write(self, path: str, content: str | bytes) -> None:
         self.files[PurePosixPath(path)] = (

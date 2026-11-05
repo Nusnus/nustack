@@ -11,10 +11,12 @@ release, and the repository the page's first line links holds the rest.
 from dataclasses import dataclass
 from typing import ClassVar
 
+from nustack.release.tag import Tag
 lazy from nustack.markdown.document import Section
 lazy from nustack.plugin.manifest import Manifest
 lazy from nustack.repository.changelog import Entry
 lazy from nustack.repository.page import PageStep
+lazy from nustack.version import Version
 
 
 @dataclass(frozen=True)
@@ -26,19 +28,19 @@ class ReleaseNotes:
     manifest: Manifest
     entry: Entry
     page_steps: frozendict[PageStep, Section]
-    previous: str | None
+    previous: Version | None
 
     @property
     def about(self) -> str:
         name, description = self.manifest.name, self.manifest.description
-        return f"> **[{name}]({self.manifest.repository_url})** · {description}"
+        return f"> **[{name}]({self.manifest.repository})** · {description}"
 
     @property
     def compared(self) -> str | None:
         if self.previous is None:
             return None
-        span = f"v{self.previous}...v{self.manifest.version}"
-        comparison = f"{self.manifest.repository_url}/compare/{span}"
+        span = f"{Tag(self.previous)}...{Tag(self.manifest.version)}"
+        comparison = f"{self.manifest.repository}/compare/{span}"
         return f"**Full changelog:** [`{span}`]({comparison})"
 
     @property

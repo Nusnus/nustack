@@ -10,9 +10,6 @@
     "module": "Preserve",
     "types": ["bun"],
     "noEmit": true,
-    "target": "ESNext",
-    // @opencode/plugin's types import json-schema, which ships no types, so tsc skips
-    // checking the libraries' own .d.ts files: https://www.typescriptlang.org/tsconfig/#skipLibCheck
-    "skipLibCheck": true
+    "target": "ESNext"
   }
 }

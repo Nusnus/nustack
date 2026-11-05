@@ -9,40 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import ClassVar
-from typing import Self
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
-from pydantic import ValidationError
+from pydantic import field_validator
 
 from nustack.problem import Problem
-from nustack.yaml_reader import YamlError
-from nustack.yaml_reader import read_yaml
+from nustack.repository.config import YamlConfig
 lazy from nustack.repository.pyproject import Pyproject
-
-
-class InvalidConfigError(ValueError):
-    """A YAML config file that does not parse, or lacks what the check reads."""
-
-
-class YamlConfig(BaseModel):
-    """A YAML config file, down to what the check reads from it."""
-
-    FIRST_LINE: ClassVar[int] = 1
-    SHAPE: ClassVar[str] = "holds a value the check cannot read; fix its shape"
-    model_config = ConfigDict(frozen=True)
-
-    @classmethod
-    def parse(cls, content: bytes) -> Self:
-        try:
-            return cls.model_validate(read_yaml(content.decode()))
-        except UnicodeDecodeError as error:
-            msg = f"it {Problem.NOT_UTF8}"
-            raise InvalidConfigError(msg) from error
-        except YamlError as error:
-            raise InvalidConfigError(error.reason(cls.FIRST_LINE)) from error
-        except ValidationError as error:
-            raise InvalidConfigError(cls.SHAPE) from error
 
 
 class Hook(BaseModel):
@@ -65,10 +39,8 @@ class HookSource(BaseModel):
 class Hooks(YamlConfig):
     """`.pre-commit-config.yaml`, down to its hooks."""
 
-    SHAPE: ClassVar[str] = (
-        "needs a repos list, each with a hooks list of entries that each hold an id; "
-        "fix its shape"
-    )
+    PATH: ClassVar[PurePosixPath] = PurePosixPath(".pre-commit-config.yaml")
+
     repos: tuple[HookSource, ...]
 
     @property
@@ -76,25 +48,42 @@ class Hooks(YamlConfig):
         return tuple(hook for source in self.repos for hook in source.hooks)
 
 
+# GitHub reads a null, a number or a boolean in env as text, a null as "":
+# https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/workflow-v1.0.json#L2016-L2031
+# https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/template-reader.ts#L411-L441
+# https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/tokens/null-token.ts#L21-L23
+type EnvValue = str | int | float | bool | None
+
+
 class Job(BaseModel):
     """A workflow job, down to its environment."""
 
     model_config = ConfigDict(frozen=True)
 
-    # GitHub reads a null, a number or a boolean in env as text, a null as "":
-    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/workflow-v1.0.json#L2016-L2031
-    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/template-reader.ts#L411-L441
-    # https://github.com/actions/languageservices/blob/4043eda158e16579cc5fb1b0b07a4bce2a76f0b5/workflow-parser/src/templates/tokens/null-token.ts#L21-L23
-    env: frozendict[str, str | int | float | bool | None] = frozendict()
+    env: frozendict[str, EnvValue] = frozendict()
+
+    # Without this check, pydantic refuses a value of another type once per union
+    # member, with int_type and float_type among them, which Schema.FIXES does not
+    # map, so this one check gives the one fix.
+    @field_validator("env", mode="before")
+    @classmethod
+    def env_of_scalars(cls, env: object) -> object:
+        if isinstance(env, dict) and all(
+            isinstance(key, str) and isinstance(value, EnvValue.__value__)
+            for key, value in env.items()
+        ):
+            return env
+        msg = "make it an object of names to text, numbers, booleans or nulls"
+        raise ValueError(msg)
 
 
-class Workflow(YamlConfig):
-    """A GitHub Actions workflow, down to its jobs' environments."""
+class SyncWorkflow(YamlConfig):
+    """The sync workflow, down to its jobs' environments."""
 
-    SHAPE: ClassVar[str] = (
-        "needs a jobs mapping, each job with any env a mapping of scalars; "
-        "fix its shape"
+    PATH: ClassVar[PurePosixPath] = PurePosixPath(
+        ".github/workflows/sync-writing-for-agents.yml"
     )
+
     jobs: frozendict[str, Job]
 
 
@@ -105,11 +94,6 @@ class VendoredCopy:
     Review reads the copy byte for byte as its source wrote it.
     """
 
-    HOOKS: ClassVar[PurePosixPath] = PurePosixPath(".pre-commit-config.yaml")
-    WORKFLOW: ClassVar[PurePosixPath] = PurePosixPath(
-        ".github/workflows/sync-writing-for-agents.yml"
-    )
-    PYPROJECT: ClassVar[PurePosixPath] = PurePosixPath("pyproject.toml")
     JOB: ClassVar[str] = "sync"
     REWRITERS: ClassVar[tuple[str, ...]] = (
         "end-of-file-fixer",
@@ -120,11 +104,11 @@ class VendoredCopy:
     )
     root: Path
     hooks: Hooks
-    workflow: Workflow
+    workflow: SyncWorkflow
     pyproject: Pyproject
 
     @property
-    def folder(self) -> str | int | float | bool | None:
+    def folder(self) -> EnvValue:
         job = self.workflow.jobs.get(self.JOB)
         if job is None or "FOLDER" not in job.env:
             return None
@@ -136,7 +120,7 @@ class VendoredCopy:
         if folder is None:
             return [
                 Problem(
-                    self.root / self.WORKFLOW,
+                    self.root / SyncWorkflow.PATH,
                     f"has no FOLDER in its {self.JOB} job's env; "
                     "set it to the folder the sync copies into",
                 )
@@ -144,7 +128,7 @@ class VendoredCopy:
         if not isinstance(folder, str):
             return [
                 Problem(
-                    self.root / self.WORKFLOW,
+                    self.root / SyncWorkflow.PATH,
                     f"has a FOLDER in its {self.JOB} job's env that YAML reads as "
                     "a number or a boolean; quote it",
                 )
@@ -153,7 +137,7 @@ class VendoredCopy:
         if path.is_absolute() or not path.parts or ".." in path.parts:
             return [
                 Problem(
-                    self.root / self.WORKFLOW,
+                    self.root / SyncWorkflow.PATH,
                     f"has a FOLDER in its {self.JOB} job's env that names no "
                     "folder inside the repository; set it to the folder the sync "
                     "copies into",
@@ -163,7 +147,7 @@ class VendoredCopy:
         if folder.removesuffix("/") != str(path):
             return [
                 Problem(
-                    self.root / self.WORKFLOW,
+                    self.root / SyncWorkflow.PATH,
                     f"has a FOLDER in its {self.JOB} job's env that is not a "
                     "plain path; write it with no . part, no //, and no more than one "
                     "/ at its end",
@@ -173,7 +157,7 @@ class VendoredCopy:
         hooks = {hook.id for hook in self.hooks.hooks}
         problems = [
             Problem(
-                self.root / self.HOOKS,
+                self.root / Hooks.PATH,
                 f"has no {name} hook; restore it, with an exclude of the folder the "
                 "sync workflow's FOLDER env var names",
             )
@@ -182,7 +166,7 @@ class VendoredCopy:
         ]
         problems += [
             Problem(
-                self.root / self.HOOKS,
+                self.root / Hooks.PATH,
                 f"has the {name} hook skip a folder other than the one the sync "
                 "workflow's FOLDER env var names; set its exclude to ^, that folder "
                 "passed through Python's re.escape, and /",
@@ -196,7 +180,7 @@ class VendoredCopy:
         if folder.removesuffix("/") not in {skip.removesuffix("/") for skip in skipped}:
             problems.append(
                 Problem(
-                    self.root / self.PYPROJECT,
+                    self.root / Pyproject.PATH,
                     "has a [tool.ruff] extend-exclude that leaves out the folder the "
                     "sync workflow's FOLDER env var names; add that folder to it",
                 )

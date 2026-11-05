@@ -8,6 +8,10 @@ import { readdir, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { Plugin, Skill } from "@opencode/plugin"
 import type { SessionContext, SessionPrompt } from "@opencode/plugin/promise/session"
+// OpenCode's opencode command runs the binary Bun compiles for the platform, so plugins run under Bun
+// (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/bin/opencode.cjs#L36-L42;
+// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/script/build.ts#L160-L185), and the loader parses
+// frontmatter with Bun's YAML parser: https://bun.com/docs/runtime/yaml
 import { YAML } from "bun"
 import manifest from "./package.json" with { type: "json" }
 
@@ -26,16 +30,41 @@ export type SessionHooks = Pick<Plugin.Context["session"], "hook">
 export type Store = Pick<Plugin.Context["storage"], "get" | "set">
 
 /** How far the mode reload has read one session's messages since its last summarization. */
-interface Progress {
+class Progress {
   loaded: boolean
-  scanned: number
-  present: boolean
+  // restart sets both, which tsc cannot see from the constructor:
+  // https://www.typescriptlang.org/docs/handbook/2/classes.html#--strictpropertyinitialization
+  scanned!: number
+  present!: boolean
+
+  constructor(loaded: boolean) {
+    this.loaded = loaded
+    this.restart()
+  }
+
+  restart(): void {
+    this.scanned = 0
+    this.present = false
+  }
+}
+
+/**
+ * The plugin's skills folder, a skill folder or a SKILL.md the loader cannot load, or a missing mode, named with its
+ * fix; one error lists every skill that fails.
+ */
+export class SkillError extends Error {
+  override name = "SkillError"
+
+  static at(path: string, problem: string, options?: ErrorOptions): SkillError {
+    return new SkillError(`${path} ${problem}, or reinstall the nustack plugin`, options)
+  }
 }
 
 /** A SKILL.md's text, read into the skill OpenCode registers, or an error that names the fix. */
 export class SkillFile {
-  static readonly FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)---(?:\r?\n|$)/
+  static readonly FRONTMATTER = /^---\r?\n([\s\S]*?)(?<=\n)---(?:\r?\n|$)/
   static readonly BARE_CR = /^---\r(?!\n)/
+  static readonly OPENING = /^---(?:\r?\n|$)/
   // A SKILL.md is UTF-8, as nustack check requires, and ignoreBOM keeps a byte order mark in the text, so split refuses
   // it as nustack check does: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/ignoreBOM
   static readonly UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
@@ -56,9 +85,7 @@ export class SkillFile {
     try {
       return new SkillFile(path, SkillFile.UTF8.decode(data))
     } catch {
-      throw new Error(
-        `${path} is not valid UTF-8; save it as UTF-8, or reinstall the nustack plugin`,
-      )
+      throw SkillError.at(path, "is not valid UTF-8; save it as UTF-8")
     }
   }
 
@@ -83,9 +110,16 @@ export class SkillFile {
     }
     const match = SkillFile.FRONTMATTER.exec(this.text)
     if (match?.[1] === undefined) {
-      throw this.error("has no frontmatter; open it with a --- block")
+      if (SkillFile.OPENING.test(this.text)) {
+        throw this.error("opens with --- and never closes; end it with a --- line")
+      }
+      throw this.error(
+        "has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings",
+      )
     }
-    const fields = this.parse(match[1])
+    // nustack check reads an empty block as no fields, where Bun's YAML parser reads it as null; a block of blank
+    // lines is not empty, and nustack check refuses its lines as no fields, as this does
+    const fields = match[1] === "" ? {} : this.parse(match[1])
     if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
       throw this.error("has frontmatter that is not key: value lines; write it as key: value lines")
     }
@@ -127,8 +161,8 @@ export class SkillFile {
     return value
   }
 
-  error(what: string): Error {
-    return new Error(`${this.path} ${what}, or reinstall the nustack plugin`)
+  error(problem: string): SkillError {
+    return SkillError.at(this.path, problem)
   }
 }
 
@@ -143,8 +177,9 @@ export class SkillFolder {
 
   async skills(): Promise<readonly Skill.Info[]> {
     const entries = await readdir(this.path, { withFileTypes: true }).catch((error: unknown) => {
-      throw new Error(
-        `${this.path} cannot be read (${SkillFolder.code(error)}); restore the plugin's skills folder, or reinstall the nustack plugin`,
+      throw SkillError.at(
+        this.path,
+        `cannot be read (${errorCode(error)}); restore the plugin's skills folder`,
         { cause: error },
       )
     })
@@ -155,39 +190,35 @@ export class SkillFolder {
       }),
     )
     const failures = results.flatMap((result) =>
-      result.status === "rejected" ? [SkillFolder.reason(result.reason)] : [],
+      result.status === "rejected" ? [errorMessage(result.reason)] : [],
     )
-    if (failures.length > 0) throw new Error(failures.sort().join("\n"))
+    if (failures.length > 0) throw new SkillError(failures.sort().join("\n"))
     return Object.freeze(
       results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])),
     )
   }
 
   async symlink(name: string): Promise<never> {
-    throw new Error(
-      `${join(this.path, name)} is a symlink, which the loader does not follow; put the skill folder itself there, or reinstall the nustack plugin`,
+    throw SkillError.at(
+      join(this.path, name),
+      "is a symlink, which the loader does not follow; put the skill folder itself there",
     )
   }
 
   async skill(id: string): Promise<Skill.Info> {
-    const path = join(this.path, id, "SKILL.md")
+    const path = this.file(id)
     const data = await readFile(path).catch((error: unknown) => {
-      throw new Error(
-        `${path} cannot be read (${SkillFolder.code(error)}); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
+      throw SkillError.at(
+        path,
+        `cannot be read (${errorCode(error)}); give the skill a readable SKILL.md`,
         { cause: error },
       )
     })
     return SkillFile.decode(path, data).info(id)
   }
 
-  static code(error: unknown): string {
-    return error instanceof Error && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "no error code"
-  }
-
-  static reason(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
+  file(id: string): string {
+    return join(this.path, id, "SKILL.md")
   }
 }
 
@@ -201,29 +232,27 @@ export class ModeReload {
   static readonly ID = "nus-mode"
   readonly skill: Skill.Info
   readonly store: Store
-  readonly needle: string
-  readonly text: string
   readonly sessions = new Map<string, Progress>()
+  readonly escapedBody: string
+  readonly reloadText: string
 
-  constructor(skills: readonly Skill.Info[], store: Store) {
-    this.skill = ModeReload.mode(skills)
+  constructor(skill: Skill.Info, store: Store) {
+    this.skill = skill
     this.store = store
     // OpenCode's skill tool shows the body trimmed, its CRLF lines kept, so the reload looks for and gives back that,
     // as tests/fixtures/opencode/loaded/context.json records.
     const body = this.skill.content.trim()
-    this.needle = JSON.stringify(body).slice(1, -1)
+    this.escapedBody = JSON.stringify(body).slice(1, -1)
     // The mode's links are relative to its folder, so the folder follows its text, as OpenCode's skill tool gives it in
     // tests/fixtures/opencode/loaded/context.json.
-    this.text = `${body}\n\nBase directory for this skill: ${dirname(this.skill.path)}\nRelative paths in this skill are relative to this base directory.`
+    this.reloadText = `${body}\n\nBase directory for this skill: ${dirname(this.skill.path)}\nRelative paths in this skill are relative to this base directory.`
     Object.freeze(this)
   }
 
-  static mode(skills: readonly Skill.Info[]): Skill.Info {
+  static mode(folder: SkillFolder, skills: readonly Skill.Info[]): Skill.Info {
     const skill = skills.find((candidate) => candidate.id === ModeReload.ID)
     if (skill === undefined) {
-      throw new Error(
-        `skills/${ModeReload.ID}/SKILL.md is missing; restore the mode, or reinstall the nustack plugin`,
-      )
+      throw SkillError.at(folder.file(ModeReload.ID), "is missing; restore the mode")
     }
     return skill
   }
@@ -247,32 +276,27 @@ export class ModeReload {
     const progress = await this.progress(request.sessionID)
     if (!progress.loaded && this.loads(request.messages))
       await this.remember(request.sessionID, progress)
-    progress.scanned = 0
-    progress.present = false
+    progress.restart()
   }
 
   async calling(request: ModelRequest): Promise<void> {
     const progress = await this.progress(request.sessionID)
-    if (request.messages.length < progress.scanned) {
-      progress.scanned = 0
-      progress.present = false
-    }
+    if (request.messages.length < progress.scanned) progress.restart()
     const fresh = request.messages.slice(progress.scanned)
-    if (fresh.some((message) => JSON.stringify(message).includes(this.needle))) {
+    if (fresh.some((message) => JSON.stringify(message).includes(this.escapedBody))) {
       progress.present = true
       if (!progress.loaded && this.loads(fresh)) await this.remember(request.sessionID, progress)
     }
     progress.scanned = request.messages.length
     if (progress.loaded && !progress.present) {
-      request.system.push({ type: "text", text: this.text })
+      request.system.push({ type: "text", text: this.reloadText })
     }
   }
 
   async progress(sessionID: string): Promise<Progress> {
     const known = this.sessions.get(sessionID)
     if (known !== undefined) return known
-    const loaded = (await this.store.get(this.key(sessionID))) === true
-    const progress = { loaded, scanned: 0, present: false }
+    const progress = new Progress((await this.store.get(this.key(sessionID))) === true)
     this.sessions.set(sessionID, progress)
     return progress
   }
@@ -299,7 +323,7 @@ export class ModeReload {
       (part) =>
         part.type === "tool-result" &&
         calls.has(part.id) &&
-        JSON.stringify(part.result).includes(this.needle),
+        JSON.stringify(part.result).includes(this.escapedBody),
     )
   }
 
@@ -315,8 +339,9 @@ export default {
     session: SessionHooks
     storage: Store
   }): Promise<() => Promise<void>> {
-    const skills = await new SkillFolder(join(import.meta.dirname, "skills")).skills()
-    const reload = new ModeReload(skills, context.storage)
+    const folder = new SkillFolder(join(import.meta.dirname, "skills"))
+    const skills = await folder.skills()
+    const reload = new ModeReload(ModeReload.mode(folder, skills), context.storage)
     const registrations = [
       await context.skill.transform((editor) => {
         for (const skill of skills) editor.add(skill)
@@ -328,3 +353,13 @@ export default {
     }
   },
 } satisfies Plugin.Plugin
+
+export function errorCode(error: unknown): string {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : "no error code"
+}
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

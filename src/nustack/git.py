@@ -2,18 +2,22 @@
 
 Paths never read as options or patterns. A command that fails, that Git cannot
 start, or that outlasts its time limit stops with a Problem naming the fix beside
-the message Git printed.
+the message Git printed, as does a commit Git names by other than its SHA-1.
 """
 
 import os
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from typing import ClassVar
+lazy from collections.abc import Generator
 lazy from pathlib import Path
 
 from nustack import process_group
 from nustack.problem import Problem
+from nustack.sha import NotSha1Error
+from nustack.sha import Sha
 
 
 class GitError(Exception):
@@ -68,8 +72,16 @@ class Git:
         )
 
     @property
-    def head(self) -> str:
-        return self.run("rev-parse", "HEAD").decode().strip()
+    def head(self) -> Sha:
+        with self.naming_by_sha("git rev-parse"):
+            return Sha(self.run("rev-parse", "HEAD").decode().strip())
+
+    @contextmanager
+    def naming_by_sha(self, source: str) -> Generator[None]:
+        try:
+            yield
+        except NotSha1Error as error:
+            raise GitError(Problem(self.root, f"{source} {error}")) from error
 
     # merge-base exits 1 when the commit is not an ancestor and another non-zero
     # status when Git fails: https://git-scm.com/docs/git-merge-base

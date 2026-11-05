@@ -1,6 +1,5 @@
 """Each command's arguments, help, output and exit status."""
 
-import os
 import re
 import tomllib
 from pathlib import Path
@@ -11,8 +10,11 @@ import pytest
 
 from nustack.cli.command import app
 from nustack.cli.command import sync_description
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
 from nustack.rule import Rule
 from nustack.sync.description import SyncLinks
+from tests.fixtures.permissions import SKIP_AS_ROOT
 from tests.fixtures.terminal import plain
 lazy from tests.fixtures.repository import ModelRepository
 
@@ -137,7 +139,7 @@ class TestEmptyValues:
                 "Invalid value for 'tag': give a value, not an empty string",
             ),
             (
-                ["release-tag", "v1", "--root", ""],
+                ["release-tag", "v1.2.3", "--root", ""],
                 "Usage: nustack release-tag [OPTIONS] {tag}",
                 "Invalid value for '--root': give a path, not an empty string",
             ),
@@ -147,12 +149,12 @@ class TestEmptyValues:
                 "Invalid value for 'tag': give a value, not an empty string",
             ),
             (
-                ["publish", "v1", "--commit", ""],
+                ["publish", "v1.2.3", "--commit", ""],
                 "Usage: nustack publish [OPTIONS] {tag}",
                 "Invalid value for '--commit': give a value, not an empty string",
             ),
             (
-                ["publish", "v1", "--name-with-owner", ""],
+                ["publish", "v1.2.3", "--name-with-owner", ""],
                 "Usage: nustack publish [OPTIONS] {tag}",
                 (
                     "Invalid value for '--name-with-owner': give a value, not an empty"
@@ -160,7 +162,7 @@ class TestEmptyValues:
                 ),
             ),
             (
-                ["publish", "v1", "--zip-folder", ""],
+                ["publish", "v1.2.3", "--zip-folder", ""],
                 "Usage: nustack publish [OPTIONS] {tag}",
                 "Invalid value for '--zip-folder': give a path, not an empty string",
             ),
@@ -235,7 +237,7 @@ class TestHelp:
             (
                 ["sync-description", "-h"],
                 (
-                    "*  --upstream-url           <text>  The upstream repository's URL."
+                    "*  --upstream-url           <url>   The upstream repository's URL."
                     " [required]"
                 ),
             ),
@@ -255,13 +257,13 @@ class TestHelp:
             ),
             (
                 ["release-tag", "-h"],
-                "*    tag      <text>  The release's tag. [required]",
+                "*    tag      <tag>  The release's tag. [required]",
             ),
             (
                 ["publish", "-h"],
                 (
-                    "--zip-folder               <path>  The folder that holds the zip"
-                    " and notes.md CI built. [default: dist]"
+                    "--zip-folder               <path>          The folder that holds"
+                    " the zip and notes.md CI built. [default: dist]"
                 ),
             ),
         ],
@@ -342,9 +344,7 @@ class TestCheck:
             f"{root}/README.md: is missing; add it with the plugin's guide\n"
         )
 
-    @pytest.mark.skipif(
-        os.geteuid() == 0, reason="root opens every folder, so every path has a kind"
-    )
+    @SKIP_AS_ROOT
     def test_stops_at_a_root_it_cannot_stat_with_the_reason(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -420,9 +420,8 @@ class TestBundle:
     """make bundle gets one path to upload, and no zip of a broken plugin.
 
     It takes its root and zip folder as options, the folder it runs in and dist by
-    default.
-    A broken plugin gets no zip; otherwise the zip holds the plugin's files and only
-    its path prints. A zip folder it cannot write to exits 1 naming it.
+    default. A broken plugin gets no zip; otherwise the zip holds the plugin's files
+    and only its path prints. A zip folder it cannot write to exits 1 naming it.
     """
 
     @pytest.mark.usefixtures("elsewhere")
@@ -526,10 +525,10 @@ class TestNotes:
         "## 🚀 Quick start\n\n### 1️⃣ Install\n\nRun `kit add`.\n\n"
         "### 2️⃣ Use\n\nRun `kit`.\n\n"
         "**Full changelog:** [`v1.2.2...v1.2.3`]"
-        "(https://example.com/kit/compare/v1.2.2...v1.2.3)\n"
+        "(https://example.com/nus/kit/compare/v1.2.2...v1.2.3)\n"
     )
     NOTES = (
-        "> **[kit](https://example.com/kit)** · A kit.\n\n"
+        "> **[kit](https://example.com/nus/kit)** · A kit.\n\n"
         "## 🆕 What's new\n\n### Added\n\n- Adds the kit.\n\n" + PAGE_END
     )
 
@@ -577,7 +576,7 @@ class TestNotes:
         with pytest.raises(SystemExit):
             _ = app(["notes", "--root", str(repository.save())])
         assert capsys.readouterr().out == (
-            "> **[kit](https://example.com/kit)** · A kit.\n\n"
+            "> **[kit](https://example.com/nus/kit)** · A kit.\n\n"
             "## 🆕 What's new\n\n### Added\n\n"
             "- See [d].\n\n```text\n## kept\n```\n\n[d]: https://x.io/d\n\n"
             + self.PAGE_END
@@ -590,7 +589,11 @@ class TestSyncDescription:
     A missing template stops the command too, named by its full path.
     """
 
-    LINKS = SyncLinks("https://x.io/up", "https://x.io/run", "https://x.io/checks")
+    LINKS = SyncLinks(
+        RepositoryUrl("x.io", NameWithOwner("up", "skills")),
+        "https://x.io/run",
+        "https://x.io/checks",
+    )
 
     def test_exits_1_naming_the_missing_template_by_its_full_path(
         self,

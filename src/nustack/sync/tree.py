@@ -14,6 +14,7 @@ lazy from pathlib import Path
 
 from nustack.plugin.skill import Skill
 from nustack.problem import Problem
+lazy from nustack.sha import Sha
 
 
 class Mode(StrEnum):
@@ -71,7 +72,7 @@ class CopyTree:
             if self.files.get(path) != other.files.get(path)
         )
 
-    def newest_match(self, history: Iterable[tuple[str, CopyTree]]) -> str | None:
+    def newest_match(self, history: Iterable[tuple[Sha, CopyTree]]) -> Sha | None:
         if Skill.FILE not in self.files:
             return None
         return next((sha for sha, tree in history if self == tree), None)

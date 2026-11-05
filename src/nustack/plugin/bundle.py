@@ -81,7 +81,8 @@ class Bundle:
             partial.unlink(missing_ok=True)
         return path
 
-    def unwritable(self, place: Path, error: OSError, removal: str = "") -> Problem:
+    @staticmethod
+    def unwritable(place: Path, error: OSError, removal: str = "") -> Problem:
         return Problem(
             place,
             f"cannot be written ({error.strerror}); "

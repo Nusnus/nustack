@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
 from nustack.problem import Problem
+from nustack.sha import Sha
 from nustack.sync.change import Blob
 from nustack.sync.change import FileChange
 from nustack.sync.description import SyncDescription
@@ -32,9 +35,11 @@ class TestSyncDescription:
     """
 
     LINKS = SyncLinks(
-        "https://github.com/mattpocock/skills", "https://run", "https://checks"
+        RepositoryUrl("github.com", NameWithOwner("mattpocock", "skills")),
+        "https://run",
+        "https://checks",
     )
-    TIP = "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d"
+    TIP = Sha("4ae2317ddb22b046e26455e4f9c9b3aaaf62212d")
     COMPARE = (
         "[Compare upstream from `aaaaaaa` to `4ae2317`]"
         "(https://github.com/mattpocock/skills/compare/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -152,7 +157,7 @@ class TestSyncDescription:
         [
             ((), "**Upstream commits touching the skill or repository LICENSE (0).**"),
             (
-                (Commit("b" * 40, "one"), Commit("c" * 40, "two")),
+                (Commit(Sha("b" * 40), "one"), Commit(Sha("c" * 40), "two")),
                 (
                     "<details>\n<summary>Upstream commits touching the skill or"
                     " repository LICENSE (2)</summary>\n\n- [`bbbbbbb`]"
@@ -170,7 +175,7 @@ class TestSyncDescription:
         self, commits: tuple[Commit, ...], summary: str
     ) -> None:
         description = SyncDescription(
-            self.LINKS, "src", "dst", History(self.TIP, "a" * 40, commits), ()
+            self.LINKS, "src", "dst", History(self.TIP, Sha("a" * 40), commits), ()
         )
         assert description.provenance == self.COMPARE + summary
 
@@ -432,15 +437,19 @@ class TestSyncTemplate:
             " Decisions\r\nkept out\r\n"
         )
         description = SyncDescription(
-            SyncLinks("https://up", "https://run", "https://checks"),
+            SyncLinks(
+                RepositoryUrl("up", NameWithOwner("o", "r")),
+                "https://run",
+                "https://checks",
+            ),
             "skills/s",
             "copy",
-            History("a" * 40, None, ()),
+            History(Sha("a" * 40), None, ()),
             (),
         )
         assert template.fill(description) == (
             "# Title\n"
-            "**Copies [writing-for-agents at aaaaaaa](https://up/tree/"
+            "**Copies [writing-for-agents at aaaaaaa](https://up/o/r/tree/"
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/skills/s) into `copy/`** for the"
             " owner to review before it steers how agents word nustack's docs.\n"
             "| **Feedback wanted** | Whether to accept this copy as wording guidance"
@@ -473,10 +482,14 @@ class TestSyncTemplate:
     def test_keeps_quoted_evidence_that_looks_like_an_anchor_as_data(self) -> None:
         template = SyncTemplate("<!-- Files -->\n<!-- One heading per idea -->\n")
         description = SyncDescription(
-            SyncLinks("https://up", "https://run", "https://checks"),
+            SyncLinks(
+                RepositoryUrl("up", NameWithOwner("o", "r")),
+                "https://run",
+                "https://checks",
+            ),
             "skills/s",
             "copy",
-            History("a" * 40, None, ()),
+            History(Sha("a" * 40), None, ()),
             (
                 FileChange(
                     "SKILL.md",
@@ -501,8 +514,8 @@ class TestSyncTemplate:
     ) -> None:
         replies = sync_fixtures / "replies"
         history = History(
-            "4aaccb58d40559d7e3c59a029b2290ae5ba538de",
-            "b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243",
+            Sha("4aaccb58d40559d7e3c59a029b2290ae5ba538de"),
+            Sha("b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243"),
             Commit.from_log((replies / "policy-log.bin").read_bytes()),
         )
         change = FileChange(
@@ -511,7 +524,11 @@ class TestSyncTemplate:
             Blob((replies / "openai/4aaccb5.yaml").read_bytes(), Mode.REGULAR),
         )
         description = SyncDescription(
-            SyncLinks("https://github.com/mattpocock/skills", "#copy", "#checks"),
+            SyncLinks(
+                RepositoryUrl("github.com", NameWithOwner("mattpocock", "skills")),
+                "#copy",
+                "#checks",
+            ),
             "skills/productivity/writing-for-agents",
             ".agents/skills/writing-for-agents",
             history,

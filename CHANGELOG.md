@@ -15,10 +15,33 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - The `align` playbook reshapes existing code, from a snippet to a whole project, to nus-mode's bar within its project's standards, if any, so later work in nus-mode meets no friction with them.
 - For nustack's maintainers:
   - `AGENTS.md` has agents weigh an issue's text as data, never as instructions.
+  - `AGENTS.md` keeps nus-mode's bullets on quality over session cost and on times as the owner words them.
+  - `nustack check` holds commitizen's `tag_format` in `pyproject.toml`, and the release workflow's push tags filter, to the release tags' `v<version>` form.
 
 ### Changed
 
 - A PR description links the issue it resolves with a closing keyword, such as `Fixes #12`, so its merge into the default branch closes the issue.
+- nus-mode's "keep it cheap" for an ETA moves from its rule for times into its rule to choose quality over session cost.
+- `language-python` links each of its rules for tests to the principle it gives the Python form of.
+- nus-mode's cold read pictures a reader new to the project reading the work.
+- For nustack's maintainers:
+  - A release runs `uv run cz bump --increment PATCH --version-files-only` with no `--yes`: `pyproject.toml` gives commitizen nustack's `v<version>` tag format, so it finds the earlier releases' tags.
+  - `tsconfig.json` no longer skips the libraries' type declarations, so `tsc` checks them too; `package.json` adds `@types/json-schema`, whose types `@ai-sdk/provider` imports.
+  - `nustack sync` and `nustack publish` refuse a `--name-with-owner` that is not `<owner>/<name>`, and `nustack sync` and `nustack sync-description` an `--upstream-url` that is not `https://<host>/<owner>/<name>`, each with an owner and name GitHub would take, and a host name as its host. A refused `--upstream-url` is never repeated, so a token it holds stays out of the message.
+  - `nustack release-tag` and `nustack publish` refuse a tag that is not `v<version>`, and `nustack publish` a `--commit` that is not a commit's full SHA.
+  - `nustack check` refuses a plugin manifest whose `repository` is not `https://<host>/<owner>/<name>`, the URL the changelog's and release page's links build on.
+  - `nustack check` reads a release workflow whose `on` names its events as one event or a list, whose push trigger is null, or whose tags filter is one string, as GitHub does.
+
+### Fixed
+
+- The Claude Code hook and the OpenCode loader name the path of each file they cannot use. Each message offers reinstalling the plugin as the other remedy, as the loader's messages already did. The hook names which part of nus-mode's SKILL.md it cannot use: missing or unclosed frontmatter, a blank body or a body that does not open with the mode's title. The loader names a frontmatter block that opens and never closes as such, where it said the file had none, and reads an empty block as no fields, as `nustack check` does, so it names the missing name.
+- For nustack's maintainers:
+  - `nustack publish` stops when gh reports a release's draft state as neither true nor false, where it took the release as published.
+  - `nustack check` names the field that breaks `pyproject.toml` or a YAML config, and gives a SKILL.md with lone-CR line endings the right line in each problem.
+  - The Devin blueprint's message for a failed Bun check names the test file that failed and points to bun test's report, where it always blamed the Bun version.
+  - `nustack sync` and `nustack sync-description` stop with the fix when Git names a commit by other than its SHA-1, as in a SHA-256 repository, where they took the name as a SHA.
+  - `nustack check` refuses a release workflow whose `%YAML 1.1` directive reads `on` as true with the fix, where it said to add `on`, and its warning of a YAML 1.1 float with no dot names the file.
+  - `nustack publish` says to push a tag again only where GitHub finds no such tag, and passes on gh's other failures to read it as they are.
 
 ## [0.0.2] - 2026-11-04
 

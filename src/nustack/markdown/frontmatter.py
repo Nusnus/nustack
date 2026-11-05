@@ -70,7 +70,7 @@ class FrontmatterBlock:
         match = cls.OPENING.prefixmatch(file_text)
         if match is not None:
             return cls(match.group(1))
-        if file_text.partition("\n")[0].removesuffix("\r") == "---":
+        if cls.opens(file_text):
             msg = "it opens with --- and never closes; end it with a --- line"
             raise InvalidFrontmatterError(msg)
         return None
@@ -83,11 +83,11 @@ class FrontmatterBlock:
     def fenced_of(cls, file_text: str) -> str:
         if match := cls.OPENING.prefixmatch(file_text):
             return match.group(0)
-        return (
-            file_text
-            if file_text.partition("\n")[0].removesuffix("\r") == "---"
-            else ""
-        )
+        return file_text if cls.opens(file_text) else ""
+
+    @staticmethod
+    def opens(file_text: str) -> bool:
+        return file_text.partition("\n")[0].removesuffix("\r") == "---"
 
     def refuse_ambiguous_lines(self) -> None:
         lines = self.text.split("\n")[:-1]
@@ -169,8 +169,8 @@ class FrontmatterBlock:
                 " quote or bracket, which some hosts refuse; put a space before the #"
             )
 
-    @classmethod
-    def refuse_unreadable_shapes(cls, data: object) -> None:
+    @staticmethod
+    def refuse_unreadable_shapes(data: object) -> None:
         done: set[int] = set()
         entered: set[int] = set()
         pending: list[tuple[object, bool]] = [(data, False)]

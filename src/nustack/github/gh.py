@@ -1,11 +1,12 @@
 """GitHub, through the gh command: the pull requests and releases the workflows act on.
 
-gh takes its host and token from the environment, as the workflows set them. A
-command that fails or outlasts its time limit stops with an error naming the fix
-beside what gh printed.
+A release's state reads as missing, draft or published. gh takes its host and token
+from the environment, as the workflows set them. A command that fails, outlasts its
+time limit or prints output the harness cannot read stops with an error naming the
+fix beside what gh printed.
 """
 
-import json
+import re
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -13,6 +14,10 @@ from typing import ClassVar
 lazy from pathlib import Path
 
 from nustack import process_group
+from nustack.sha import NotSha1Error
+from nustack.sha import Sha
+lazy from nustack.github.name import NameWithOwner
+lazy from nustack.release.tag import Tag
 
 
 class ReleaseState(Enum):
@@ -24,7 +29,7 @@ class ReleaseState(Enum):
 
 
 class GitHubError(Exception):
-    """A gh command failed or outlasted its time limit; the message says what to do."""
+    """A gh command that failed, stalled or printed unreadable output, with the fix."""
 
     def __init__(self, what: str) -> None:
         super().__init__(what)
@@ -38,7 +43,14 @@ class GitHub:
     # gh reports a missing release as exactly this:
     # https://github.com/cli/cli/blob/v2.103.3/pkg/cmd/release/shared/fetch.go
     NO_RELEASE: ClassVar[str] = "release not found"
-    name_with_owner: str
+    # GitHub numbers each pull request with decimal digits:
+    # https://docs.github.com/rest/pulls/pulls#get-a-pull-request
+    PULL_REQUEST_NUMBER: ClassVar[str] = "[0-9]+"
+    # GitHub answers a tag it cannot find so, as
+    # tests/fixtures/github/tag-commit/missing.json records:
+    # https://docs.github.com/rest/commits/commits#get-a-commit
+    NO_COMMIT: ClassVar[str] = "No commit found for SHA"
+    name_with_owner: NameWithOwner
     # Each command, a few API calls or one small upload, takes seconds when GitHub
     # is healthy; a minute leaves room for a slow answer and still stops a stalled one.
     timeout: float = 60
@@ -60,8 +72,7 @@ class GitHub:
     # whose head is this repository, since a fork in the same organization has the
     # same owner: https://docs.github.com/en/rest/pulls/pulls#list-pull-requests
     def open_pulls(self, base: str, branch: str) -> tuple[int, ...]:
-        owner = self.name_with_owner.split("/")[0]
-        numbers = self.run(
+        printed = self.run(
             "api",
             "--method",
             "GET",
@@ -72,11 +83,19 @@ class GitHub:
             "-f",
             f"base={base}",
             "-f",
-            f"head={owner}:{branch}",
+            f"head={self.name_with_owner.owner}:{branch}",
             "--jq",
             ".[] | select(.head.repo.id == .base.repo.id) | .number",
         )
-        return tuple(int(number) for number in numbers.split())
+        numbers = printed.split()
+        for number in numbers:
+            if re.fullmatch(self.PULL_REQUEST_NUMBER, number) is None:
+                what = (
+                    f"an open pull request from {branch} into {base} has no number (gh"
+                    " printed other than digits for it); rerun once GitHub answers"
+                )
+                raise GitHubError(what)
+        return tuple(map(int, numbers))
 
     def pull_body(self, number: int) -> str:
         return self.run(
@@ -88,7 +107,7 @@ class GitHub:
             "pr",
             "create",
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--base",
             base,
             "--head",
@@ -106,7 +125,7 @@ class GitHub:
             "edit",
             str(number),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--body-file",
             "-",
             stdin=body,
@@ -118,72 +137,101 @@ class GitHub:
             "close",
             str(number),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--comment",
             comment,
         )
 
-    def tag_commit(self, tag: str) -> str:
-        return self.run(
-            "api", f"repos/{self.name_with_owner}/commits/tags/{tag}", "--jq", ".sha"
-        ).strip()
+    def tag_commit(self, tag: Tag) -> Sha:
+        args = (
+            "api",
+            f"repos/{self.name_with_owner}/commits/tags/{tag}",
+            "--jq",
+            ".sha",
+        )
+        completed = self.complete(*args)
+        if completed.returncode != 0:
+            if self.NO_COMMIT in completed.stdout:
+                what = (
+                    "names no commit GitHub can find; push it again if it was deleted,"
+                    " then rerun"
+                )
+                raise GitHubError(what)
+            raise self.exited(args[0], completed.returncode)
+        try:
+            return Sha(completed.stdout.strip())
+        except NotSha1Error:
+            what = (
+                "names no commit (gh printed other than a SHA for it); rerun once"
+                " GitHub answers"
+            )
+            raise GitHubError(what) from None
 
-    def release_state(self, tag: str) -> ReleaseState:
+    def release_state(self, tag: Tag) -> ReleaseState:
         viewed = self.complete(
             "release",
             "view",
-            tag,
+            str(tag),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--json",
             "isDraft",
             "--jq",
             ".isDraft",
-            stderr=subprocess.PIPE,
+            capture_stderr=True,
         )
         if viewed.returncode == 0:
-            if json.loads(viewed.stdout) is True:
-                return ReleaseState.DRAFT
-            return ReleaseState.PUBLISHED
+            match viewed.stdout.strip():
+                case "true":
+                    return ReleaseState.DRAFT
+                case "false":
+                    return ReleaseState.PUBLISHED
+                case _:
+                    what = (
+                        "its release reads as neither a draft nor published (gh"
+                        " printed other than true or false for isDraft); rerun once"
+                        " GitHub answers"
+                    )
+                    raise GitHubError(what)
         if viewed.stderr.strip() == self.NO_RELEASE:
             return ReleaseState.MISSING
         what = (
-            f"release {tag} cannot be read ({viewed.stderr.strip()}); fix the cause"
-            " gh names, or rerun once GitHub answers"
+            f"its release cannot be read ({viewed.stderr.strip()}); fix the cause gh"
+            " names, or rerun once GitHub answers"
         )
         raise GitHubError(what)
 
-    def create_draft(self, tag: str) -> None:
+    def create_draft(self, tag: Tag) -> None:
         self.run(
             "release",
             "create",
-            tag,
+            str(tag),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--draft",
             "--verify-tag",
             "--notes",
             "",
         )
 
-    def upload(self, tag: str, assets: tuple[Path, ...]) -> None:
+    def upload(self, tag: Tag, assets: tuple[Path, ...]) -> None:
         self.run(
             "release",
             "upload",
-            tag,
+            str(tag),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             *map(str, assets),
             "--clobber",
         )
 
-    def publish(self, tag: str, title: str, notes: Path, *, prerelease: bool) -> None:
+    def publish(self, tag: Tag, title: str, notes: Path, *, prerelease: bool) -> None:
         self.run(
             "release",
             "edit",
-            tag,
+            str(tag),
             "-R",
-            self.name_with_owner,
+            str(self.name_with_owner),
             "--draft=false",
             "--prerelease" if prerelease else "--prerelease=false",
             "--title",
@@ -195,25 +243,27 @@ class GitHub:
     def run(self, *args: str, stdin: str = "") -> str:
         completed = self.complete(*args, stdin=stdin)
         if completed.returncode != 0:
-            what = (
-                f"gh {args[0]} exited {completed.returncode}; fix the cause gh printed"
-                " above, then rerun"
-            )
-            raise GitHubError(what)
+            raise self.exited(args[0], completed.returncode)
         return completed.stdout
+
+    @staticmethod
+    def exited(command: str, code: int) -> GitHubError:
+        return GitHubError(
+            f"gh {command} exited {code}; fix the cause gh printed above, then rerun"
+        )
 
     def complete(
         self,
         *args: str,
         stdin: str = "",
-        stderr: int | None = None,
+        capture_stderr: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         try:
             return process_group.run(
                 ["gh", *args],
                 timeout=self.timeout,
                 stdin=stdin,
-                stderr=stderr,
+                stderr=subprocess.PIPE if capture_stderr else None,
                 cwd=None,
                 env=None,
             )

@@ -90,7 +90,7 @@ Work in this repository in nus-mode: load the skill before you start.
 ```
 
 > [!IMPORTANT]
-> The project's own rules come first: where they conflict with a principle or a language skill, the agent follows the project and says so.
+> The project's own rules come first: where they conflict with a principle or a language skill, the agent follows the project and says so, as nus-mode's [standing rules](plugin/skills/nus-mode/SKILL.md#standing-rules) say.
 
 ## 🧩 What's inside
 
@@ -161,11 +161,13 @@ nustack/
 ├── .cursor-plugin/             the Cursor marketplace
 ├── src/nustack/                the harness and the `nustack` command
 │   ├── cli/                    the `nustack` command and the parsers of its values
+│   ├── release/                a plugin release, published on GitHub from its v<version> tag
 │   ├── repository/             the files released and configured beside the plugin, the test suite's layout and the vendored copy, read from disk
 │   ├── sync/                   the writing-for-agents sync: the copy, its review evidence and its pull request
 │   ├── plugin/                 the rules the plugin, its skills and manifests keep, and its bundle
-│   └── markdown/               the Markdown documents are written in, down to a skill's frontmatter
-├── tests/                      unit, integration and smoke tests, each but smoke mirroring what it tests
+│   ├── markdown/               the Markdown documents are written in, down to a skill's frontmatter
+│   └── github/                 GitHub: a repository's name and URL, and its pull requests and releases by gh
+├── tests/                      unit, integration and smoke tests
 ├── .devin/blueprint.yaml       the Devin environment
 ├── .agents/skills/             skills for working on nustack
 ├── package.json                the loader's tools; their config sits beside it
@@ -176,13 +178,13 @@ nustack/
 
 ## 🤝 Contributing
 
-Contributions follow [AGENTS.md](AGENTS.md), which holds the setup, checks and release steps. [REVIEW.md](REVIEW.md) says what review checks, and `make` lists the targets.
+Contributions follow [AGENTS.md](AGENTS.md), which holds the rules for changing nustack, what CI and the commit hooks check, and the release steps. [REVIEW.md](REVIEW.md) says what review checks, and `make` lists the targets.
 
 ## 🙏 Acknowledgements
 
 [pstack](https://github.com/cursor/plugins/tree/main/pstack) and its `poteto-mode`, from which nustack and nus-mode take their names and their structure: a mode that routes work to playbooks, with one skill per principle.
 
-[AI Hero](https://www.aihero.dev) by Matt Pocock: nustack words its skill text and rule files by his [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) skill. A scheduled workflow proposes changes from [his skills repository](https://github.com/mattpocock/skills) with a comparison to nustack's copy for the owner to [review](REVIEW.md).
+[AI Hero](https://www.aihero.dev) by Matt Pocock: nustack words the texts [AGENTS.md](AGENTS.md) names by his [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) skill. A scheduled workflow proposes changes from [his skills repository](https://github.com/mattpocock/skills) with a comparison to nustack's copy for the owner to [review](REVIEW.md).
 
 ## 📄 License
 

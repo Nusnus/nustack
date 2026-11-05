@@ -1,4 +1,7 @@
-"""The suite's settings run every tier, cover every line and bound each smoke test."""
+"""The suite's settings run every tier, cover every line and bound each smoke test.
+
+make mutate leaves out the tests that check the line calling the YAML reader.
+"""
 
 import tomllib
 lazy from pathlib import Path
@@ -31,4 +34,18 @@ class TestSmoke:
         runs = [line for line in makefile.splitlines() if "bun --config=" in line]
         assert runs == [
             "\tbun --config=tests/fixtures/smoke/bunfig.toml test --timeout=120000"
+        ]
+
+
+class TestMutmut:
+    """make mutate deselects the tests marked caller_line."""
+
+    def test_deselects_the_caller_line_tests(self, pyproject: Path) -> None:
+        settings = tomllib.loads(pyproject.read_text())["tool"]["mutmut"]
+        selection = settings["pytest_add_cli_args_test_selection"]
+        assert selection == [
+            "-m",
+            "not caller_line",
+            "tests/integration/nustack",
+            "tests/unit",
         ]

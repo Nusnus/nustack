@@ -1,7 +1,8 @@
-"""The schemas and text patterns a file's values are held to.
+"""The schemas and text patterns that values read from outside are held to.
 
-A value that breaks one becomes a Problem naming each field and its fix, and a text
-pattern written once also serves the larger patterns built from it.
+A value that breaks a schema becomes a Problem naming each field and its fix. A text
+pattern carries the fix for a value that misses it, and written once also serves the
+larger patterns built from it.
 """
 
 import json
@@ -12,7 +13,9 @@ from functools import cached_property
 from typing import ClassVar
 from typing import assert_never
 from typing import get_args
+from typing import get_origin
 lazy from collections.abc import Iterator
+lazy from collections.abc import Mapping
 
 from pydantic import BaseModel
 from pydantic import ValidationError
@@ -39,9 +42,22 @@ class Pattern(StrEnum):
     )
     NAME = r"^[a-z0-9]+(-[a-z0-9]+)*$"
     VERSION = r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
+    # Git writes a commit's SHA-1 as 40 lowercase hex digits, as GitHub names it:
+    # https://github.com/git/git/blob/v2.51.0/hex.c#L80-L83
+    SHA = r"^[0-9a-f]{40}$"
+    # GitHub's owner and repository names, as its sign-up and new-repository forms
+    # take them: https://github.com/join and https://github.com/new. A managed user's
+    # name ends in an underscore and its enterprise's short code, such as
+    # mona-cat_octo:
+    # https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication
+    OWNER = r"^[A-Za-z0-9](-?[A-Za-z0-9])*(_[A-Za-z0-9]+)?$"
+    REPOSITORY = r"^(?!\.\.?$)[A-Za-z0-9._-]+$"
+    # A host name is dot-separated labels of letters, digits and hyphens, with no
+    # hyphen first or last: https://www.rfc-editor.org/rfc/rfc1123#section-2.1
+    HOST = r"^[A-Za-z0-9](-*[A-Za-z0-9])*(\.[A-Za-z0-9](-*[A-Za-z0-9])*)*$"
 
     @property
-    def fix(self) -> str:
+    def fix(self) -> str:  # noqa: PLR0911 -- one return per member
         match self:
             case Pattern.NON_BLANK:
                 return "fill it in; it is blank"
@@ -49,6 +65,27 @@ class Pattern(StrEnum):
                 return "use kebab case, such as nus-mode"
             case Pattern.VERSION:
                 return "use MAJOR.MINOR.PATCH without leading zeros, such as 0.0.1"
+            case Pattern.SHA:
+                return (
+                    "use 40 lowercase hex digits, such as"
+                    " 81c986c0e0a7c511f2941ed3cec09f7975687f80"
+                )
+            case Pattern.OWNER:
+                return (
+                    "use letters, digits and single hyphens, with no hyphen first or"
+                    " last, such as Nusnus, and for a managed user an underscore and"
+                    " its enterprise's short code at the end, such as mona-cat_octo"
+                )
+            case Pattern.REPOSITORY:
+                return (
+                    "use letters, digits, '.', '-' and '_', other than . and .., such"
+                    " as nustack"
+                )
+            case Pattern.HOST:
+                return (
+                    "use labels of letters, digits and hyphens, joined by dots, with no"
+                    " hyphen first or last in a label, such as github.com"
+                )
             case unexpected:
                 assert_never(unexpected)
 
@@ -62,12 +99,22 @@ class Schema:
     """A pydantic model, read as the keys a file may hold and where each sits."""
 
     UNKNOWN_KEY: ClassVar[str] = "an unknown key"
+    # A mapping's key is a value read from the file, so its place names no key.
+    MAPPING_KEY: ClassVar[str] = "<key>"
+    # pydantic places an error in a mapping's key at that key, then this part, then
+    # the place inside the key; a place stops at the mapping, and its fix speaks of
+    # each key:
+    # https://github.com/pydantic/pydantic/blob/v2.14.2/pydantic-core/src/validators/dict.rs#L133-L134
+    KEY_ERROR: ClassVar[str] = "[key]"
     FIXES: ClassVar[frozendict[str, str]] = frozendict(
         {
             "missing": "add it",
             "string_type": "make it a string",
             "bool_type": "make it true or false",
-            "model_type": "make it an object of keys and values",
+            **dict.fromkeys(
+                ("model_type", "frozen_dict_type"),
+                "make it an object of keys and values",
+            ),
             "tuple_type": "make it a list",
             **dict.fromkeys(
                 ("url_parsing", "url_scheme", "url_type"),
@@ -100,10 +147,13 @@ class Schema:
         )
 
     def reason(self, error: ValidationError) -> str:
-        return "; ".join(
-            f"{self.place(detail['loc'])}: {self.fix(detail)}"
-            for detail in error.errors()
-        )
+        return "; ".join(self.located_fix(detail) for detail in error.errors())
+
+    def located_fix(self, detail: ErrorDetails) -> str:
+        labels = tuple(self.labels_along(detail["loc"]))
+        if labels[-1:] == (self.KEY_ERROR,):
+            return f"{self.joined(labels[:-1])}: for each key, {self.fix(detail)}"
+        return f"{self.joined(labels)}: {self.fix(detail)}"
 
     def fix(self, detail: ErrorDetails) -> str:
         match detail:
@@ -129,18 +179,34 @@ class Schema:
         return fix
 
     def place(self, loc: tuple[str | int, ...]) -> str:
-        return ".".join(self.label(part) for part in loc) or "the file"
+        return self.joined(tuple(self.labels_along(loc)))
+
+    def joined(self, labels: tuple[str, ...]) -> str:
+        return ".".join(labels) or "the file"
+
+    def labels_along(self, loc: tuple[str | int, ...]) -> Iterator[str]:
+        annotation: object = self.model
+        for index, part in enumerate(loc):
+            if (value := self.mapping_value(annotation)) is not None:
+                if loc[index + 1 : index + 2] == (self.KEY_ERROR,):
+                    yield self.KEY_ERROR
+                    return
+                yield self.MAPPING_KEY
+                annotation = value
+            else:
+                yield self.label(part)
+                annotation = self.inner(annotation, part)
 
     def unknown_key_fix(self, place: tuple[str | int, ...]) -> str:
         keys = ", ".join(self.label(key) for key in self.keys_at(place))
         return f"rename it or remove it; nustack allows only {keys} here"
 
     def keys_at(self, place: tuple[str | int, ...]) -> Iterator[str]:
-        current = self
+        annotation: object = self.model
         for part in place:
-            if isinstance(part, str):
-                current = Schema(next(self.models_in(current.fields[part].annotation)))
-        yield from current.fields
+            value = self.mapping_value(annotation)
+            annotation = self.inner(annotation, part) if value is None else value
+        yield from Schema(next(self.models_in(annotation))).fields
 
     def label(self, part: str | int) -> str:
         if isinstance(part, int):
@@ -149,16 +215,41 @@ class Schema:
             return self.UNKNOWN_KEY
         return part if re.fullmatch(r"[a-z][a-z0-9_-]*", part) else json.dumps(part)
 
+    @staticmethod
+    def mapping_value(annotation: object) -> object | None:
+        return next(
+            (
+                get_args(arg)[1]
+                for arg in (annotation, *get_args(annotation))
+                if isinstance(origin := get_origin(arg), type)
+                and issubclass(origin, Mapping)
+            ),
+            None,
+        )
+
+    @classmethod
+    def inner(cls, annotation: object, part: str | int) -> object:
+        if isinstance(part, int):
+            return next(
+                (
+                    get_args(arg)[0]
+                    for arg in (annotation, *get_args(annotation))
+                    if get_origin(arg) is tuple
+                ),
+                None,
+            )
+        return next(
+            (
+                Schema(model).fields[part].annotation
+                for model in cls.models_in(annotation)
+                if part in Schema(model).fields
+            ),
+            None,
+        )
+
     @classmethod
     def models_in(cls, annotation: object) -> Iterator[type[BaseModel]]:
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             yield annotation
         for arg in get_args(annotation):
             yield from cls.models_in(arg)
-
-
-def version_order(version: str) -> tuple[tuple[int, str], ...]:
-    # Each part orders by its length, then its digits, since int() refuses a part
-    # longer than Python's digit limit:
-    # https://docs.python.org/3/library/stdtypes.html#int-max-str-digits
-    return tuple((len(part), part) for part in version.split("."))

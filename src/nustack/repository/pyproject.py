@@ -1,11 +1,14 @@
 """The harness's project settings, down to what the checks compare with other files.
 
 That is the project's version, the files commitizen's `cz bump` sets the version in
-beside it, and the folders Ruff leaves alone. A file that is not valid TOML, or holds
-no version, is refused with the fix.
+beside it, the tag format it finds the last release by, and the folders Ruff leaves
+alone. A file that is not valid TOML, or a field that breaks its schema, is refused
+with the fix.
 """
 
 import tomllib
+from pathlib import PurePosixPath
+from typing import ClassVar
 from typing import Self
 
 from pydantic import BaseModel
@@ -13,12 +16,13 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import ValidationError
 
-from nustack.plugin.manifest import Version
 from nustack.problem import Problem
+from nustack.validation import Schema
+from nustack.version import Version
 
 
 class InvalidPyprojectError(ValueError):
-    """A `pyproject.toml` that is not valid TOML, or holds no project version."""
+    """A `pyproject.toml` that is not valid TOML, or breaks its schema."""
 
 
 class Project(BaseModel):
@@ -30,10 +34,11 @@ class Project(BaseModel):
 
 
 class Commitizen(BaseModel):
-    """The `[tool.commitizen]` table, down to the files `cz bump` versions."""
+    """The `[tool.commitizen]` table, down to the files and tags `cz bump` versions."""
 
     model_config = ConfigDict(frozen=True)
 
+    tag_format: str | None = None
     version_files: tuple[str, ...] = ()
 
 
@@ -57,6 +62,7 @@ class Tools(BaseModel):
 class Pyproject(BaseModel):
     """A `pyproject.toml`, down to its `[project]`, commitizen and Ruff tables."""
 
+    PATH: ClassVar[PurePosixPath] = PurePosixPath("pyproject.toml")
     model_config = ConfigDict(frozen=True)
 
     project: Project
@@ -67,12 +73,7 @@ class Pyproject(BaseModel):
         try:
             return cls.model_validate(tomllib.loads(content.decode()))
         except ValidationError as error:
-            msg = (
-                "needs a MAJOR.MINOR.PATCH version, such as 0.0.1, in its [project] "
-                "table, and a list of strings as any [tool.commitizen] version_files "
-                "and any [tool.ruff] extend-exclude"
-            )
-            raise InvalidPyprojectError(msg) from error
+            raise InvalidPyprojectError(Schema(cls).reason(error)) from error
         except tomllib.TOMLDecodeError as error:
             msg = f"it is not valid TOML on line {error.lineno}; fix it"
             raise InvalidPyprojectError(msg) from error

@@ -1,10 +1,10 @@
 """The fake gh replays each reply a test gives, as gh prints it, and logs each call."""
 
-import subprocess
 lazy from pathlib import Path
 
 import pytest
 
+from tests.fixtures.processes import run_gh
 lazy from tests.fixtures.gh import FakeGh
 
 
@@ -18,26 +18,12 @@ class TestFakeGh:
 
     @pytest.mark.usefixtures("gh")
     def test_succeeds_silently_on_a_call_no_reply_matches(self) -> None:
-        run = subprocess.run(
-            ["gh", "pr", "edit", "1"],  # noqa: S607 -- the fake gh on PATH
-            capture_output=True,
-            text=True,
-            # Ruff asks for check; the test reads the exit status itself:
-            # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-            check=False,
-        )
+        run = run_gh("pr", "edit", "1")
         assert (run.stdout, run.stderr, run.returncode) == ("", "", 0)
 
     def test_replays_a_reply_with_its_output_and_status(self, gh: FakeGh) -> None:
         gh.reply("api", "x", stdout="12\n", stderr="slow\n", code=1)
-        run = subprocess.run(
-            ["gh", "api", "x"],  # noqa: S607 -- the fake gh on PATH
-            capture_output=True,
-            text=True,
-            # Ruff asks for check; the test reads the exit status itself:
-            # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-            check=False,
-        )
+        run = run_gh("api", "x")
         assert (run.stdout, run.stderr, run.returncode) == ("12\n", "slow\n", 1)
 
     def test_replays_a_recorded_reply(self, gh: FakeGh, tmp_path: Path) -> None:
@@ -46,14 +32,7 @@ class TestFakeGh:
             '{"argv": ["api", "y"], "stdout": "12\\n", "stderr": "slow\\n", "code": 1}'
         )
         printed = gh.replay("api", "x", recording=recording)
-        run = subprocess.run(
-            ["gh", "api", "x"],  # noqa: S607 -- the fake gh on PATH
-            capture_output=True,
-            text=True,
-            # Ruff asks for check; the test reads the exit status itself:
-            # https://docs.astral.sh/ruff/rules/subprocess-run-without-check/
-            check=False,
-        )
+        run = run_gh("api", "x")
         assert (printed, run.stdout, run.stderr, run.returncode) == (
             "12\n",
             "12\n",
@@ -64,23 +43,16 @@ class TestFakeGh:
     def test_replays_replies_in_order_then_keeps_the_last(self, gh: FakeGh) -> None:
         gh.reply("api", "x", stdout="1\n")
         gh.reply("api", "x", stdout="2\n")
-        outputs = [
-            subprocess.run(
-                ["gh", "api", "x"],  # noqa: S607 -- the fake gh on PATH
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
-            for _ in range(3)
+        runs = [run_gh("api", "x") for _ in range(3)]
+        assert [(run.stdout, run.returncode) for run in runs] == [
+            ("1\n", 0),
+            ("2\n", 0),
+            ("2\n", 0),
         ]
-        assert outputs == ["1\n", "2\n", "2\n"]
 
     def test_logs_each_call_with_its_input_in_order(self, gh: FakeGh) -> None:
-        for argv, stdin in [(["a"], "one"), (["b", "c"], "")]:
-            subprocess.run(  # noqa: S603 -- the test's own arguments
-                ["gh", *argv],  # noqa: S607 -- the fake gh on PATH
-                input=stdin,
-                text=True,
-                check=True,
-            )
-        assert gh.calls == [(("a",), "one"), (("b", "c"), "")]
+        codes = [
+            run_gh(*argv, stdin=stdin).returncode
+            for argv, stdin in [(("a",), "one"), (("b", "c"), "")]
+        ]
+        assert (codes, gh.calls) == ([0, 0], [(("a",), "one"), (("b", "c"), "")])

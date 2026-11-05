@@ -7,12 +7,17 @@
  * A host's requests carry IDs and times that change on each run, so each test checks what the request holds.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Bundle } from "../../fixtures/bundle.ts"
+import { TemporaryFolders } from "../../fixtures/folders.ts"
 import { FakeModel } from "../../fixtures/model.ts"
 import { finished } from "../../fixtures/process.ts"
+
+/** opencode stopped or failed while a smoke test drove it. */
+class OpencodeError extends Error {
+  override name = "OpencodeError"
+}
 
 const opencode = join(
   import.meta.dirname,
@@ -25,7 +30,12 @@ const opencode = join(
   "opencode",
 )
 
+/**
+ * One OpenCode server, configured in a temporary home with the release zip's plugin, a skill that quotes nus-mode and
+ * the fake model, serves every test; each test runs its own sessions through it.
+ */
 describe("plugin/opencode.ts in OpenCode", () => {
+  const folders = new TemporaryFolders()
   let bundle: Bundle
   let model: FakeModel
   let home: string
@@ -33,52 +43,10 @@ describe("plugin/opencode.ts in OpenCode", () => {
   let url: string
   let env: Record<string, string | undefined>
 
-  async function promptUntilIdle(session: string, body: object): Promise<void> {
-    const path = `/api/session/${session}/prompt`
-    await run("api", "--server", url, "POST", path, "--data", JSON.stringify(body))
-    await run(
-      "api",
-      "--server",
-      url,
-      "experimental.session.wait",
-      "--param",
-      `sessionID=${session}`,
-    )
-  }
-
-  async function ask(session: string | null, text: string): Promise<string> {
-    const resume = session === null ? [] : ["--session", session]
-    const events = (
-      await run("run", "--server", url, "--format", "json", "--auto", ...resume, "--", text)
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-    const failure = events.find((event) => event.type === "error")
-    if (failure !== undefined)
-      throw new Error(`opencode run failed: ${JSON.stringify(failure.error)}`)
-    return events[0].sessionID
-  }
-
-  async function run(...args: string[]): Promise<string> {
-    const child = Bun.spawn([opencode, ...args], {
-      cwd: home,
-      env,
-      stdin: "ignore",
-      stderr: "pipe",
-    })
-    const { code, stdout, stderr } = await finished(child)
-    if (code !== 0)
-      throw new Error(
-        `opencode ${args[0]} exited with ${code}\nstderr: ${stderr}\nstdout: ${stdout}`,
-      )
-    return stdout
-  }
-
   beforeAll(async () => {
     bundle = await Bundle.unpacked()
     model = new FakeModel("opencode")
-    home = await mkdtemp(join(tmpdir(), "nustack-opencode-"))
+    home = await folders.make()
     await mkdir(join(home, "skills", "sample-mode"), { recursive: true })
     await writeFile(
       join(home, "skills", "sample-mode", "SKILL.md"),
@@ -87,11 +55,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     const config = {
       plugins: [bundle.root],
       skills: [join(home, "skills")],
-      model: "anthropic/claude-haiku-5-5",
+      model: `anthropic/${FakeModel.MODEL}`,
       providers: {
         anthropic: {
           settings: { baseURL: `${model.url}/v1` },
-          models: { "claude-haiku-5-5": { limit: { context: FakeModel.WINDOW, output: 8_000 } } },
+          models: { [FakeModel.MODEL]: { limit: { context: FakeModel.WINDOW, output: 8_000 } } },
         },
       },
     }
@@ -120,7 +88,7 @@ describe("plugin/opencode.ts in OpenCode", () => {
     while (listening === undefined || password === undefined) {
       const chunk = await lines.read()
       if (chunk.done)
-        throw new Error(
+        throw new OpencodeError(
           `opencode serve stopped before it listened\nstderr: ${await errors}\nstdout: ${text}`,
         )
       text += chunk.value
@@ -138,16 +106,62 @@ describe("plugin/opencode.ts in OpenCode", () => {
     // beforeAll may stop before it sets each of these.
     server?.kill()
     await server?.exited
-    await Promise.all([bundle?.remove(), model?.stop(), home && rm(home, { recursive: true })])
+    await Promise.all([bundle?.remove(), model?.stop(), folders.clear()])
   })
+
+  async function promptUntilIdle(session: string, body: object): Promise<void> {
+    const path = `/api/session/${session}/prompt`
+    await run("api", "--server", url, "POST", path, "--data", JSON.stringify(body))
+    await run(
+      "api",
+      "--server",
+      url,
+      "experimental.session.wait",
+      "--param",
+      `sessionID=${session}`,
+    )
+  }
+
+  async function ask(session: string | null, text: string): Promise<string> {
+    const resume = session === null ? [] : ["--session", session]
+    const events = (
+      await run("run", "--server", url, "--format", "json", "--auto", ...resume, "--", text)
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    const failure = events.find((event) => event.type === "error")
+    if (failure !== undefined)
+      throw new OpencodeError(`opencode run failed: ${JSON.stringify(failure.error)}`)
+    return events[0].sessionID
+  }
+
+  async function compact(session: string): Promise<void> {
+    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+  }
+
+  async function run(...args: string[]): Promise<string> {
+    const child = Bun.spawn([opencode, ...args], {
+      cwd: home,
+      env,
+      stdin: "ignore",
+      stderr: "pipe",
+    })
+    const { code, stdout, stderr } = await finished(child)
+    if (code !== 0)
+      throw new OpencodeError(
+        `opencode ${args[0]} exited with ${code}\nstderr: ${stderr}\nstdout: ${stdout}`,
+      )
+    return stdout
+  }
 
   test("sends nus-mode again after a summary the user asks for", async () => {
     const session = await ask(null, FakeModel.LOAD)
-    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+    await compact(session)
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
@@ -166,11 +180,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     // https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L982-L1028
     // https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L23-L34
     await ask(session, FakeModel.PROOFREAD)
-    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+    await compact(session)
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.UNLOADED),
     ]).toEqual([true, true, false])
@@ -182,7 +196,7 @@ describe("plugin/opencode.ts in OpenCode", () => {
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
@@ -197,12 +211,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
       const first = `${FakeModel.PROOFREAD}\n\n${bundle.body}`
       const session = await ask(null, first)
       if (automatic) await ask(session, FakeModel.FILL)
-      else
-        await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+      else await compact(session)
       await ask(session, FakeModel.AFTER)
       const sent = model.sentWith(FakeModel.AFTER)
       expect([
-        sent.includes(bundle.needle),
+        sent.includes(bundle.escapedBody),
         sent.includes(bundle.base),
         sent.includes(FakeModel.PROOFREAD),
       ]).toEqual([false, false, false])
@@ -215,11 +228,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     await promptUntilIdle(session, { text: forged })
     // As in the invoked test above, another turn moves the forged one into the summary.
     await ask(session, FakeModel.UNLOADED)
-    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+    await compact(session)
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.PROOFREAD),
     ]).toEqual([false, false, false])
@@ -227,11 +240,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
 
   test("leaves nus-mode out after summarizing a session that loaded another skill quoting it", async () => {
     const session = await ask(null, FakeModel.LOAD_SAMPLE)
-    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+    await compact(session)
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(FakeModel.LOAD_SAMPLE),
     ]).toEqual([false, false, false])
@@ -240,11 +253,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
   test("leaves nus-mode out after summarizing a session that never loaded it", async () => {
     const first = FakeModel.UNLOADED
     const session = await ask(null, first)
-    await run("api", "--server", url, "POST", `/api/session/${session}/compact`, "--data", "{}")
+    await compact(session)
     await ask(session, FakeModel.AFTER)
     const sent = model.sentWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.needle),
+      sent.includes(bundle.escapedBody),
       sent.includes(bundle.base),
       sent.includes(first),
     ]).toEqual([false, false, false])

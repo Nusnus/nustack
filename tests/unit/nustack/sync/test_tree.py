@@ -7,6 +7,7 @@ that lacks its SKILL.md or LICENSE, or holds a symlink or submodule, is a Proble
 from pathlib import Path
 
 from nustack.problem import Problem
+from nustack.sha import Sha
 from nustack.sync.tree import CopyTree
 from nustack.sync.tree import GitEntry
 from nustack.sync.tree import Mode
@@ -105,18 +106,21 @@ class TestCopyTree:
 
     def test_takes_no_license_alone_as_a_matching_copy_of_the_skill(self) -> None:
         tree = CopyTree(frozendict({"LICENSE": GitEntry(Mode.REGULAR, "same")}))
-        assert tree.newest_match((("tip", tree),)) is None
+        assert tree.newest_match(((Sha("a" * 40), tree),)) is None
 
     def test_takes_the_newest_exact_match_even_after_an_upstream_revert(self) -> None:
         base = CopyTree(frozendict({"SKILL.md": GitEntry(Mode.REGULAR, "same")}))
         executable = CopyTree(
             frozendict({"SKILL.md": GitEntry(Mode.EXECUTABLE, "same")})
         )
-        assert (
-            base.newest_match((("tip", executable), ("revert", base), ("old", base)))
-            == "revert"
-        )
-        assert base.newest_match((("tip", executable),)) is None
+        assert base.newest_match(
+            (
+                (Sha("a" * 40), executable),
+                (Sha("b" * 40), base),
+                (Sha("c" * 40), base),
+            )
+        ) == Sha("b" * 40)
+        assert base.newest_match(((Sha("a" * 40), executable),)) is None
 
     def test_accepts_a_copy_with_its_skill_file_and_license(self) -> None:
         tree = CopyTree(

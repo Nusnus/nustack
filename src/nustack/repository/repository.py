@@ -3,14 +3,15 @@
 Every file a release needs is present and readable, and every source and test
 folder lists. The marketplaces list the plugin as its manifests describe it, the
 changelog and the harness carry its version, the harness's commitizen settings name
-every file that holds it, the loader's package agrees with it, and it ships the
-repository's license unchanged. The vendored copy is left as
-written, the test suite mirrors what it tests, and the README activates nus-mode as
-its playbook says, gives each principle and language skill its description, and
-holds the install and use steps the release page copies. Joined on the page,
-those steps and the changelog entry each resolve every reference label they use
-as they do on their own. A repository that keeps every rule yields what the
-release ships: the plugin and its release page.
+every file that holds it and the form of its release tag, which the release
+workflow's tag filter matches, the loader's package agrees with it, and it ships the
+repository's license unchanged. The vendored copy is left as written, the test suite
+mirrors what it tests, and the README activates nus-mode as its playbook says, gives
+each principle and language skill its description, and holds the install and use
+steps the release page copies. Joined on the page, those steps and the changelog
+entry each resolve every reference label they use as they do on their own. A
+repository that keeps every rule yields what the release ships: the plugin and its
+release page.
 """
 
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from typing import ClassVar
 from typing import assert_never
+lazy from collections.abc import Callable
 
 from nustack.markdown.document import Document
 from nustack.markdown.table import Tables
@@ -28,21 +30,22 @@ from nustack.plugin.manifest import InvalidMetadataError
 from nustack.plugin.manifest import Manifest
 from nustack.plugin.manifest import Marketplace
 from nustack.plugin.manifest import Package
-from nustack.plugin.manifest import Version
 from nustack.plugin.plugin import Plugin
 from nustack.plugin.skill import Frontmatter
 from nustack.plugin.skill import Skill
 from nustack.problem import Problem
+from nustack.release.tag import Tag
 from nustack.repository.changelog import Changelog
+from nustack.repository.config import InvalidConfigError
 from nustack.repository.notes import ReleaseNotes
 from nustack.repository.page import PageSteps
 from nustack.repository.pyproject import InvalidPyprojectError
 from nustack.repository.pyproject import Pyproject
+from nustack.repository.release_workflow import ReleaseWorkflow
 from nustack.repository.suite import Suite
 from nustack.repository.vendored import Hooks
-from nustack.repository.vendored import InvalidConfigError
+from nustack.repository.vendored import SyncWorkflow
 from nustack.repository.vendored import VendoredCopy
-from nustack.repository.vendored import Workflow
 from nustack.tree import Absent
 from nustack.tree import Blocked
 from nustack.tree import File
@@ -52,7 +55,8 @@ from nustack.tree import Snapshot
 from nustack.tree import Special
 from nustack.tree import Tree
 from nustack.tree import Unreadable
-from nustack.validation import version_order
+from nustack.version import Version
+from nustack.version import version_order
 
 
 @dataclass(frozen=True)
@@ -99,14 +103,16 @@ class Repository:
     )
     ACTIVATION: ClassVar[str] = "markdown"
     SKILL_TABLE: ClassVar[tuple[str, ...]] = ("Skill", "What it holds")
+    RESTORE: ClassVar[str] = "is missing; restore it from the repository"
     FILES: ClassVar[tuple[PurePosixPath, ...]] = (
         CHANGELOG,
         LICENSE,
         README,
         *MARKETPLACES,
-        VendoredCopy.PYPROJECT,
-        VendoredCopy.HOOKS,
-        VendoredCopy.WORKFLOW,
+        Pyproject.PATH,
+        Hooks.PATH,
+        SyncWorkflow.PATH,
+        ReleaseWorkflow.PATH,
     )
     SOURCES: ClassVar[PurePosixPath] = Suite.PYTHON_SOURCES
     TESTS: ClassVar[PurePosixPath] = Suite.TESTS
@@ -155,28 +161,21 @@ class Repository:
 
     @cached_property
     def pyproject(self) -> Pyproject | Problem:
-        match self.content(
-            VendoredCopy.PYPROJECT, "is missing; add it with the harness's project"
-        ):
-            case bytes() as content:
-                try:
-                    return Pyproject.parse(content)
-                except InvalidPyprojectError as error:
-                    return Problem(
-                        self.root / VendoredCopy.PYPROJECT, f"is invalid: {error}"
-                    )
-            case problem:
-                return problem
+        return self.parsed(
+            Pyproject.PATH,
+            "is missing; add it with the harness's project",
+            Pyproject.parse,
+            InvalidPyprojectError,
+        )
 
     @cached_property
     def package(self) -> Package | Problem | None:
         path = self.plugin.root / Plugin.PACKAGE
         match self.plugin.tree.read(Plugin.PACKAGE):
             case File(content=content):
-                try:
-                    return Package.parse(content)
-                except InvalidMetadataError as error:
-                    return Problem(path, f"is invalid: {error}")
+                return Problem.parsed(
+                    path, content, Package.parse, InvalidMetadataError
+                )
             case Absent() as absent:
                 return Problem(
                     path,
@@ -208,6 +207,8 @@ class Repository:
             *self.marketplace_problems(manifest),
             *self.version_problems(),
             *self.version_files_problems(),
+            *self.tag_format_problems(),
+            *self.release_workflow_problems(),
             *self.changelog_problems(manifest),
             *self.pyproject_problems(),
             *self.package_problems(manifest),
@@ -241,22 +242,17 @@ class Repository:
         problems: list[Problem] = []
         found: dict[PurePosixPath, Marketplace] = {}
         for path, (kind, source) in self.MARKETPLACES.items():
-            match self.content(
-                path, "is missing; add it, since its host lists the plugin from it"
+            match self.parsed(
+                path,
+                "is missing; add it, since its host lists the plugin from it",
+                kind.parse,
+                InvalidMetadataError,
             ):
-                case bytes() as content:
-                    try:
-                        found[path] = kind.parse(content)
-                    except InvalidMetadataError as error:
-                        problems.append(
-                            Problem(self.root / path, f"is invalid: {error}")
-                        )
-                    else:
-                        problems += self.entry_problems(
-                            path, found[path], source, manifest
-                        )
-                case problem:
+                case Problem() as problem:
                     problems.append(problem)
+                case marketplace:
+                    found[path] = marketplace
+                    problems += self.entry_problems(path, marketplace, source, manifest)
         if len(found) == len(self.MARKETPLACES):
             problems += self.agreement_problems(
                 found[self.CLAUDE_MARKETPLACE], found[self.CURSOR_MARKETPLACE]
@@ -358,9 +354,7 @@ class Repository:
         # lists only the other files:
         # https://commitizen-tools.github.io/commitizen/config/version_provider/#uv
         others = sorted(
-            path
-            for path, _, _ in self.versioned_files()
-            if path != VendoredCopy.PYPROJECT
+            path for path, _, _ in self.versioned_files() if path != Pyproject.PATH
         )
         listed = sorted(
             PurePosixPath(entry.partition(":")[0])
@@ -370,11 +364,62 @@ class Repository:
             return []
         return [
             Problem(
-                self.root / VendoredCopy.PYPROJECT,
+                self.root / Pyproject.PATH,
                 "has a [tool.commitizen] version_files that differs from the other"
                 " files whose version nustack check compares; list each of "
                 f"{', '.join(map(str, others))} once, so cz bump sets the version in"
                 " each",
+            )
+        ]
+
+    def tag_format_problems(self) -> list[Problem]:
+        # cz bump finds the last release by tag_format:
+        # https://commitizen-tools.github.io/commitizen/config/bump/#tag_format
+        pyproject = self.pyproject
+        if isinstance(pyproject, Problem):
+            return []
+        tag_format = f"{Tag.PREFIX}$version"
+        match pyproject.tool.commitizen.tag_format:
+            case None:
+                what = "has no [tool.commitizen] tag_format"
+            case str(given) if given != tag_format:
+                what = (
+                    "has a [tool.commitizen] tag_format other than the release tags'"
+                    " form"
+                )
+            case _:
+                return []
+        return [
+            Problem(
+                self.root / Pyproject.PATH,
+                f"{what}; set it to {tag_format}, so cz bump finds the last release",
+            )
+        ]
+
+    def release_workflow_problems(self) -> list[Problem]:
+        # GitHub starts the release workflow for a pushed tag its push tags filter
+        # matches:
+        # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushpull_requestpull_request_targetpathspaths-ignore
+        tags = f"{Tag.PREFIX}*"
+        match self.parsed(
+            ReleaseWorkflow.PATH,
+            self.RESTORE,
+            ReleaseWorkflow.parse,
+            InvalidConfigError,
+        ):
+            case Problem() as problem:
+                return [problem]
+            case workflow if workflow.on.push.tags == ():
+                what = "has no push tags filter"
+            case workflow if workflow.on.push.tags != (tags,):
+                what = "has a push tags filter other than the release tags' form"
+            case _:
+                return []
+        return [
+            Problem(
+                self.root / ReleaseWorkflow.PATH,
+                f'{what}; set on.push.tags to ["{tags}"], so each release tag'
+                " starts it",
             )
         ]
 
@@ -400,8 +445,8 @@ class Repository:
                 )
             ),
             (
-                VendoredCopy.PYPROJECT,
-                str(VendoredCopy.PYPROJECT),
+                Pyproject.PATH,
+                str(Pyproject.PATH),
                 pyproject.project.version if isinstance(pyproject, Pyproject) else None,
             ),
             (
@@ -419,7 +464,7 @@ class Repository:
             return changelog.problems(None)
         return [
             *changelog.problems(manifest.version),
-            *changelog.link_problems(manifest.repository_url, manifest.version),
+            *changelog.link_problems(manifest.repository, manifest.version),
         ]
 
     def pyproject_problems(self) -> list[Problem]:
@@ -461,23 +506,18 @@ class Repository:
 
     def vendored_problems(self) -> list[Problem]:
         problems: list[Problem] = []
-        configs: list[Hooks | Workflow] = []
-        for path, kind in (
-            (VendoredCopy.HOOKS, Hooks),
-            (VendoredCopy.WORKFLOW, Workflow),
-        ):
-            match self.content(path, "is missing; restore it from the repository"):
-                case bytes() as content:
-                    try:
-                        configs.append(kind.parse(content))
-                    except InvalidConfigError as error:
-                        problems.append(
-                            Problem(self.root / path, f"is invalid: {error}")
-                        )
-                case problem:
+        configs: list[Hooks | SyncWorkflow] = []
+        for kind in (Hooks, SyncWorkflow):
+            match self.parsed(kind.PATH, self.RESTORE, kind.parse, InvalidConfigError):
+                case Problem() as problem:
                     problems.append(problem)
+                case config:
+                    configs.append(config)
         match configs, self.pyproject:
-            case [Hooks() as hooks, Workflow() as workflow], Pyproject() as pyproject:
+            case (
+                [Hooks() as hooks, SyncWorkflow() as workflow],
+                Pyproject() as pyproject,
+            ):
                 return VendoredCopy(self.root, hooks, workflow, pyproject).problems()
             case _:
                 return problems
@@ -647,6 +687,19 @@ class Repository:
 
     def document(self, path: PurePosixPath, missing: str) -> Document | Problem:
         return Document.of(self.root / path, self.snapshot.read(path), missing)
+
+    def parsed[T](
+        self,
+        path: PurePosixPath,
+        missing: str,
+        parse: Callable[[bytes], T],
+        invalid: type[ValueError],
+    ) -> T | Problem:
+        match self.content(path, missing):
+            case bytes() as content:
+                return Problem.parsed(self.root / path, content, parse, invalid)
+            case problem:
+                return problem
 
     def content(self, path: PurePosixPath, missing: str) -> bytes | Problem:
         match self.snapshot.read(path):

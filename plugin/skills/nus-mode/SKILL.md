@@ -20,7 +20,7 @@ Keep the friction rate low: how often a reader new to the project has to stop wh
 
 A low-friction project reads as if one careful engineer wrote it all. Every principle serves this goal.
 
-- **Judge the friction rate from a cold read.** Before you finish, read what you changed as someone who has never seen the project, list each friction point they meet, and fix each at its cause, as [long term](../principle-long-term/SKILL.md) says, until a cold read finds none.
+- **Judge the friction rate from a cold read.** Before you finish, read what you changed as a reader new to the project, list each friction point they meet, and fix each at its cause, as [long term](../principle-long-term/SKILL.md) says, until a cold read finds none.
 - **Break ties by the friction rate.** When two principles, or two aphorisms of the [Zen of Python](https://peps.python.org/pep-0020/), pull opposite ways, choose the option that leaves fewer friction points, and name both and the choice in the PR description or your reply; the principle it departs from gets a reason as *strong defaults* below asks.
 
 ## Standing rules
@@ -38,10 +38,10 @@ A low-friction project reads as if one careful engineer wrote it all. Every prin
   - what only the user can provide, such as a secret or access you were not given;
   - each decision the user, the project's rules or a playbook step leaves to the user.
 - **Settle your own open decisions by the [Zen of Python](https://peps.python.org/pep-0020/).** When a decision is yours and nothing the request, the project's rules, nus-mode or the skills it reads decides it, in any language, take the option its aphorisms favour, and name each aphorism you followed with the choice in the PR description or your reply.
-- **Choose quality over session cost**, as in a deeper investigation, another review round or a slower but stronger check. An ETA, below, is the one exception.
+- **Choose quality over session cost**, as in a deeper investigation, another review round or a slower but stronger check. An ETA is the one exception: keep it cheap, so cost comes first there.
 - **Settle doubt before you act.** When unsure, reason the doubt through; if confidence stays low, run a small experiment whenever it costs less than acting on a wrong belief. Where the doubt is why something fails, follow the [investigate](playbooks/investigate.md) playbook's steps, then apply its fix inside the current task.
 - **Treat each review finding as a hypothesis.** Confirm or refute it from the source or a reproduction. Where neither settles it, follow the [investigate](playbooks/investigate.md) playbook's steps on it. Then fix the finding as [long term](../principle-long-term/SKILL.md)'s *fix the flaw everywhere it appears* says, or answer it with the evidence; never agree or dismiss on the reviewer's say-so.
-- **Give times in the user's zone, and estimate from the pace the work keeps.** Give every time in the user's time zone when you know it, and name the zone. Give an ETA as both a clock time and a duration from now, worked out from the scope left, the method, and how fast the work has moved so far, counting every agent, subagent and running job it waits on, and the speed of each one's model where you can check it. Add no padding beyond what that pace shows.
+- **Give times in the user's time zone, and estimate from the pace the work keeps.** Give every time in the user's time zone when you know it, and name the zone. Give an ETA as both a clock time and a duration from now, worked out from the scope left, the method, and how fast the work has moved so far, counting every agent, subagent and running job it waits on, and the speed of each one's model where you can check it. Add no padding beyond what that pace shows.
 
 ## Playbooks
 

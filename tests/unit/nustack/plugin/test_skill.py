@@ -15,6 +15,7 @@ from nustack.problem import Problem
 from nustack.tree import File
 from nustack.tree import Missing
 from nustack.tree import Unreadable
+from tests.fixtures.repository import ModelRepository
 
 
 class TestKind:
@@ -23,13 +24,13 @@ class TestKind:
     @pytest.mark.parametrize(
         ("kind", "prefix", "section"),
         [
-            (Kind.MODE, None, "Playbooks"),
+            (Kind.MODE, None, None),
             (Kind.PRINCIPLE, "principle-", "Principles"),
             (Kind.LANGUAGE, "language-", "Languages"),
         ],
     )
     def test_names_its_prefix_and_the_mode_heading_that_indexes_it(
-        self, kind: Kind, prefix: str | None, section: str
+        self, kind: Kind, prefix: str | None, section: str | None
     ) -> None:
         assert (kind.prefix, kind.section) == (prefix, section)
 
@@ -109,7 +110,6 @@ class TestSkill:
     Every Problem it finds is reported, none hiding another.
     """
 
-    HIDDEN = "disable-model-invocation: true\ntriggers:\n  - user\n"
     MODE = Path("/p/skills/nus-mode")
     MODE_FILE = MODE / "SKILL.md"
     KINDS = pytest.mark.parametrize("name", ["principle-naming", "language-python"])
@@ -131,7 +131,7 @@ class TestSkill:
 
     @KINDS
     def test_with_valid_frontmatter_has_no_problems(self, name: str) -> None:
-        text = f"---\nname: {name}\ndescription: N.\n{self.HIDDEN}---\n# N\n"
+        text = f"---\nname: {name}\ndescription: N.\n{ModelRepository.HIDDEN}# N\n"
         assert Skill(Path(f"/p/skills/{name}"), File(text.encode())).problems() == []
 
     @pytest.mark.parametrize(
@@ -274,8 +274,28 @@ class TestSkill:
             ),
             (
                 (
+                    "---\nname: {name}\ndescription: N.\n"
+                    "disable-model-invocation: null\ntriggers:\n  - user\n---\n"
+                ),
+                (
+                    "frontmatter is invalid: disable-model-invocation: make it true"
+                    " or false"
+                ),
+            ),
+            (
+                (
                     "---\nname: {name}\ndescription: N.\ndisable-model-invocation: true"
                     "\ntriggers: user\n---\n"
+                ),
+                (
+                    "frontmatter is invalid: triggers: make it a YAML list, such as"
+                    " [user] or [user, model]"
+                ),
+            ),
+            (
+                (
+                    "---\nname: {name}\ndescription: N.\ndisable-model-invocation: true"
+                    "\ntriggers: null\n---\n"
                 ),
                 (
                     "frontmatter is invalid: triggers: make it a YAML list, such as"

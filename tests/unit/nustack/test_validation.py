@@ -42,6 +42,35 @@ class TestPattern:
                 Pattern.VERSION,
                 "use MAJOR.MINOR.PATCH without leading zeros, such as 0.0.1",
             ),
+            (
+                Pattern.SHA,
+                (
+                    "use 40 lowercase hex digits, such as"
+                    " 81c986c0e0a7c511f2941ed3cec09f7975687f80"
+                ),
+            ),
+            (
+                Pattern.OWNER,
+                (
+                    "use letters, digits and single hyphens, with no hyphen first or"
+                    " last, such as Nusnus, and for a managed user an underscore and"
+                    " its enterprise's short code at the end, such as mona-cat_octo"
+                ),
+            ),
+            (
+                Pattern.REPOSITORY,
+                (
+                    "use letters, digits, '.', '-' and '_', other than . and .., such"
+                    " as nustack"
+                ),
+            ),
+            (
+                Pattern.HOST,
+                (
+                    "use labels of letters, digits and hyphens, joined by dots, with no"
+                    " hyphen first or last in a label, such as github.com"
+                ),
+            ),
         ],
     )
     def test_names_the_fix_for_a_value_that_misses_it(
@@ -58,7 +87,9 @@ class TestPattern:
 class TestSchema:
     """Every way a value breaks its schema reaches the user as a field and a fix.
 
-    An error type with no fix is refused rather than shown without one.
+    An error type with no fix is refused rather than shown without one, and a place
+    shows a key the file names in a mapping as <key>, never as the key itself, even
+    one that reads as the part pydantic places after a key that fails.
     """
 
     class Outer(BaseModel):
@@ -94,8 +125,25 @@ class TestSchema:
         text: str = "a"
         flag: bool = True
         items: tuple[str, ...] = ()
+        table: frozendict[str, str] = frozendict()
         link: HttpUrl = HttpUrl("https://example.com")
         required: str
+
+    class Keyed(BaseModel):
+        """A model that holds the nested one under keys a file names."""
+
+        tables: frozendict[str, TestSchema.Outer]
+
+    class Shaped(BaseModel):
+        """A model with a mapping, tuple or list in each shape a place walks through."""
+
+        model_config = ConfigDict(strict=True)
+
+        pairs: frozendict[tuple[str, str], str] = frozendict()
+        optional_table: frozendict[str, str] | None = None
+        optional_inner: tuple[TestSchema.Outer.Inner, ...] | None = None
+        listed: list[str] = Field(default_factory=list)
+        nested: frozendict[str, frozendict[str, str]] = frozendict()
 
     def test_labels_every_key_at_every_depth(self) -> None:
         assert Schema(self.Outer).labels == {
@@ -131,6 +179,7 @@ class TestSchema:
             ({"text": 1}, "text: make it a string"),
             ({"flag": "yes"}, "flag: make it true or false"),
             ({"items": "a"}, "items: make it a list"),
+            ({"table": []}, "table: make it an object of keys and values"),
             (
                 {"link": "nowhere"},
                 "link: use a full http or https URL, such as https://example.com",
@@ -162,11 +211,11 @@ class TestSchema:
         assert Schema(self.Counted).reason(caught.value) == "count: add it"
 
     def test_refuses_an_error_type_it_has_no_fix_for(self) -> None:
-        with pytest.raises(ValidationError) as caught:
+        with pytest.raises(ValidationError) as invalid:
             self.Counted.model_validate({"count": "many"})
-        with pytest.raises(UnmappedErrorTypeError) as refused:
-            Schema(self.Counted).reason(caught.value)
-        assert str(refused.value) == (
+        with pytest.raises(UnmappedErrorTypeError) as caught:
+            Schema(self.Counted).reason(invalid.value)
+        assert str(caught.value) == (
             "pydantic's error type 'int_parsing' has no fix; add one to Schema.fix,"
             " with a test"
         )
@@ -176,4 +225,51 @@ class TestSchema:
             self.Outer.model_validate([])
         assert Schema(self.Outer).reason(caught.value) == (
             "the file: make it an object of keys and values"
+        )
+
+    def test_names_no_mapping_key_in_a_place(self) -> None:
+        with pytest.raises(ValidationError) as caught:
+            self.Keyed.model_validate(
+                {
+                    "tables": {
+                        1: {"inner": [], "name": "a"},
+                        "secret": {
+                            "inner": [{"plain": 1, "dashed-key": "x", "a.b": "y"}],
+                            "name": "a",
+                            "odd": 2,
+                        },
+                        "[key]": 1,
+                    }
+                }
+            )
+        assert Schema(self.Keyed).reason(caught.value) == (
+            "tables: for each key, make it a string; tables.<key>.inner.0.plain:"
+            " make it a string; tables.<key>.an unknown key: rename it or remove it;"
+            " nustack allows only inner, name here; tables.<key>: make it an object of"
+            " keys and values"
+        )
+
+    def test_names_the_place_through_each_mapping_tuple_and_list(self) -> None:
+        with pytest.raises(ValidationError) as caught:
+            self.Shaped.model_validate(
+                {
+                    "pairs": frozendict({("a", 1): "x"}),
+                    "optional_table": frozendict({"a": 1}),
+                    "optional_inner": (
+                        {"plain": 1, "dashed-key": "x", "a.b": "y", "odd": 2},
+                    ),
+                    "listed": [1],
+                    "nested": frozendict(
+                        {"a": frozendict({"b": 1}), "c": frozendict({2: "x"})}
+                    ),
+                }
+            )
+        assert Schema(self.Shaped).reason(caught.value) == (
+            "pairs: for each key, make it a string; optional_table.<key>: make it a"
+            " string;"
+            " optional_inner.0.plain: make it a string; optional_inner.0.an unknown"
+            ' key: rename it or remove it; nustack allows only plain, dashed-key, "a.b"'
+            " here; listed.0: make it a string;"
+            " nested.<key>.<key>: make it a string; nested.<key>: for each key, make"
+            " it a string"
         )

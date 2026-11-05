@@ -11,13 +11,13 @@ config:
     style: compact
 # The first-line title rule skips only the files that cannot open on a title:
 # https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
-# CLAUDE.md is a single import line, and the PR template opens on the comments and
-# table a description starts from, where an inline disable comment would land in
-# every description: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
+# The PR template opens on the comments and table a description starts from,
+# where an inline disable comment would land in every description, and CLAUDE.md
+# is a single import line: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
 overrides:
   - filter:
-      - CLAUDE.md
       - .github/pull_request_template.md
+      - CLAUDE.md
     config:
       MD041: false
     combine: merge

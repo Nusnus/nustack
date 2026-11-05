@@ -15,12 +15,17 @@ from nustack.cli.command import publish
 from nustack.cli.command import release_tag
 from nustack.cli.command import sync as sync_command
 from nustack.cli.command import sync_description
+from nustack.github.name import NameWithOwner
+from nustack.github.name import RepositoryUrl
+from nustack.release.tag import Tag
+from nustack.sha import Sha
 from nustack.sync.description import SyncLinks
 from nustack.sync.proposal import Proposal
+from tests.fixtures.gh import GhArgv
+from tests.fixtures.git_repository import GitRepository
 from tests.fixtures.repository import ModelRepository
-from tests.fixtures.sync.git_repository import GitRepository
-from tests.fixtures.sync.git_repository import Sync
 lazy from tests.fixtures.gh import FakeGh
+lazy from tests.fixtures.sync.repositories import Sync
 
 
 @pytest.mark.usefixtures("template")
@@ -30,7 +35,11 @@ class TestSyncDescriptionCommand:
     A clone that is no Git repository, or a body too large for GitHub, stops it.
     """
 
-    LINKS = SyncLinks("https://x.io/up", "https://x.io/run", "https://x.io/checks")
+    LINKS = SyncLinks(
+        RepositoryUrl("x.io", NameWithOwner("up", "skills")),
+        "https://x.io/run",
+        "https://x.io/checks",
+    )
 
     def test_prints_the_description_of_the_upstream_change(
         self, sync: Sync, capsys: pytest.CaptureFixture[str], repository_root: Path
@@ -56,12 +65,12 @@ class TestSyncDescriptionCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.chdir(sync.checkout.root.parent)
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             app(
                 [
                     "sync-description",
                     "--upstream-url",
-                    "https://x.io/up",
+                    "https://x.io/up/skills",
                     "--run",
                     "https://x.io/run",
                     "--checks",
@@ -78,7 +87,7 @@ class TestSyncDescriptionCommand:
             )
         expected = repository_root / "tests/fixtures/sync/expected/description.txt"
         output = capsys.readouterr()
-        assert (stopped.value.code, output.out, output.err) == (
+        assert (caught.value.code, output.out, output.err) == (
             0,
             expected.read_text(),
             "",
@@ -93,7 +102,7 @@ class TestSyncDescriptionCommand:
         missing = sync.upstream.root.parent / "missing"
         missing.mkdir()
         monkeypatch.chdir(missing.parent)
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             sync_description(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -104,7 +113,7 @@ class TestSyncDescriptionCommand:
                 root=sync.checkout.root,
             )
         output = capsys.readouterr()
-        assert (stopped.value.code, output.out, output.err) == (
+        assert (caught.value.code, output.out, output.err) == (
             1,
             "",
             (
@@ -118,7 +127,7 @@ class TestSyncDescriptionCommand:
     ) -> None:
         sync.upstream.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "nustack\n" * 9000)
         sync.upstream.commit("third")
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             sync_description(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -129,12 +138,12 @@ class TestSyncDescriptionCommand:
                 root=sync.checkout.root,
             )
         output = capsys.readouterr()
-        assert (stopped.value.code, output.out, output.err) == (
+        assert (caught.value.code, output.out, output.err) == (
             1,
             "",
             (
                 f"{sync.checkout.root}/copy: the sync description of this copy is"
-                " 307205 bytes, over the 65536 GitHub accepts; quote less in"
+                " 307233 bytes, over the 65536 GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change\n"
             ),
         )
@@ -149,28 +158,17 @@ class TestSyncCommand:
     reply no recording holds, such as an empty default branch, is the test's own.
     """
 
-    LINKS = SyncLinks("https://github.com/up/skills", "https://x.io/run", "#checks")
-    DEFAULT = ("api", "repos/o/r", "--jq", ".default_branch")
-    PULLS = (
-        "api",
-        "--method",
-        "GET",
-        "--paginate",
-        "repos/o/r/pulls",
-        "-f",
-        "state=open",
-        "-f",
-        "base=main",
-        "-f",
-        "head=o:sync/w",
-        "--jq",
-        ".[] | select(.head.repo.id == .base.repo.id) | .number",
+    LINKS = SyncLinks(
+        RepositoryUrl("github.com", NameWithOwner("up", "skills")),
+        "https://x.io/run",
+        "#checks",
     )
 
     @pytest.fixture
     def default_branch(self, gh: FakeGh, github_fixtures: Path) -> None:
         gh.replay(
-            *self.DEFAULT, recording=github_fixtures / "default-branch/found.json"
+            *GhArgv.DEFAULT_BRANCH,
+            recording=github_fixtures / "default-branch/found.json",
         )
 
     @pytest.mark.usefixtures("default_branch")
@@ -182,7 +180,9 @@ class TestSyncCommand:
         github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
         proposal = Proposal("main", "sync/w", remote_url)
         sync_command(
             upstream_url=self.LINKS.upstream_url,
@@ -193,7 +193,7 @@ class TestSyncCommand:
             folder=sync.FOLDER,
             branch=proposal.branch,
             remote_url=proposal.remote_url,
-            name_with_owner="o/r",
+            name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
         )
         (argv, body) = gh.calls[-1]
@@ -216,8 +216,10 @@ class TestSyncCommand:
         github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/none.json")
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/one.json")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
+        gh.replay(*GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/one.json")
         sync_command(
             upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
@@ -227,7 +229,7 @@ class TestSyncCommand:
             folder=sync.FOLDER,
             branch="sync/w",
             remote_url=remote_url,
-            name_with_owner="o/r",
+            name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
         )
         sync_command(
@@ -239,7 +241,7 @@ class TestSyncCommand:
             folder=sync.FOLDER,
             branch="sync/w",
             remote_url=remote_url,
-            name_with_owner="o/r",
+            name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
         )
         assert capsys.readouterr().out.splitlines()[-1] == (
@@ -254,8 +256,10 @@ class TestSyncCommand:
         github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/missing.json")
-        with pytest.raises(SystemExit) as stopped:
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/missing.json"
+        )
+        with pytest.raises(SystemExit) as caught:
             sync_command(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -265,10 +269,10 @@ class TestSyncCommand:
                 folder=sync.FOLDER,
                 branch="sync/w",
                 remote_url="remote",
-                name_with_owner="o/r",
+                name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
             )
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             "o/r: gh api exited 1; fix the cause gh printed above, then rerun\n",
         )
@@ -281,8 +285,10 @@ class TestSyncCommand:
         github_fixtures: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        gh.replay(*self.PULLS, recording=github_fixtures / "open-pulls/several.json")
-        with pytest.raises(SystemExit) as stopped:
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/several.json"
+        )
+        with pytest.raises(SystemExit) as caught:
             sync_command(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -292,10 +298,10 @@ class TestSyncCommand:
                 folder=sync.FOLDER,
                 branch="sync/w",
                 remote_url="remote",
-                name_with_owner="o/r",
+                name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
             )
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 "o/r: has pull requests #267, #265, #264, #259, #258 that all propose"
@@ -310,7 +316,7 @@ class TestSyncCommand:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.chdir(sync.checkout.root.parent)
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             sync_command(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -320,10 +326,10 @@ class TestSyncCommand:
                 folder=sync.FOLDER,
                 branch="sync/w",
                 remote_url="remote",
-                name_with_owner="o/r",
+                name_with_owner=GhArgv.REPOSITORY,
                 root=Path(sync.checkout.root.name),
             )
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 f"{sync.checkout.root}/copy/SKILL.md: has no upstream source; pass"
@@ -335,8 +341,8 @@ class TestSyncCommand:
         self, sync: Sync, gh: FakeGh, capsys: pytest.CaptureFixture[str]
     ) -> None:
         # GitHub gives every repository a default branch, so no recording holds this.
-        gh.reply(*self.DEFAULT, stdout="\n")
-        with pytest.raises(SystemExit) as stopped:
+        gh.reply(*GhArgv.DEFAULT_BRANCH, stdout="\n")
+        with pytest.raises(SystemExit) as caught:
             sync_command(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -346,16 +352,16 @@ class TestSyncCommand:
                 folder=sync.FOLDER,
                 branch="sync/w",
                 remote_url="remote",
-                name_with_owner="o/r",
+                name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
             )
-        assert (stopped.value.code, capsys.readouterr().err, gh.calls[-1][0]) == (
+        assert (caught.value.code, capsys.readouterr().err, gh.calls[-1][0]) == (
             1,
             (
                 "o/r: gh names no default branch for o/r; check that the token can"
                 " read the repository\n"
             ),
-            self.DEFAULT,
+            GhArgv.DEFAULT_BRANCH,
         )
 
     def test_stops_on_a_clone_git_cannot_read_naming_its_full_path(
@@ -366,7 +372,7 @@ class TestSyncCommand:
     ) -> None:
         missing = sync.upstream.root.parent / "missing"
         monkeypatch.chdir(missing.parent)
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             sync_command(
                 upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
@@ -376,10 +382,10 @@ class TestSyncCommand:
                 folder=sync.FOLDER,
                 branch="sync/w",
                 remote_url="remote",
-                name_with_owner="o/r",
+                name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
             )
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 f"{missing}: cannot run Git (No such file or directory); check the"
@@ -400,13 +406,15 @@ class TestReleaseTagCommand:
         root = ModelRepository(tmp_path / "repository").save()
         checkout = GitRepository(root)
         checkout.git("init", "-q", "-b", "main")
-        checkout.git("update-ref", "refs/remotes/origin/main", checkout.commit("base"))
+        checkout.git(
+            "update-ref", "refs/remotes/origin/main", str(checkout.commit("base"))
+        )
         return checkout
 
     def test_passes_a_tag_on_main_that_names_the_version(
         self, checkout: GitRepository, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        release_tag("v1.2.3", root=checkout.root)
+        release_tag(Tag("1.2.3"), root=checkout.root)
         assert capsys.readouterr() == (
             "v1.2.3 is on main and names the plugin version\n",
             "",
@@ -417,9 +425,9 @@ class TestReleaseTagCommand:
     ) -> None:
         checkout.write("notes.txt", "x")
         checkout.commit("off main")
-        with pytest.raises(SystemExit) as stopped:
-            release_tag("v9.9.9", root=checkout.root)
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        with pytest.raises(SystemExit) as caught:
+            release_tag(Tag("9.9.9"), root=checkout.root)
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 "v9.9.9: is not on main; delete it and tag the commit the squash merge"
@@ -437,9 +445,9 @@ class TestReleaseTagCommand:
     ) -> None:
         checkout.git("update-ref", "-d", "refs/remotes/origin/main")
         monkeypatch.chdir(checkout.root.parent)
-        with pytest.raises(SystemExit) as stopped:
-            release_tag("v1.2.3", root=Path(checkout.root.name))
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        with pytest.raises(SystemExit) as caught:
+            release_tag(Tag("1.2.3"), root=Path(checkout.root.name))
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 f"{checkout.root}: git merge-base exited 128; fix the cause Git printed"
@@ -451,11 +459,12 @@ class TestReleaseTagCommand:
 class TestPublishCommand:
     """The release workflow publishes the tag's release, or stops naming why."""
 
-    TAG = ("api", "repos/o/r/commits/tags/v1.2.3", "--jq", ".sha")
-
     @pytest.fixture(autouse=True)
     def tagged(self, gh: FakeGh, github_fixtures: Path) -> None:
-        gh.replay(*self.TAG, recording=github_fixtures / "tag-commit/found.json")
+        gh.replay(
+            *GhArgv.TAG_COMMIT_V1_2_3,
+            recording=github_fixtures / "tag-commit/found.json",
+        )
 
     def test_prints_the_published_release(
         self,
@@ -465,14 +474,13 @@ class TestPublishCommand:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         gh.replay(
-            *("release", "view", "v1.2.3", "-R", "o/r", "--json", "isDraft"),
-            *("--jq", ".isDraft"),
+            *GhArgv.RELEASE_STATE_V1_2_3,
             recording=github_fixtures / "release-state/missing.json",
         )
         publish(
-            "v1.2.3",
-            commit="81c986c0e0a7c511f2941ed3cec09f7975687f80",
-            name_with_owner="o/r",
+            Tag("1.2.3"),
+            commit=Sha("81c986c0e0a7c511f2941ed3cec09f7975687f80"),
+            name_with_owner=GhArgv.REPOSITORY,
             zip_folder=tmp_path,
         )
         assert capsys.readouterr() == ("Published release v1.2.3\n", "")
@@ -480,11 +488,14 @@ class TestPublishCommand:
     def test_stops_naming_why_it_cannot_publish(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        with pytest.raises(SystemExit) as stopped:
+        with pytest.raises(SystemExit) as caught:
             publish(
-                "v1.2.3", commit="another", name_with_owner="o/r", zip_folder=tmp_path
+                Tag("1.2.3"),
+                commit=Sha("b" * 40),
+                name_with_owner=GhArgv.REPOSITORY,
+                zip_folder=tmp_path,
             )
-        assert (stopped.value.code, capsys.readouterr().err) == (
+        assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
                 "v1.2.3: has moved off the commit CI passed on; the run the move"
