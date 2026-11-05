@@ -804,7 +804,7 @@ class TestReleaseTagCommand:
                 "v9.9.9: is not on main; delete it and tag the commit the squash merge"
                 " made on main\n"
                 "v9.9.9: does not match plugin version 1.2.3; delete it and tag v1.2.3,"
-                " or set the version as AGENTS.md's Releases section says\n"
+                " or set the version as .agents/skills/release/SKILL.md says\n"
             ),
         )
 

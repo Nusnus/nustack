@@ -59,8 +59,8 @@ class TestTag:
                     Problem(
                         "v9.9.9",
                         "does not match plugin version 1.2.3; delete it and tag"
-                        " v1.2.3, or set the version as AGENTS.md's Releases section"
-                        " says",
+                        " v1.2.3, or set the version as"
+                        " .agents/skills/release/SKILL.md says",
                     )
                 ],
             ),

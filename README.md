@@ -189,7 +189,7 @@ nustack/
 
 ## 🤝 Contributing
 
-Contributions follow [AGENTS.md](AGENTS.md), which holds the rules for changing nustack, what CI and the commit hooks check, and the release steps. [REVIEW.md](REVIEW.md) says what review checks, and `make` lists the targets.
+Contributions follow [AGENTS.md](AGENTS.md), which holds the rules for changing nustack and what CI and the commit hooks check. The [release](.agents/skills/release/SKILL.md) skill holds the release steps. [REVIEW.md](REVIEW.md) says what review checks, and `make` lists the targets.
 
 ## 🙏 Acknowledgements
 

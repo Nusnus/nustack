@@ -48,8 +48,8 @@ class Tag:
                 Problem(
                     str(self),
                     f"does not match plugin version {version}; delete it and tag"
-                    f" {Tag(version)}, or set the version as AGENTS.md's Releases"
-                    " section says",
+                    f" {Tag(version)}, or set the version as"
+                    " .agents/skills/release/SKILL.md says",
                 )
             )
         return problems

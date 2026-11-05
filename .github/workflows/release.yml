@@ -1,8 +1,8 @@
 name: Release
 
 # Publishes the GitHub release for a v<version> tag on main, once the tag
-# matches the plugin version and CI passes on it. AGENTS.md › Releases says how
-# to cut one.
+# matches the plugin version and CI passes on it. The release skill,
+# .agents/skills/release/SKILL.md, says how to cut one.
 on:
   push:
     tags: ["v*"]
