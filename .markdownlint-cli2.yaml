@@ -21,3 +21,13 @@ overrides:
     config:
       MD041: false
     combine: merge
+  # README.md's front page centres its title, tagline and links, folds its
+  # skills tables and shows the wordmark for the reader's theme, which only
+  # HTML does on GitHub:
+  # https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#specifying-the-theme-an-image-is-shown-to
+  - filter:
+      - README.md
+    config:
+      MD033:
+        allowed_elements: [a, br, details, h1, img, p, picture, source, summary]
+    combine: merge

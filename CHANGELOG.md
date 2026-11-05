@@ -33,6 +33,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ### Changed
 
+- README is a short front page: what nustack is, how to install, use and update it on each host, how it works, the skills and how to contribute.
 - A PR description links the issue it resolves with a closing keyword, such as `Fixes #12`, so its merge into the default branch closes the issue.
 - nus-mode's cheap-ETA exception moves from its rule for times into its rule to choose quality over session cost, and keeps only the ETA's analysis cheap, never the reading of the live pace.
 - nus-mode estimates from observed pace: it reads how fast each job, agent and subagent the work waits on is moving now, tries each other way it has when one fails, and states the basis with the ETA, the observed pace or the past runs it fell back on and why.

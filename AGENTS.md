@@ -1,6 +1,6 @@
 # nustack
 
-The rules for changing nustack. [README.md](README.md) shows the layout and how to install it.
+The rules for changing nustack. [README.md](README.md) shows how to install and use it.
 
 Work in this repository in nus-mode: load `plugin/skills/nus-mode/SKILL.md` before you start.
 
@@ -11,6 +11,8 @@ Word skill text, this file, REVIEW.md, the PR template and the issue form by Mat
 ## Where things live
 
 - `plugin/` is what installs. It holds only what `nustack check` allows there, and the check's problem names each file that does not belong. Nothing outside `plugin/` reaches a user's session.
+- `src/nustack/` holds the harness: the `nustack` command that checks, bundles and releases the plugin and syncs its vendored copies.
+- `tests/` holds the tests of the harness and the plugin's code: the `unit/` and `integration/` tiers, `smoke/`, which `make smoke` runs in each host, and the `fixtures/` they share.
 - `.agents/skills/` holds the skills for working on nustack. Every host reads it except Claude Code, which reads a project's skills from [`.claude/skills/`](https://code.claude.com/docs/en/skills#choose-where-skills-load), so `.claude/skills` is a relative symlink to `../.agents/skills`, and a skill added under `.agents/skills/` reaches Claude Code with no other step. `CLAUDE.md` imports `AGENTS.md`, since Claude Code reads `AGENTS.md` itself only in some setups, [as its docs say](https://code.claude.com/docs/en/memory#agents-md).
 - A principle is a skill of its own, `plugin/skills/principle-<name>/`, stated in its `SKILL.md` alone. Every other file that needs it links it instead of restating it.
 - A language skill, `plugin/skills/language-<name>/`, holds what the principles leave to one language: its tools, and the form a principle takes where that language changes it, under a link to that principle.

@@ -24,7 +24,7 @@ What Devin Review holds every pull request to, beyond what `make check` enforces
 
 ## The plugin
 
-- **Every host reads the same plugin.** Each host reads it through its manifest or, for OpenCode, the loader. A change to one host's files keeps every host loading every skill, each hidden or shown as AGENTS.md › Writing skill text says. README.md's install table matches each host's current documentation.
+- **Every host reads the same plugin.** Each host reads it through its manifest or, for OpenCode, the loader. A change to one host's files keeps every host loading every skill, each hidden or shown as AGENTS.md › Writing skill text says. README.md's install steps match each host's current documentation.
 - **Every line nustack's authors write under `plugin/skills/` follows AGENTS.md › Writing skill text; a vendored copy only matches its record and carries upstream's license.**
 - **Every file follows AGENTS.md › Where things live.** Look above all for a principle restated anywhere outside its own `SKILL.md`, README.md and the PR template included, and a playbook step whose done condition leaves out part of the step.
 - **Each principle, language skill and playbook serves the goal in nus-mode's `SKILL.md`,** and the condition there for when it applies matches what it covers.
