@@ -1,11 +1,13 @@
 """Git answers from the repository it was given, whatever the caller's Git points at.
 
-It says whether one commit is an ancestor of another, passes input and options
-through, and a failed command, a command that outlasts its time limit, a missing
-repository or a head Git names by other than its SHA-1 stops with a Problem naming
-the fix.
+It says whether one commit is an ancestor of another, whether the clone holds a
+commit, and which paths changed since one, passes input and options through, and a
+failed command, a command that outlasts its time limit, a missing repository or a
+head Git names by other than its SHA-1 stops with a Problem naming the fix.
 """
 
+import os
+from pathlib import PurePosixPath
 lazy from pathlib import Path
 
 import pytest
@@ -13,6 +15,7 @@ import pytest
 from nustack.git import Git
 from nustack.git import GitError
 from nustack.problem import Problem
+from nustack.sha import Sha
 from tests.fixtures.git_repository import GitRepository
 lazy from tests.fixtures.sync.repositories import Sync
 
@@ -23,11 +26,14 @@ class TestGit:
     A listing of the variables Git calls local that outlasts its time limit stops,
     and the caller's other variables reach Git. A head Git names by other than its
     SHA-1 fails. Git tells an ancestor from a commit that is not one, and a revision
-    an ancestry check cannot read fails. run gives Git no input by default, passes
-    input and variables, and fails naming the next step; status returns the exit
-    status, also giving no input by default. A missing repository, and a fetch, push,
-    remote listing, blob read or commit that outlasts its time limit, fails naming
-    the fix.
+    an ancestry check cannot read fails. Git tells a commit the clone holds from one
+    it lacks, failing outside a repository, reads a file at a commit, or none where the
+    commit lacks it, failing outside a repository, and lists each path changed since a
+    commit, staged, unstaged, moved or untracked, whatever bytes name it, but
+    those it ignores. run gives Git no input by default, passes input and
+    variables, and fails naming the next step; status returns the exit status, also
+    giving no input by default. A missing repository, and a fetch, push, remote
+    listing, blob read or commit that outlasts its time limit, fails naming the fix.
     """
 
     @pytest.mark.usefixtures("stalling")
@@ -96,6 +102,69 @@ class TestGit:
             sync.upstream.root,
             "git merge-base exited 128; fix the cause Git"
             " printed above, such as a missing clone or revision",
+        )
+
+    def test_tells_a_commit_the_clone_holds_from_one_it_lacks(self, sync: Sync) -> None:
+        git = Git(sync.checkout.root)
+        assert (git.has_commit(git.head), git.has_commit(sync.first)) == (True, False)
+
+    def test_fails_a_commit_check_outside_a_repository(self, tmp_path: Path) -> None:
+        with pytest.raises(GitError) as caught:
+            _ = Git(tmp_path).has_commit(Sha("0" * 40))
+        assert caught.value.problem == Problem(
+            tmp_path,
+            "git rev-parse exited 128; fix the cause Git"
+            " printed above, such as a missing clone or revision",
+        )
+
+    def test_reads_a_file_at_a_commit_or_none_where_the_commit_lacks_it(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository")
+        repository.write("a b/c.py", "old\n")
+        base = repository.commit("base")
+        repository.write("a b/c.py", "new\n")
+        git = Git(repository.root)
+        assert (
+            git.file_at(base, PurePosixPath("a b/c.py")),
+            git.file_at(base, PurePosixPath("d.py")),
+        ) == (b"old\n", None)
+
+    def test_fails_a_file_read_outside_a_repository(self, tmp_path: Path) -> None:
+        with pytest.raises(GitError) as caught:
+            _ = Git(tmp_path).file_at(Sha("0" * 40), PurePosixPath("a.py"))
+        assert caught.value.problem == Problem(
+            tmp_path,
+            "git rev-parse exited 128; fix the cause Git"
+            " printed above, such as a missing clone or revision",
+        )
+
+    def test_lists_each_path_changed_since_a_commit_but_those_git_ignores(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository")
+        repository.write(".gitignore", "ignored\n")
+        repository.write("a", "")
+        repository.write("b", "")
+        repository.write("c d/e", "")
+        repository.write("moved", "the same bytes on either side of the move\n")
+        base = repository.commit("base")
+        repository.write("a", "staged\n")
+        repository.git("add", "a")
+        repository.write("c d/e", "unstaged\n")
+        repository.write("ignored", "")
+        repository.write(str(base), "")
+        (repository.root / os.fsdecode(b"\xff")).write_text("")
+        repository.git("rm", "-q", "b")
+        repository.git("mv", "moved", "renamed")
+        assert Git(repository.root).changed_since(base) == (
+            PurePosixPath("a"),
+            PurePosixPath("b"),
+            PurePosixPath("c d/e"),
+            PurePosixPath(str(base)),
+            PurePosixPath("moved"),
+            PurePosixPath("renamed"),
+            PurePosixPath("\udcff"),
         )
 
     def test_gives_run_no_input_by_default(self, sync: Sync) -> None:

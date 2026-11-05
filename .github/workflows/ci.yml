@@ -1,9 +1,11 @@
 name: CI
 
 # Checks each pull request and each push to main. Release calls it too, so a
-# tag publishes only after the same checks pass on it.
+# tag publishes only after the same checks pass on it. A pull request marked
+# ready for review runs it again, since make mutate skips a draft.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_call:
@@ -94,18 +96,49 @@ jobs:
           exit "$status"
     timeout-minutes: 15
 
+  # mutmut runs once the other checks pass on the head. On a pull request ready
+  # for review it keeps the verdicts of main's last full run that the changes
+  # cannot reach; on main and on a release tag it runs every mutant.
   make-mutate:
     name: make mutate
     permissions:
       contents: read
+    needs: [commit-messages, make-check, release-zip, smoke]
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # nustack mutants diffs from the commit of the full run it keeps.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      - name: make mutate
+      # A pull request reads the caches of its base branch, and restore-keys
+      # takes the newest whose key starts with mutants-:
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache
+      - if: github.event_name == 'pull_request'
+        name: The verdicts of main's last full run
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            mutants/mutmut-stats.json
+            mutants/**/*.meta
+          key: mutants-${{ github.event.pull_request.base.sha }}
+          restore-keys: mutants-
+      - if: github.event_name == 'pull_request'
+        name: make mutate-changed
+        run: make mutate-changed
+      - if: github.event_name != 'pull_request'
+        name: make mutate
         run: make mutate
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        name: Keep the verdicts for pull requests
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            mutants/mutmut-stats.json
+            mutants/**/*.meta
+          key: mutants-${{ github.sha }}
     timeout-minutes: 30
 
   release-zip:

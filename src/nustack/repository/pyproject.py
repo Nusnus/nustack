@@ -1,9 +1,9 @@
 """The harness's project settings, down to what the checks compare with other files.
 
 That is the project's version, the files commitizen's `cz bump` sets the version in
-beside it, the tag format it finds the last release by, and the folders Ruff leaves
-alone. A file that is not valid TOML, or a field that breaks its schema, is refused
-with the fix.
+beside it, the tag format it finds the last release by, the folders mutmut mutates and
+the other files its tests read, and the folders Ruff leaves alone. A file that is not
+valid TOML, or a field that breaks its schema, is refused with the fix.
 """
 
 import tomllib
@@ -42,6 +42,30 @@ class Commitizen(BaseModel):
     version_files: tuple[str, ...] = ()
 
 
+class Mutmut(BaseModel):
+    """The `[tool.mutmut]` table, down to the folders mutmut mutates."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_paths: tuple[str, ...] = ()
+
+
+class Mutation(BaseModel):
+    """The `[tool.nustack.mutation]` table: what mutmut's tests read beyond code."""
+
+    model_config = ConfigDict(frozen=True)
+
+    reads: tuple[str, ...] = ()
+
+
+class Nustack(BaseModel):
+    """The `[tool.nustack]` table, down to its mutation settings."""
+
+    model_config = ConfigDict(frozen=True)
+
+    mutation: Mutation = Mutation()
+
+
 class Ruff(BaseModel):
     """The `[tool.ruff]` table, down to the folders it leaves alone."""
 
@@ -51,16 +75,18 @@ class Ruff(BaseModel):
 
 
 class Tools(BaseModel):
-    """The `[tool]` table, down to commitizen's and Ruff's."""
+    """The `[tool]` table, down to commitizen's, mutmut's, nustack's and Ruff's."""
 
     model_config = ConfigDict(frozen=True)
 
     commitizen: Commitizen = Commitizen()
+    mutmut: Mutmut = Mutmut()
+    nustack: Nustack = Nustack()
     ruff: Ruff = Ruff()
 
 
 class Pyproject(BaseModel):
-    """A `pyproject.toml`, down to its `[project]`, commitizen and Ruff tables."""
+    """A `pyproject.toml`, down to `[project]` and the tools' tables nustack reads."""
 
     PATH: ClassVar[PurePosixPath] = PurePosixPath("pyproject.toml")
     model_config = ConfigDict(frozen=True)

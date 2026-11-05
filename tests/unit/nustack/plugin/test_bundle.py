@@ -224,6 +224,7 @@ class TestBundle:
             written.read_bytes(),
         )
 
+    @pytest.mark.usefixtures("interruptible")
     def test_leaves_no_partial_zip_when_interrupted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -231,7 +232,7 @@ class TestBundle:
 
         def interrupted(_archive: ZipFile, *_args: object) -> None:
             partials.extend(entry.name for entry in tmp_path.iterdir())
-            raise KeyboardInterrupt
+            signal.raise_signal(signal.SIGINT)
 
         monkeypatch.setattr(ZipFile, "writestr", interrupted)
         with pytest.raises(KeyboardInterrupt):

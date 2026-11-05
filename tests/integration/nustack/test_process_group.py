@@ -8,7 +8,6 @@ import os
 import signal
 import subprocess
 import sys
-lazy from collections.abc import Iterator
 lazy from functools import partial
 lazy from pathlib import Path
 
@@ -30,15 +29,6 @@ class TestRun:
     end, even when a second interrupt cuts the wait short, and a group that already
     ended is left alone.
     """
-
-    # A shell without job control starts each background job ignoring SIGINT, so a
-    # runner started that way raises no KeyboardInterrupt until the test restores it:
-    # https://pubs.opengroup.org/onlinepubs/9799919799/utilities/V3_chap02.html#tag_19_12
-    @pytest.fixture
-    def interruptible(self) -> Iterator[None]:
-        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
-        yield
-        _ = signal.signal(signal.SIGINT, previous)
 
     def test_returns_the_status_and_output_for_the_input(
         self, tmp_path: Path, per_test_limit: float

@@ -10,6 +10,7 @@ import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import PurePosixPath
 from typing import ClassVar
 lazy from collections.abc import Generator
 lazy from pathlib import Path
@@ -93,6 +94,43 @@ class Git:
                 return False
             case status:
                 raise GitError(self.failure("merge-base", status))
+
+    # rev-parse --verify --quiet exits 1, silently, when no commit has the name:
+    # https://git-scm.com/docs/git-rev-parse#Documentation/git-rev-parse.txt---verify
+    def has_commit(self, commit: Sha) -> bool:
+        match self.status("rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"):
+            case 0:
+                return True
+            case 1:
+                return False
+            case status:
+                raise GitError(self.failure("rev-parse", status))
+
+    # rev-parse --verify --quiet exits 1, silently, when the commit holds no such path.
+    def file_at(self, commit: Sha, path: PurePosixPath) -> bytes | None:
+        name = f"{commit}:{path}"
+        match self.status("rev-parse", "--verify", "--quiet", name):
+            case 0:
+                return self.run("cat-file", "blob", name)
+            case 1:
+                return None
+            case status:
+                raise GitError(self.failure("rev-parse", status))
+
+    # Each path that differs from the commit in the working tree, staged or not, and
+    # each untracked path Git does not ignore.
+    def changed_since(self, commit: Sha) -> tuple[PurePosixPath, ...]:
+        listings = (
+            self.run("diff", "--name-only", "--no-renames", "-z", str(commit), "--"),
+            self.run("ls-files", "--others", "--exclude-standard", "-z"),
+        )
+        paths = {
+            PurePosixPath(path)
+            for listing in listings
+            for path in listing.decode(errors="surrogateescape").split("\0")
+            if path
+        }
+        return tuple(sorted(paths))
 
     def run(
         self,

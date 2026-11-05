@@ -10,6 +10,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ### Added
 
+- `long term` spends each mutation run where it can find something: none for a change it cannot reach, only what a pull request's changes reach, and every mutant from an empty cache after each merge to the default branch and before each release. `language-python` says what mutmut's cache keeps through a change, and how a run that keeps a full run's verdicts makes up for it.
 - nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
 - The `new-project` playbook creates the project's remote repository where it has none, and configures its settings where it is on GitHub, such as branch protection on `main`.
 - The `align` playbook reshapes existing code, from a snippet to a whole project, to nus-mode's bar within its project's standards, if any, so later work in nus-mode meets no friction with them.
@@ -35,6 +36,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - nus-mode's cold read pictures a reader new to the project reading the work.
 - The plugin's description, which each host and the marketplaces show, names the Obsidian skills beside the mode.
 - For nustack's maintainers:
+  - CI runs `make mutate` from an empty `mutants/` only on `main` and on release tags, once the other checks pass. A pull request ready for review runs `make mutate-changed`, which keeps the verdicts of `main`'s last full run and reruns the functions it changes and those its changed test modules cover, as `nustack mutants` decides. A change to no file mutmut's tests read, as `pyproject.toml`'s `[tool.nustack.mutation] reads` lists them beside the code, runs no mutant, nor does an edit to the tests' Python that changes only comments, layout or docstring wording, and the test run fails when a test, a fixture, a conftest or a test module's import opens or lists a repository file that list does not count.
   - A release runs `uv run cz bump --increment PATCH --version-files-only` with no `--yes`: `pyproject.toml` gives commitizen nustack's `v<version>` tag format, so it finds the earlier releases' tags.
   - `tsconfig.json` no longer skips the libraries' type declarations, so `tsc` checks them too; `package.json` adds `@types/json-schema`, whose types `@ai-sdk/provider` imports.
   - `nustack sync` and `nustack publish` refuse a `--name-with-owner` that is not `<owner>/<name>`, with an owner and name GitHub would take.

@@ -2,7 +2,8 @@
 
 Its commands check the repository, bundle the plugin, print the plugin version's release
 page, print for a person the description of a vendored copy's sync pull request, stage
-the sync's copy and propose it in that pull request, check a release tag, and publish
+the sync's copy and propose it in that pull request, ready mutmut's mutants/ folder for
+a run that tests only what changed since its full run, check a release tag, and publish
 its release. Each path is an option, no command takes an empty value, `nustack`
 alone prints the help, and `nustack --version` prints the installed version. A command
 that fails prints its Problems and exits with a failing status, never a traceback.
@@ -26,12 +27,18 @@ from nustack.github.gh import GitHub
 from nustack.github.gh import GitHubError
 from nustack.github.name import NameWithOwner
 from nustack.markdown.document import Document
+from nustack.mutation.folder import MutantsFolder
+from nustack.mutation.scope import Inputs
+from nustack.mutation.scope import Plan
+from nustack.mutation.scope import Scope
 from nustack.plugin.bundle import Bundle
 from nustack.problem import Problem
 from nustack.record import CopyRecord
 from nustack.release.publication import Publication
 from nustack.release.tag import Tag
 from nustack.repository.disk import Disk
+from nustack.repository.pyproject import InvalidPyprojectError
+from nustack.repository.pyproject import Pyproject
 from nustack.repository.repository import Release
 from nustack.repository.repository import Repository
 from nustack.rule import Rule
@@ -57,6 +64,10 @@ lazy from nustack.sync.history import History
 DISTRIBUTION = "nustack"
 
 ZIP_FOLDER = Path("dist")
+
+# mutmut writes its mutants and their verdicts to this folder of the project:
+# https://github.com/boxed/mutmut/blob/3.8.1/src/mutmut/configuration.py#L150
+MUTANTS_FOLDER = Path("mutants")
 
 app = typer.Typer(
     help="Check, bundle and release the nustack plugin, and sync its vendored copies.",
@@ -288,6 +299,58 @@ def sync(  # noqa: PLR0913 -- Typer reads each option from a parameter of its ow
         )
 
 
+@app.command(
+    help="Ready mutants/ for mutmut to test only what changed since its full run, and"
+    " print the scope: skip, changed or full."
+)
+def mutants(root: RootOption = Path()) -> None:
+    root = root.resolve()
+    inputs = mutation_inputs(root)
+    folder = MutantsFolder(root / MUTANTS_FOLDER)
+    git = Git(root)
+    try:
+        baseline = folder.baseline()
+        if isinstance(baseline, str):
+            plan = Plan(Scope.FULL, baseline)
+        elif not git.has_commit(baseline.commit):
+            plan = Plan(
+                Scope.FULL,
+                f"{folder.path} comes from a commit this clone lacks, so every mutant"
+                " runs; fetch it to keep its verdicts",
+            )
+        else:
+            commit = baseline.commit
+
+            def sources(path: PurePosixPath) -> tuple[bytes | None, bytes | None]:
+                try:
+                    now = (root / path).read_bytes()
+                except OSError:
+                    now = None
+                return git.file_at(commit, path), now
+
+            plan = inputs.plan(
+                git.changed_since(commit), baseline.tests_by_function, sources
+            )
+            if plan.scope is Scope.CHANGED:
+                folder.keep(baseline, plan.functions)
+        if plan.scope is Scope.FULL:
+            folder.clear()
+    except GitError as error:
+        fail([error.problem])
+    except OSError as error:
+        fail(
+            [
+                Problem(
+                    folder.path,
+                    f"cannot be changed ({error.strerror}); let your user write to it,"
+                    " or remove it and run make mutate",
+                )
+            ]
+        )
+    print(plan.reason, file=sys.stderr)
+    print(plan.scope)
+
+
 @app.command(help="Check that a release tag is on main and names the plugin version.")
 def release_tag(
     tag: TagArgument,
@@ -402,6 +465,32 @@ def copy_changes(
         return checkout_git.changes(base, upstream_git, proposed)
     except GitError as error:
         fail([error.problem])
+
+
+def mutation_inputs(root: Path) -> Inputs:
+    path = root / Pyproject.PATH
+    try:
+        content = path.read_bytes()
+    except OSError as error:
+        fail([Problem(path, f"cannot be read ({error.strerror}); restore it")])
+    pyproject = Problem.parsed(path, content, Pyproject.parse, InvalidPyprojectError)
+    if isinstance(pyproject, Problem):
+        fail([pyproject])
+    sources = pyproject.tool.mutmut.source_paths
+    if not sources:
+        fail(
+            [
+                Problem(
+                    path,
+                    "[tool.mutmut] names no source_paths; list the folders mutmut"
+                    " mutates",
+                )
+            ]
+        )
+    return Inputs(
+        tuple(PurePosixPath(source) for source in sources),
+        tuple(PurePosixPath(read) for read in pyproject.tool.nustack.mutation.reads),
+    )
 
 
 def checked_release(root: Path) -> Release:

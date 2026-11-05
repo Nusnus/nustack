@@ -10,34 +10,42 @@ class TestPyproject:
     """The settings other checks compare with come from pyproject.toml, or a Problem.
 
     Without commitizen's table, no tag format is named and `cz bump` versions no file;
-    without Ruff's, no folder is excluded.
+    without mutmut's or nustack's, mutmut mutates nothing named and its tests read
+    nothing listed; without Ruff's, no
+    folder is excluded.
     """
 
-    def test_reads_the_version_tag_format_bumped_files_and_ruffs_excluded_folders(
+    def test_reads_the_version_and_each_tools_settings(
         self,
     ) -> None:
         pyproject = Pyproject.parse(
             b'[project]\nversion = "1.2.3"\n\n'
             b'[tool.commitizen]\ntag_format = "v$version"\n'
             b'version_files = ["f:version"]\n\n'
+            b'[tool.mutmut]\nsource_paths = ["src/p"]\n\n'
+            b'[tool.nustack.mutation]\nreads = ["Makefile"]\n\n'
             b'[tool.ruff]\nextend-exclude = ["v"]\n'
         )
         assert (
             pyproject.project.version,
             pyproject.tool.commitizen.tag_format,
             pyproject.tool.commitizen.version_files,
+            pyproject.tool.mutmut.source_paths,
+            pyproject.tool.nustack.mutation.reads,
             pyproject.tool.ruff.extend_exclude,
-        ) == ("1.2.3", "v$version", ("f:version",), ("v",))
+        ) == ("1.2.3", "v$version", ("f:version",), ("src/p",), ("Makefile",), ("v",))
 
-    def test_names_no_tag_format_bumps_no_file_and_excludes_no_folder_without_tables(
+    def test_names_no_tool_setting_without_its_table(
         self,
     ) -> None:
         pyproject = Pyproject.parse(b'[project]\nversion = "1.2.3"\n')
         assert (
             pyproject.tool.commitizen.tag_format,
             pyproject.tool.commitizen.version_files,
+            pyproject.tool.mutmut.source_paths,
+            pyproject.tool.nustack.mutation.reads,
             pyproject.tool.ruff.extend_exclude,
-        ) == (None, (), ())
+        ) == (None, (), (), (), ())
 
     @pytest.mark.parametrize(
         ("content", "reason"),

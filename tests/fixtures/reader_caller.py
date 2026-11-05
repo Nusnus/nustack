@@ -1,6 +1,6 @@
 """A caller of the YAML reader, for the tests of where its warnings land."""
 
-import inspect
+import dis
 import warnings
 from dataclasses import dataclass
 lazy from collections.abc import Callable
@@ -36,6 +36,15 @@ class Caller:
     def read(self, text: str) -> tuple[int, list[warnings.WarningMessage]]:
         with warnings.catch_warnings(record=True) as heard:
             warnings.simplefilter("always")
-            line = inspect.stack()[0].lineno + 1
             self.reader(text)
-        return line, heard
+        return self.call_line(), heard
+
+    # The line Python compiled read's call to its reader on, where a warning that
+    # skips the reader's frames lands, however comments and docstrings move it.
+    @staticmethod
+    def call_line() -> int:
+        return next(
+            instruction.line_number
+            for instruction in dis.get_instructions(Caller.read)
+            if instruction.argval == "reader" and instruction.line_number is not None
+        )

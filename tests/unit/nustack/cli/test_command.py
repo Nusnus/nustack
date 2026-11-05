@@ -45,6 +45,11 @@ class TestEmptyValues:
                 "Invalid value for '--root': give a path, not an empty string",
             ),
             (
+                ["mutants", "--root", ""],
+                "Usage: nustack mutants [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
                 ["upstream", "--record", ""],
                 "Usage: nustack upstream [OPTIONS]",
                 "Invalid value for '--record': give a path, not an empty string",
@@ -180,6 +185,7 @@ class TestHelp:
             (["check", "-h"], "Usage: nustack check [OPTIONS]"),
             (["bundle", "-h"], "Usage: nustack bundle [OPTIONS]"),
             (["notes", "-h"], "Usage: nustack notes [OPTIONS]"),
+            (["mutants", "-h"], "Usage: nustack mutants [OPTIONS]"),
             (["sync-description", "-h"], "Usage: nustack sync-description [OPTIONS]"),
             (["sync", "-h"], "Usage: nustack sync [OPTIONS]"),
             (["release-tag", "-h"], "Usage: nustack release-tag [OPTIONS] {tag}"),
@@ -770,6 +776,41 @@ class TestSyncDescription:
                 " the sync's description needs; restore it, or change SyncTemplate to"
                 " match\n"
             ),
+        )
+
+
+class TestMutants:
+    """make mutate-changed stops on project settings that cannot say what mutmut copies.
+
+    A missing or invalid pyproject.toml, or one whose [tool.mutmut] names no
+    source_paths, stops it with the fix.
+    """
+
+    @pytest.mark.parametrize(
+        ("content", "what"),
+        [
+            (None, "cannot be read (No such file or directory); restore it"),
+            (b"[project]\n", "is invalid: project.version: add it"),
+            (
+                b'[project]\nversion = "1.2.3"\n',
+                "[tool.mutmut] names no source_paths; list the folders mutmut mutates",
+            ),
+        ],
+    )
+    def test_stops_on_settings_that_name_no_source(
+        self,
+        tmp_path: Path,
+        content: bytes | None,
+        what: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        if content is not None:
+            (tmp_path / "pyproject.toml").write_bytes(content)
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["mutants", "--root", str(tmp_path)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            ("", f"{tmp_path}/pyproject.toml: {what}\n"),
         )
 
 

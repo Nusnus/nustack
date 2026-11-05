@@ -1,8 +1,8 @@
-.PHONY: help bun uv zip bun-lock install check mutate bundle smoke clean
+.PHONY: help bun uv zip bun-lock install check mutate mutate-changed bundle smoke clean
 export UV_LOCKED := 1
 
 help: ## List the targets to run
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
 
 bun:
 	@command -v bun >/dev/null || { echo 'Bun is missing; install it from https://bun.sh/docs/installation, then rerun the command that stopped' >&2; exit 1; }
@@ -37,9 +37,22 @@ check: bun uv zip ## Run every pre-commit-stage hook over every file, fixing wha
 # mutmut stops a mutant whose tests outlast its time limit, as pytest-timeout
 # fails a stalled test, so a timeout counts as caught. The results are read
 # whole first, so a failing mutmut results fails the target too.
-mutate: uv ## Run mutmut over the harness, failing on each mutant the tests let live
+define mutmut-results
+@results=$$(uv run mutmut results) || exit 1; ! printf '%s' "$$results" | grep -v ': timeout$$' || { echo 'mutmut left the mutants above alive; give each a test that kills it, then rerun make $@' >&2; exit 1; }
+endef
+
+mutate: uv ## Run mutmut over the harness from an empty mutants/, failing on each mutant the tests let live
+	rm -rf mutants
 	uv run mutmut run
-	@results=$$(uv run mutmut results) || exit 1; ! printf '%s' "$$results" | grep -v ': timeout$$' || { echo 'mutmut left the mutants above alive; give each a test that kills it, then rerun make mutate' >&2; exit 1; }
+	$(mutmut-results)
+
+# nustack mutants keeps the verdicts of mutants/'s full run, empties those of
+# each function a changed test module covers, and prints skip when no file the
+# tests read changed, or full after clearing mutants/ when one other than the
+# sources and test modules did.
+mutate-changed: uv ## Rerun mutmut on what changed since mutants/'s full run, failing like mutate
+	@scope=$$(uv run nustack mutants) && { [ "$$scope" = skip ] || uv run mutmut run; }
+	$(mutmut-results)
 
 bundle: uv ## Build dist/nustack-<version>.zip for upload
 	uv run nustack bundle

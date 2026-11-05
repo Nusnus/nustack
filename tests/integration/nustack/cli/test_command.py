@@ -1,16 +1,19 @@
-"""nustack's sync and release commands, on real Git repositories and a fake gh.
+"""nustack's sync, mutants and release commands, on real Git repositories and a fake gh.
 
 sync-description, a command a person runs by hand, prints the body the sync command
 would publish, or a Problem. The sync command opens, updates or closes its pull request,
-and the release commands hold a tag to main and the plugin version and publish its
-release.
+the mutants command readies mutmut's folder from what changed since its full run, and
+the release commands hold a tag to main and the plugin version and publish its release.
 """
 
+import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 from nustack.cli.command import app
+from nustack.cli.command import mutants
 from nustack.cli.command import publish
 from nustack.cli.command import release_tag
 from nustack.cli.command import sync as sync_command
@@ -21,6 +24,7 @@ from nustack.sync.description import SyncLinks
 from nustack.sync.proposal import Proposal
 from tests.fixtures.gh import GhArgv
 from tests.fixtures.git_repository import GitRepository
+from tests.fixtures.permissions import SKIP_AS_ROOT
 from tests.fixtures.repository import ModelRepository
 lazy from tests.fixtures.gh import FakeGh
 lazy from tests.fixtures.sync.repositories import Sync
@@ -537,6 +541,226 @@ class TestSyncCommand:
             (
                 f"{missing}: cannot run Git (No such file or directory); check the"
                 " clone path and Git\n"
+            ),
+        )
+
+
+class TestMutantsCommand:
+    """make mutate-changed keeps each verdict the changes since its full run miss.
+
+    A change to no file the tests read, or only to the comments and docstring text of
+    the tests' Python, skips the run; a changed or deleted test module empties the
+    verdicts of each function its tests cover; any other change they read, a
+    folder with no full run, or a full run on a commit the clone lacks clears the
+    folder. A root Git cannot read, or a folder it cannot change, stops it with the
+    fix.
+    """
+
+    PYPROJECT = (
+        '[project]\nversion = "1.2.3"\n\n[tool.mutmut]\nsource_paths = ["src/pkg"]\n'
+        '\n[tool.nustack.mutation]\nreads = ["Makefile"]\n'
+    )
+    VERDICTS = frozendict(
+        {"exit_code_by_key": {"pkg.a.x_f__mutmut_1": 1, "pkg.a.x_g__mutmut_1": 1}}
+    )
+
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> GitRepository:
+        project = GitRepository.init(tmp_path / "project")
+        project.write(".gitignore", "mutants/\n")
+        project.write("pyproject.toml", self.PYPROJECT)
+        project.write("src/pkg/a.py", "")
+        project.write("tests/test_a.py", "")
+        project.write("tests/conftest.py", '"""Shares fixtures."""\n')
+        project.write("README.md", "")
+        commit = project.commit("base")
+        project.write("mutants/src/pkg/a.py", "")
+        project.write("mutants/src/pkg/a.py.meta", json.dumps(dict(self.VERDICTS)))
+        project.write(
+            "mutants/mutmut-stats.json",
+            json.dumps(
+                {
+                    "git_commit": str(commit),
+                    "tests_by_mangled_function_name": {
+                        "pkg.a.x_f": ["tests/test_a.py::T::t"],
+                        "pkg.a.x_g": ["tests/test_b.py::T::t"],
+                    },
+                }
+            ),
+        )
+        return project
+
+    def test_skips_the_run_when_no_file_the_tests_read_changed(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        project.write("README.md", "changed\n")
+        mutants(root=project.root)
+        assert (
+            capsys.readouterr(),
+            (project.root / "mutants/src/pkg/a.py").exists(),
+        ) == (
+            (
+                "skip\n",
+                (
+                    "no file mutmut's tests read changed since mutants/'s full run, so"
+                    " no mutant runs\n"
+                ),
+            ),
+            True,
+        )
+
+    def test_skips_the_run_when_the_tests_changed_only_comments_and_docstrings(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        project.write("tests/conftest.py", '"""Shares the fixtures."""\n# Why.\n')
+        project.write("tests/test_a.py", "# Nothing yet.\n")
+        mutants(root=project.root)
+        meta = json.loads((project.root / "mutants/src/pkg/a.py.meta").read_text())
+        assert (capsys.readouterr().out, meta) == ("skip\n", dict(self.VERDICTS))
+
+    def test_counts_a_deleted_test_module_as_changed(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (project.root / "tests/test_a.py").unlink()
+        mutants(root=project.root)
+        assert capsys.readouterr().out == "changed\n"
+
+    def test_empties_each_verdict_a_changed_test_module_reaches(
+        self,
+        project: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        project.write("tests/test_a.py", "changed\n")
+        monkeypatch.chdir(project.root.parent)
+        with pytest.raises(SystemExit) as caught:
+            app(["mutants", "--root", project.root.name])
+        meta = json.loads((project.root / "mutants/src/pkg/a.py.meta").read_text())
+        assert (
+            caught.value.code,
+            capsys.readouterr(),
+            meta,
+            (project.root / "mutants/src/pkg/a.py").exists(),
+        ) == (
+            0,
+            (
+                "changed\n",
+                (
+                    "the changed functions' mutants run, and those of the 1 functions"
+                    " the changed test modules cover\n"
+                ),
+            ),
+            {
+                "exit_code_by_key": {
+                    "pkg.a.x_f__mutmut_1": None,
+                    "pkg.a.x_g__mutmut_1": 1,
+                }
+            },
+            False,
+        )
+
+    @pytest.mark.parametrize(
+        ("path", "reason"),
+        [
+            (
+                "tests/conftest.py",
+                (
+                    "tests/conftest.py changed, which can reach any verdict, so every"
+                    " mutant runs\n"
+                ),
+            ),
+            (
+                "Makefile",
+                "Makefile changed, which can reach any verdict, so every mutant runs\n",
+            ),
+        ],
+    )
+    def test_clears_the_folder_when_another_copied_file_changed(
+        self,
+        project: GitRepository,
+        path: str,
+        reason: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        project.write(path, "")
+        mutants(root=project.root)
+        assert (capsys.readouterr(), (project.root / "mutants").exists()) == (
+            ("full\n", reason),
+            False,
+        )
+
+    def test_clears_a_folder_whose_full_run_the_clone_lacks(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        stats = project.root / "mutants/mutmut-stats.json"
+        stats.write_text(
+            json.dumps({"git_commit": "0" * 40, "tests_by_mangled_function_name": {}})
+        )
+        mutants(root=project.root)
+        assert (capsys.readouterr(), (project.root / "mutants").exists()) == (
+            (
+                "full\n",
+                (
+                    f"{project.root}/mutants comes from a commit this clone lacks, so"
+                    " every mutant runs; fetch it to keep its verdicts\n"
+                ),
+            ),
+            False,
+        )
+
+    def test_runs_every_mutant_without_a_full_run(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (project.root / "mutants/mutmut-stats.json").unlink()
+        mutants(root=project.root)
+        assert (capsys.readouterr(), (project.root / "mutants").exists()) == (
+            (
+                "full\n",
+                (
+                    f"{project.root}/mutants/mutmut-stats.json is missing, so every"
+                    " mutant runs\n"
+                ),
+            ),
+            False,
+        )
+
+    def test_stops_on_a_root_git_cannot_read(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        shutil.rmtree(project.root / ".git")
+        with pytest.raises(SystemExit) as caught:
+            mutants(root=project.root)
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{project.root}: git rev-parse exited 128; fix the cause Git"
+                    " printed above, such as a missing clone or revision\n"
+                ),
+            ),
+        )
+
+    @SKIP_AS_ROOT
+    def test_stops_on_a_folder_it_cannot_change(
+        self, project: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        project.write("tests/test_a.py", "changed\n")
+        shut = project.root / "mutants/src/pkg"
+        shut.chmod(0o500)
+        try:
+            with pytest.raises(SystemExit) as caught:
+                mutants(root=project.root)
+        finally:
+            shut.chmod(0o700)
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{project.root}/mutants: cannot be changed (Permission denied);"
+                    " let your user write to it, or remove it and run make mutate\n"
+                ),
             ),
         )
 

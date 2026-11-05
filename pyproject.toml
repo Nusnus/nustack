@@ -199,7 +199,7 @@ type = "layers"
 # builds on nustack.github.gh and its tag lies below.
 layers = [
   "nustack.cli",
-  "nustack.release.publication | nustack.repository | nustack.sync",
+  "nustack.mutation | nustack.release.publication | nustack.repository | nustack.sync",
   "nustack.record",
   "nustack.plugin",
   "nustack.markdown",
@@ -217,6 +217,7 @@ type = "forbidden"
 source_modules = [
   "nustack.github.name",
   "nustack.markdown",
+  "nustack.mutation.scope",
   "nustack.plugin.manifest",
   "nustack.plugin.plugin",
   "nustack.plugin.skill",
@@ -253,6 +254,7 @@ forbidden_modules = [
   "nustack.cli",
   "nustack.git",
   "nustack.github.gh",
+  "nustack.mutation.folder",
   "nustack.plugin.bundle",
   "nustack.process_group",
   "nustack.release.publication",
@@ -289,3 +291,17 @@ also_copy = [ ".github", "Makefile", "plugin" ]
 # ty proves each match exhaustive, so no input reaches its assert_never arm,
 # which coverage skips the same way.
 do_not_mutate_patterns = [ '^\s*assert_never\(unexpected\)$', '^\s*case unexpected:$' ]
+
+[tool.nustack]
+# nustack mutants plans a full mutmut run when one of these changes, and none when
+# only files outside them, the sources and the tests' Python change. They are the
+# files the selected tests read beyond those; tests/fixtures/reads.py fails the
+# test run when a test, a fixture, a conftest or a test module's import opens or
+# lists a repository file the plan does not count.
+mutation.reads = [
+  ".github/pull_request_template.md",
+  "Makefile",
+  "plugin/opencode.ts",
+  "tests/fixtures/github",
+  "tests/fixtures/sync",
+]
