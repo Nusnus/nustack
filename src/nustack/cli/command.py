@@ -3,14 +3,21 @@
 Its commands check the repository, bundle the plugin, print the plugin version's release
 page, print for a person the description of a vendored copy's sync pull request, stage
 the sync's copy and propose it in that pull request, ready mutmut's mutants/ folder for
-a run that tests only what changed since its full run, check a release tag, and publish
-its release. Each path is an option, no command takes an empty value, `nustack`
-alone prints the help, and `nustack --version` prints the installed version. A command
-that fails prints its Problems and exits with a failing status, never a traceback.
+a run that tests only what changed since its full run, bump the version and title the
+changelog's `[Unreleased]` section with it, check a release tag, push it on the commit
+of main that set its version, and publish its release. Each path is an option, no
+command takes an empty value, `nustack` alone prints the help, and `nustack --version`
+prints the installed version. A command that fails prints its Problems and exits with a
+failing status, never a traceback.
 """
 
 import json
+import os
+import stat
 import sys
+import tempfile
+from datetime import UTC
+from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -21,6 +28,8 @@ from typing import assert_never
 import typer
 
 from nustack.cli import parameter
+from nustack.commitizen import Commitizen
+from nustack.commitizen import CommitizenError
 from nustack.git import Git
 from nustack.git import GitError
 from nustack.github.gh import GitHub
@@ -32,10 +41,12 @@ from nustack.mutation.scope import Inputs
 from nustack.mutation.scope import Plan
 from nustack.mutation.scope import Scope
 from nustack.plugin.bundle import Bundle
+from nustack.plugin.plugin import Plugin
 from nustack.problem import Problem
 from nustack.record import CopyRecord
 from nustack.release.publication import Publication
 from nustack.release.tag import Tag
+from nustack.repository.changelog import Unreleased
 from nustack.repository.disk import Disk
 from nustack.repository.pyproject import InvalidPyprojectError
 from nustack.repository.pyproject import Pyproject
@@ -55,6 +66,7 @@ from nustack.tree import Unopened
 lazy from nustack.sha import Sha
 lazy from nustack.sync.change import FileChange
 lazy from nustack.sync.history import History
+lazy from nustack.version import Version
 
 # Module constants, since the module holds commands and no type: the commands and
 # their options share them.
@@ -351,19 +363,125 @@ def mutants(root: RootOption = Path()) -> None:
     print(plan.scope)
 
 
+@app.command(
+    help="Set the release's version, the next patch or the one given, in every file"
+    " that holds it, and title the changelog's [Unreleased] section with it and"
+    " today's date in UTC."
+)
+def bump(
+    version: Annotated[
+        Version | None,
+        typer.Argument(
+            parser=parameter.version,
+            metavar="[<version>]",
+            help="The release's version, such as 0.1.0; the next patch when left out.",
+        ),
+    ] = None,
+    root: RootOption = Path(),
+) -> None:
+    root = root.resolve()
+    try:
+        refuse_changes(
+            git=Git(root), consequence="would ride into the release's commit"
+        )
+    except GitError as error:
+        fail([error.problem])
+    release = checked_release(root)
+    match release.changelog.bump(version):
+        case Unreleased() as unreleased:
+            pass
+        case problems:
+            fail(problems)
+    try:
+        Commitizen(root).bump(version)
+    except CommitizenError as error:
+        fail([error.problem])
+    bumped = Repository(Disk(root).snapshot()).plugin.manifest
+    if bumped is None:
+        fail(
+            [
+                Problem(
+                    root / Plugin.FOLDER,
+                    "holds no manifest nustack can read after cz bump; run nustack"
+                    " check for the cause",
+                )
+            ]
+        )
+    # A release is dated by its day in UTC, so every machine that cuts it agrees.
+    day = datetime.now(UTC).date()
+    text = unreleased.released(release.manifest.repository, bumped.version, day)
+    write(root / Repository.CHANGELOG, text)
+    checked_release(root)
+    print(f"Released [Unreleased] as [{bumped.version}] - {day.isoformat()}")
+
+
 @app.command(help="Check that a release tag is on main and names the plugin version.")
 def release_tag(
     tag: TagArgument,
     root: RootOption = Path(),
 ) -> None:
-    release = checked_release(root)
+    checked_tag(tag, root)
+    print(f"{tag} is on main and names the plugin version")
+
+
+@app.command(
+    help="From a clean working tree, check out the commit on origin's main that set"
+    " a release tag's version, check the tag on it as release-tag does, then push"
+    " the tag to origin."
+)
+def push_tag(
+    tag: TagArgument,
+    root: RootOption = Path(),
+) -> None:
+    git = Git(root.resolve())
     try:
-        on_main = Git(root.resolve()).is_ancestor("HEAD", "origin/main")
+        # A checkout carries uncommitted changes along, so the check would read them
+        # rather than the commit it tags.
+        refuse_changes(git, "the check would read in place of main's commit")
+        # A shallow clone lacks the parents past its boundary, so a later edit there
+        # would read as the version's change.
+        if git.run("rev-parse", "--is-shallow-repository").strip() == b"true":
+            fail(
+                [
+                    Problem(
+                        git.root,
+                        "is a shallow clone, whose history may stop above the commit"
+                        " that set the version; run git fetch --unshallow origin, then"
+                        " rerun",
+                    )
+                ]
+            )
+        git.run("fetch", "origin", "main")
+        commit = release_commit(git, tag)
+        if commit is None:
+            fail(
+                [
+                    Problem(
+                        str(tag),
+                        "names no commit on origin's main: none of its first-parent"
+                        f" commits sets version {tag.version}; merge the release pull"
+                        " request, then rerun",
+                    )
+                ]
+            )
+        git.run("checkout", "--quiet", "--detach", str(commit))
     except GitError as error:
         fail([error.problem])
-    if problems := tag.problems(release.manifest.version, on_main=on_main):
-        fail(problems)
-    print(f"{tag} is on main and names the plugin version")
+    checked_tag(tag, root)
+    # The push names the commit, so a failed push leaves no local tag behind.
+    try:
+        git.run("push", "--quiet", "origin", f"{commit}:refs/tags/{tag}")
+    except GitError:
+        fail(
+            [
+                Problem(
+                    str(tag),
+                    "was not pushed to origin; fix the cause Git printed above, such"
+                    " as a tag origin already holds, then rerun",
+                )
+            ]
+        )
+    print(f"Pushed {tag}, on {commit}")
 
 
 @app.command(
@@ -493,6 +611,55 @@ def mutation_inputs(root: Path) -> Inputs:
     )
 
 
+# The release's commit is the newest on main's first-parent line whose pyproject.toml
+# names the tag's version where its parent's does not, so a merge after it is left
+# untagged.
+def release_commit(git: Git, tag: Tag) -> Sha | None:
+    def version_at(commit: Sha | None) -> Version | None:
+        if commit is None:
+            return None
+        content = git.file_at(commit, Pyproject.PATH)
+        if content is None:
+            return None
+        try:
+            return Pyproject.parse(content).project.version
+        except InvalidPyprojectError:
+            return None
+
+    return next(
+        (
+            commit
+            for commit in git.first_parent_commits("origin/main", Pyproject.PATH)
+            if version_at(commit) == tag.version
+            and version_at(git.first_parent(commit)) != tag.version
+        ),
+        None,
+    )
+
+
+def refuse_changes(git: Git, consequence: str) -> None:
+    if git.run("status", "--porcelain", "--untracked-files=normal"):
+        fail(
+            [
+                Problem(
+                    git.root,
+                    f"holds changes git status lists, which {consequence}; commit or"
+                    " stash them, then rerun",
+                )
+            ]
+        )
+
+
+def checked_tag(tag: Tag, root: Path) -> None:
+    release = checked_release(root)
+    try:
+        on_main = Git(root.resolve()).is_ancestor("HEAD", "origin/main")
+    except GitError as error:
+        fail([error.problem])
+    if problems := tag.problems(release.manifest.version, on_main=on_main):
+        fail(problems)
+
+
 def checked_release(root: Path) -> Release:
     root = root.resolve()
     match Disk.unusable_root(root):
@@ -516,6 +683,43 @@ def checked_release(root: Path) -> Release:
     if not isinstance(release, Release):
         fail(release)
     return release
+
+
+def write(path: Path, text: str) -> None:
+    try:
+        replace_whole(path, text)
+    except OSError as error:
+        fail(
+            [
+                Problem(
+                    path,
+                    f"cannot be written ({error.strerror}); let your user write to it"
+                    " and its folder, then restore the files nustack bump changed"
+                    " with git restore and rerun it",
+                )
+            ]
+        )
+
+
+# The file lands whole, keeping its mode, so a run that stops leaves it as it was:
+# plugin/skills/language-python/SKILL.md
+def replace_whole(path: Path, text: str) -> None:
+    mode = stat.S_IMODE(path.stat().st_mode)
+    # The suffix only names a file a killed run leaves behind, which no test sees.
+    descriptor, location = tempfile.mkstemp(
+        suffix=".partial",  # pragma: no mutate
+        dir=path.parent,
+    )
+    partial = Path(location)
+    try:
+        with os.fdopen(descriptor, "wb") as file:
+            file.write(text.encode())
+        partial.chmod(mode)
+        partial.replace(path)
+    finally:
+        # Once the move lands the partial name is gone, so this acts only on a
+        # failure or an interrupt.
+        partial.unlink(missing_ok=True)
 
 
 def fail(problems: list[Problem]) -> NoReturn:

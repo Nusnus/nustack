@@ -1,13 +1,14 @@
 """The parsers of the `nustack` command's values.
 
-Each refuses an empty value, and a repository name, a release tag or a commit of the
-wrong form, with the fix for its form.
+Each refuses an empty value, and a repository name, a version, a release tag or a
+commit of the wrong form, with the fix for its form.
 
 Typer passes an option given as '' as an empty string, not as absent, so each
 parser refuses it rather than run on with an empty path or name:
 https://github.com/fastapi/typer/blob/0.27.3/typer/core.py#L136
 """
 
+import re
 from pathlib import Path
 lazy from collections.abc import Callable
 
@@ -19,6 +20,8 @@ from nustack.release.tag import Tag
 from nustack.release.tag import TagError
 from nustack.sha import Sha
 from nustack.sha import ShaError
+from nustack.validation import Pattern
+lazy from nustack.version import Version
 
 
 def path(value: str) -> Path:
@@ -27,6 +30,15 @@ def path(value: str) -> Path:
 
 def name_with_owner(value: str) -> NameWithOwner:
     return read_with(NameWithOwner.parse, value)
+
+
+def version(value: str) -> Version:
+    if not re.fullmatch(Pattern.VERSION, text(value)):
+        message = (
+            f"give the version as MAJOR.MINOR.PATCH, not {value}; {Pattern.VERSION.fix}"
+        )
+        raise typer.BadParameter(message)
+    return value
 
 
 def tag(value: str) -> Tag:

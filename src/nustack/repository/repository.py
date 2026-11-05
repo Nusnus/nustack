@@ -65,11 +65,12 @@ lazy from nustack.github.name import RepositoryUrl
 
 @dataclass(frozen=True)
 class Release:
-    """What a clean check releases: the plugin's files, its manifest and its notes."""
+    """What a clean check releases: the plugin's files, manifest, notes, changelog."""
 
     tree: Tree
     manifest: Manifest
     notes: str
+    changelog: Changelog
 
 
 @dataclass(frozen=True)
@@ -251,9 +252,9 @@ class Repository:
 
     def release(self) -> Release | list[Problem]:
         problems = self.problems()
-        match problems, self.notes:
-            case [], ReleaseNotes() as notes:
-                return Release(self.plugin.tree, notes.manifest, notes.text)
+        match problems, self.notes, self.changelog:
+            case [], ReleaseNotes() as notes, Changelog() as changelog:
+                return Release(self.plugin.tree, notes.manifest, notes.text, changelog)
             case _:
                 return problems
 

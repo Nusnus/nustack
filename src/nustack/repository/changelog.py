@@ -8,11 +8,14 @@ changes, grouped under Keep a Changelog's types of change in the order that form
 lists them, each type once and each group showing something. The release below it is
 the one the page compares with. The changelog links each release and the plugin
 version to its tag's page, and `[Unreleased]`, while that section exists, to the
-changes since the plugin version.
+changes since the plugin version. A bump takes an `[Unreleased]` section that lists
+changes, and titles them with the release's version and day below a new empty one,
+with the links of `[Unreleased]` and every release set.
 """
 
 import re
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import date
 from enum import StrEnum
 from functools import cached_property
@@ -322,17 +325,14 @@ class Changelog:
     ) -> list[Problem]:
         if not self.releases:
             return []
-        versions = [*self.versions, version]
         # A version holds no letter, so upper-casing it, as markdown-it does
         # (UNRELEASED_LABEL's comment), leaves its label the version itself.
         targets = {
-            (each, each): f"{repository_url}/releases/tag/{Tag(each)}"
-            for each in versions
+            (each, each): target
+            for each, target in self.release_links(repository_url, version).items()
         }
-        if self.releases != self.document.sections:
-            targets[self.UNRELEASED_LABEL, self.UNRELEASED_NAME] = (
-                f"{repository_url}/compare/{Tag(version)}...HEAD"
-            )
+        if (unreleased := self.unreleased_link(repository_url, version)) is not None:
+            targets[self.UNRELEASED_LABEL, self.UNRELEASED_NAME] = unreleased
         references = self.document.references
         problems = [
             Problem(
@@ -361,8 +361,107 @@ class Changelog:
             )
         return problems
 
+    def release_links(
+        self, repository_url: RepositoryUrl, version: Version
+    ) -> frozendict[Version, str]:
+        return frozendict(
+            (each, f"{repository_url}/releases/tag/{Tag(each)}")
+            for each in (*self.versions, version)
+        )
+
+    def unreleased_link(
+        self, repository_url: RepositoryUrl, version: Version
+    ) -> str | None:
+        if self.releases == self.document.sections:
+            return None
+        return f"{repository_url}/compare/{Tag(version)}...HEAD"
+
+    def bump(self, version: Version | None) -> Unreleased | list[Problem]:
+        path = self.document.path
+        problems = []
+        if self.releases == self.document.sections:
+            problems.append(
+                Problem(
+                    path,
+                    f"has no {self.UNRELEASED} section to release; add it above the"
+                    " releases, with each change since the last release",
+                )
+            )
+        elif not self.document.shows(self.document.sections[0].body):
+            problems.append(
+                Problem(
+                    path,
+                    f"lists no change under {self.UNRELEASED}; list each change since"
+                    " the last release there, as AGENTS.md's Pull requests says",
+                )
+            )
+        if version is not None and (self.newer(version) or version in self.versions):
+            latest = max(self.versions, key=version_order)
+            problems.append(
+                Problem(
+                    version,
+                    f"is not newer than {latest}, the changelog's latest release; give"
+                    " a newer version",
+                )
+            )
+        if problems:
+            return problems
+        return Unreleased(self, self.document.sections[0])
+
+    def relinked(self, repository_url: RepositoryUrl, version: Version) -> str:
+        document = self.document
+        links = self.release_links(repository_url, version)
+        managed = {*links, self.UNRELEASED_LABEL}
+        spans = [
+            definition
+            for definition in document.definition_lines
+            if definition.label in managed
+        ]
+        first_heading = document.sections[0].start
+        block = [
+            f"{self.UNRELEASED}: {self.unreleased_link(repository_url, version)}\n",
+            *(f"[{each}]: {target}\n" for each, target in links.items()),
+        ]
+        lines = list(document.body_lines)
+        for span in reversed(spans):
+            del lines[span.start : span.end]
+        at = min(first_heading, *(span.start for span in spans))
+        lines[at:at] = [*block, "\n"] if at == first_heading else block
+        frontmatter = document.text_lines[: document.frontmatter_lines]
+        return "".join((*frontmatter, *lines))
+
     def is_unreleased(self, title: str) -> bool:
         return title.casefold() == self.UNRELEASED_FOLDED
+
+
+@dataclass(frozen=True)
+class Unreleased:
+    """A changelog's `[Unreleased]` section, which lists changes, to title as a release.
+
+    Its release keeps the section's changes under the release's title, opens an empty
+    `[Unreleased]` section above them, and writes the links of `[Unreleased]` and
+    every release as one block, where the first of them stood above the first `##`
+    heading, or else directly above that heading.
+    """
+
+    changelog: Changelog
+    section: Section
+
+    def released(
+        self, repository_url: RepositoryUrl, version: Version, day: date
+    ) -> str:
+        document = self.changelog.document
+        lines = list(document.body_lines)
+        heading = lines[self.section.start]
+        ending = heading.removeprefix(heading.splitlines()[0])
+        lines[self.section.start : self.section.body_start] = [
+            f"## {Changelog.UNRELEASED}{ending}",
+            ending,
+            f"## [{version}] - {day.isoformat()}{ending}",
+        ]
+        frontmatter = document.text_lines[: document.frontmatter_lines]
+        titled = Changelog(replace(document, text="".join((*frontmatter, *lines))))
+        return titled.relinked(repository_url, version)
 
 
 def is_date(text: str) -> bool:

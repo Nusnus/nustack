@@ -437,7 +437,8 @@ class TestSyncTemplate:
         template = SyncTemplate(
             "<!-- Lead -->\n|"
             " **Feedback wanted** | |\n| <!-- mark --> **[<!-- check -->](<!-- run"
-            " link -->)** | <!-- result --> |\n| **Risk** | |\n<!-- Files -->\n<!--"
+            " link -->)** | <!-- result --> |\n"
+            "| **Changelog** | |\n| **Risk** | |\n<!-- Files -->\n<!--"
             " One heading per idea -->\n## ⚖️ Decisions\n"
         )
         assert template.problems(Path("t")) == []
@@ -471,6 +472,13 @@ class TestSyncTemplate:
                 ),
             ),
             (
+                "| **Changelog** | |",
+                (
+                    'lost "| **Changelog** | |", which the sync\'s description needs;'
+                    " restore it, or change SyncTemplate to match"
+                ),
+            ),
+            (
                 "<!-- One heading per idea -->",
                 (
                     'lost "<!-- One heading per idea -->", which the sync\'s'
@@ -483,7 +491,8 @@ class TestSyncTemplate:
         template = SyncTemplate(
             "<!-- Lead -->\n|"
             " **Feedback wanted** | |\n| <!-- mark --> **[<!-- check -->](<!-- run"
-            " link -->)** | <!-- result --> |\n| **Risk** | |\n<!-- Files -->\n<!--"
+            " link -->)** | <!-- result --> |\n"
+            "| **Changelog** | |\n| **Risk** | |\n<!-- Files -->\n<!--"
             " One heading per idea -->\n## ⚖️ Decisions\n".replace(anchor, "")
         )
         assert template.problems(Path("t")) == [Problem(Path("t"), what)]
@@ -492,7 +501,8 @@ class TestSyncTemplate:
         template = SyncTemplate(
             "<!-- Lead -->\n|"
             " **Feedback wanted** | |\n| <!-- mark --> **[<!-- check -->](<!-- run"
-            " link -->)** | <!-- result --> |\n| **Risk** | |\n<!-- Files -->\n<!--"
+            " link -->)** | <!-- result --> |\n"
+            "| **Changelog** | |\n| **Risk** | |\n<!-- Files -->\n<!--"
             " Files -->\n<!-- One heading per idea -->\n## ⚖️ Decisions\n"
         )
         assert template.problems(Path("t")) == [
@@ -507,7 +517,8 @@ class TestSyncTemplate:
         template = SyncTemplate(
             "<!-- Lead -->\n|"
             " **Feedback wanted** | |\n| <!-- mark --> **[<!-- check -->](<!-- run"
-            " link -->)** | <!-- result --> |\n| **Risk** | |\n<!-- One heading per"
+            " link -->)** | <!-- result --> |\n"
+            "| **Changelog** | |\n| **Risk** | |\n<!-- One heading per"
             " idea -->\n## ⚖️ Decisions\n<!-- Files -->"
         )
         assert template.problems(Path("t")) == [
@@ -522,7 +533,8 @@ class TestSyncTemplate:
         template = SyncTemplate(
             "# Title\r\n<!-- Lead -->\r\n| **Feedback wanted** | |\r\n| <!-- mark -->"
             " **[<!-- check"
-            " -->](<!-- run link -->)** | <!-- result --> |\r\n| **Risk** | |\r\n<!--"
+            " -->](<!-- run link -->)** | <!-- result --> |\r\n"
+            "| **Changelog** | |\r\n| **Risk** | |\r\n<!--"
             " Files -->\r\n<!-- One heading per idea -->\r\n\r\n## ⚖️"
             " Decisions\r\nkept out\r\n"
         )
@@ -547,6 +559,8 @@ class TestSyncTemplate:
             " unchanged. agents/ policy files: unchanged. |\n"
             "| ⚠️ **[CI](https://checks)** | Approve this pull request's workflows if"
             " prompted; see the linked runs for results. |\n"
+            "| **Changelog** | ⚠️ Whoever accepts the copy adds its entry under"
+            " `[Unreleased]` before the merge, as AGENTS.md's Pull requests says |\n"
             "| **Risk** | The copy is untrusted. The owner clears each review"
             " finding; a passing check does not clear it. |\n"
             + Passage.UNKNOWN_COMMIT

@@ -236,6 +236,7 @@ class SyncTemplate:
     CHECK: ClassVar[str] = (
         "| <!-- mark --> **[<!-- check -->](<!-- run link -->)** | <!-- result --> |"
     )
+    CHANGELOG: ClassVar[str] = "| **Changelog** | |"
     RISK: ClassVar[str] = "| **Risk** | |"
     FILES: ClassVar[str] = "<!-- Files -->"
     IDEA: ClassVar[str] = "<!-- One heading per idea -->"
@@ -262,6 +263,7 @@ class SyncTemplate:
             self.LEAD,
             self.FEEDBACK,
             self.CHECK,
+            self.CHANGELOG,
             self.RISK,
             self.FILES,
             self.IDEA,
@@ -295,6 +297,9 @@ class SyncTemplate:
             self.FEEDBACK: "| **Feedback wanted** | Whether to accept this copy,"
             f" which {description.purpose} |",
             self.CHECK: description.facts,
+            self.CHANGELOG: "| **Changelog** | ⚠️ Whoever accepts the copy adds its"
+            " entry under `[Unreleased]` before the merge, as AGENTS.md's Pull"
+            " requests says |",
             self.RISK: "| **Risk** | The copy is untrusted. The owner clears each "
             "review finding; a passing check does not clear it. |",
             self.FILES: description.evidence,

@@ -27,6 +27,9 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - `nustack upstream` prints a vendored copy's upstream once its record passes the check's rules for records, so the sync workflow clones it without checking the rest of the repository first.
   - `nustack records` prints each record the sync reads, with its copy's branch, so the sync workflow's matrix comes from a tested command.
   - `.claude/skills` is a symlink to `.agents/skills/`, so Claude Code offers each skill for working on nustack, such as writing-for-agents, as the other hosts do.
+  - `nustack bump`, from a working tree with no changes, sets a release's version, the next patch or the one given, titles `CHANGELOG.md`'s `[Unreleased]` section with it and the day, below a new empty one, and sets the changelog's links, so `make check` passes right after it.
+  - `nustack push-tag`, from a full clone whose working tree has no changes, checks out the commit on `origin/main` that set the release's version, the newest on its first-parent line, so a later merge stays untagged; it checks the release tag there as `nustack release-tag` does, then pushes the tag on that commit to `origin`, leaving no local tag that a rerun after a failed push would trip on.
+  - `AGENTS.md` has each pull request add its own entry under `CHANGELOG.md`'s `[Unreleased]`; the PR template asks for it, and `REVIEW.md` has review check it.
 
 ### Changed
 
@@ -39,7 +42,8 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - For nustack's maintainers:
   - CI runs `make mutate` from an empty `mutants/` only on `main` and on release tags, once the other checks pass. A pull request ready for review runs `make mutate-changed`, which keeps the verdicts of `main`'s last full run and reruns the functions it changes and those its changed test modules cover, as `nustack mutants` decides. A change to no file mutmut's tests read, as `pyproject.toml`'s `[tool.nustack.mutation] reads` lists them beside the code, runs no mutant, nor does an edit to the tests' Python that changes only comments, layout or docstring wording, and the test run fails when a test, a fixture, a conftest or a test module's import opens or lists a repository file that list does not count.
   - The release steps move from `AGENTS.md` into the `release` skill in `.agents/skills/`, so they load only for a release.
-  - A release runs `uv run cz bump --increment PATCH --version-files-only` with no `--yes`: `pyproject.toml` gives commitizen nustack's `v<version>` tag format, so it finds the earlier releases' tags.
+  - A release's `cz bump` runs with no `--yes`: `pyproject.toml` gives commitizen nustack's `v<version>` tag format, so it finds the earlier releases' tags.
+  - The `release` skill leaves the agent only the entry's lead, the cold read of the release page, the pull request and its merge: `nustack bump` makes the release's edits, and `nustack push-tag` checks and pushes its tag.
   - `tsconfig.json` no longer skips the libraries' type declarations, so `tsc` checks them too; `package.json` adds `@types/json-schema`, whose types `@ai-sdk/provider` imports.
   - `nustack sync` and `nustack publish` refuse a `--name-with-owner` that is not `<owner>/<name>`, with an owner and name GitHub would take.
   - `nustack release-tag` and `nustack publish` refuse a tag that is not `v<version>`, and `nustack publish` a `--commit` that is not a commit's full SHA.

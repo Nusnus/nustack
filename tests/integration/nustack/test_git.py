@@ -117,6 +117,61 @@ class TestGit:
             " printed above, such as a missing clone or revision",
         )
 
+    def test_names_a_commits_first_parent_or_none_for_a_root(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository")
+        repository.write("a.py", "")
+        root = repository.commit("root")
+        repository.write("a.py", "x")
+        child = repository.commit("child")
+        git = Git(repository.root)
+        assert (git.first_parent(child), git.first_parent(root)) == (root, None)
+
+    def test_fails_a_first_parent_lookup_outside_a_repository(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(GitError) as caught:
+            _ = Git(tmp_path).first_parent(Sha("0" * 40))
+        assert caught.value.problem == Problem(
+            tmp_path,
+            "git rev-parse exited 128; fix the cause Git"
+            " printed above, such as a missing clone or revision",
+        )
+
+    def test_lists_the_first_parent_commits_that_change_a_path_named_like_a_branch(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository")
+        repository.write("side", "1")
+        first = repository.commit("first")
+        repository.git("checkout", "-q", "-b", "side")
+        repository.write("side", "side")
+        repository.commit("side")
+        repository.git("checkout", "-q", "main")
+        repository.write("b.py", "")
+        repository.commit("other path")
+        repository.git("merge", "-q", "--no-ff", "-m", "merge", "side")
+        merge = Sha(repository.git("rev-parse", "HEAD").strip())
+        repository.git("checkout", "-q", "-b", "elsewhere", str(first))
+        assert Git(repository.root).first_parent_commits(
+            "main", PurePosixPath("side")
+        ) == (merge, first)
+
+    def test_refuses_a_first_parent_line_git_names_by_other_than_its_sha1(
+        self, tmp_path: Path
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository", object_format="sha256")
+        repository.write("a.py", "")
+        repository.record("root")
+        with pytest.raises(GitError) as caught:
+            _ = Git(repository.root).first_parent_commits("main", PurePosixPath("a.py"))
+        assert caught.value.problem == Problem(
+            repository.root,
+            "git log named a commit by other than its SHA-1; nustack reads only"
+            " repositories whose commits Git names by SHA-1, so use one",
+        )
+
     def test_reads_a_file_at_a_commit_or_none_where_the_commit_lacks_it(
         self, tmp_path: Path
     ) -> None:

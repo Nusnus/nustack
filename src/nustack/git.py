@@ -106,6 +106,28 @@ class Git:
             case status:
                 raise GitError(self.failure("rev-parse", status))
 
+    # rev-parse --verify --quiet exits 1, silently, when the commit has no parent.
+    def first_parent(self, commit: Sha) -> Sha | None:
+        match self.status("rev-parse", "--verify", "--quiet", f"{commit}^"):
+            # A commit Git names by SHA-1 has parents it names the same way.
+            case 0:
+                return Sha(self.run("rev-parse", f"{commit}^").decode().strip())
+            case 1:
+                return None
+            case status:
+                raise GitError(self.failure("rev-parse", status))
+
+    # Each commit on the revision's first-parent line that changes the path, newest
+    # first.
+    def first_parent_commits(
+        self, revision: str, path: PurePosixPath
+    ) -> tuple[Sha, ...]:
+        listing = self.run(
+            "log", "--first-parent", "--format=%H", revision, "--", str(path)
+        )
+        with self.naming_by_sha("git log"):
+            return tuple(Sha(line) for line in listing.decode().split())
+
     # rev-parse --verify --quiet exits 1, silently, when the commit holds no such path.
     def file_at(self, commit: Sha, path: PurePosixPath) -> bytes | None:
         name = f"{commit}:{path}"

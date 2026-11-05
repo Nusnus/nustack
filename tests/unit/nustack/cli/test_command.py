@@ -123,6 +123,26 @@ class TestEmptyValues:
                 "Invalid value for '--root': give a path, not an empty string",
             ),
             (
+                ["bump", ""],
+                "Usage: nustack bump [OPTIONS] [<version>]",
+                "Invalid value for '[<version>]': give a value, not an empty string",
+            ),
+            (
+                ["bump", "--root", ""],
+                "Usage: nustack bump [OPTIONS] [<version>]",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
+                ["push-tag", ""],
+                "Usage: nustack push-tag [OPTIONS] {tag}",
+                "Invalid value for 'tag': give a value, not an empty string",
+            ),
+            (
+                ["push-tag", "v1.2.3", "--root", ""],
+                "Usage: nustack push-tag [OPTIONS] {tag}",
+                "Invalid value for '--root': give a path, not an empty string",
+            ),
+            (
                 ["release-tag", ""],
                 "Usage: nustack release-tag [OPTIONS] {tag}",
                 "Invalid value for 'tag': give a value, not an empty string",
@@ -188,7 +208,9 @@ class TestHelp:
             (["mutants", "-h"], "Usage: nustack mutants [OPTIONS]"),
             (["sync-description", "-h"], "Usage: nustack sync-description [OPTIONS]"),
             (["sync", "-h"], "Usage: nustack sync [OPTIONS]"),
+            (["bump", "-h"], "Usage: nustack bump [OPTIONS] [<version>]"),
             (["release-tag", "-h"], "Usage: nustack release-tag [OPTIONS] {tag}"),
+            (["push-tag", "-h"], "Usage: nustack push-tag [OPTIONS] {tag}"),
             (["publish", "-h"], "Usage: nustack publish [OPTIONS] {tag}"),
         ],
     )
@@ -769,6 +791,9 @@ class TestSyncDescription:
             1,
             "",
             (
+                f'{root}/.github/pull_request_template.md: lost "| **Changelog** | |",'
+                " which the sync's description needs; restore it, or change"
+                " SyncTemplate to match\n"
                 f'{root}/.github/pull_request_template.md: lost "| **Risk** | |", which'
                 " the sync's description needs; restore it, or change SyncTemplate to"
                 " match\n"

@@ -8,6 +8,7 @@
 | ✅ **[Copy](#copy)** | Compared the base copy with upstream's at its head, including modes and LICENSE: 0 added, 1 changed, 0 removed. |
 | ⚠️ **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: ` writing-for-agents/agents/openai.yaml ` changed ⚠️ a loading field changed. |
 | ⚠️ **[CI](#checks)** | Approve this pull request's workflows if prompted; see the linked runs for results. |
+| **Changelog** | ⚠️ Whoever accepts the copy adds its entry under `[Unreleased]` before the merge, as AGENTS.md's Pull requests says |
 | **Risk** | The copy is untrusted. The owner clears each review finding; a passing check does not clear it. |
 
 ## 👀 Where to look

@@ -6,6 +6,7 @@
 | :-- | :-- |
 | **Feedback wanted** | |
 | <!-- mark --> **[<!-- check -->](<!-- run link -->)** | <!-- result --> |
+| **Changelog** | |
 | **Risk** | |
 
 ## 👀 Where to look

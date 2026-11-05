@@ -3,21 +3,31 @@
 sync-description, a command a person runs by hand, prints the body the sync command
 would publish, or a Problem. The sync command opens, updates or closes its pull request,
 the mutants command readies mutmut's folder from what changed since its full run, and
-the release commands hold a tag to main and the plugin version and publish its release.
+the release commands bump the version and title the changelog's unreleased changes with
+it, hold a tag to main and the plugin version, push it from main's latest commit, and
+publish its release.
 """
 
 import json
 import shutil
+import tempfile
+from datetime import UTC
+from datetime import datetime
+from datetime import tzinfo
 from pathlib import Path
 
 import pytest
 
+from nustack.cli import command
 from nustack.cli.command import app
+from nustack.cli.command import bump
 from nustack.cli.command import mutants
 from nustack.cli.command import publish
+from nustack.cli.command import push_tag
 from nustack.cli.command import release_tag
 from nustack.cli.command import sync as sync_command
 from nustack.cli.command import sync_description
+from nustack.commitizen import Commitizen
 from nustack.release.tag import Tag
 from nustack.sha import Sha
 from nustack.sync.description import SyncLinks
@@ -247,7 +257,7 @@ class TestSyncDescriptionCommand:
             "",
             (
                 f"{sync.checkout.root}/.agents/skills: the sync description of this"
-                " copy is 325263 bytes, over the 65536 GitHub accepts; quote less in"
+                " copy is 325403 bytes, over the 65536 GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change\n"
             ),
         )
@@ -765,6 +775,226 @@ class TestMutantsCommand:
         )
 
 
+class TestBumpCommand:
+    """A release sets its version and titles the unreleased changes with it and today.
+
+    It takes the next patch or the version given. A working tree with changes, which
+    would ride into the release's commit, and a changelog that lists no unreleased
+    change stop it before any file changes, and so does a bump commitizen refuses;
+    manifests the bump leaves disagreeing, or a changelog it cannot write, stop it
+    after.
+    """
+
+    LOCK = 'version = 1\n\n[[package]]\nname = "kit"\nversion = "1.2.3"\n'
+    VERSIONED = (
+        "pyproject.toml",
+        "uv.lock",
+        "plugin/.claude-plugin/plugin.json",
+        "plugin/.cursor-plugin/plugin.json",
+        "plugin/.devin-plugin/plugin.json",
+        "plugin/package.json",
+    )
+
+    @pytest.fixture
+    def model(self, tmp_path: Path) -> ModelRepository:
+        model = ModelRepository(tmp_path / "repository")
+        model.edit(
+            "pyproject.toml",
+            "[tool.commitizen]\n",
+            '[tool.commitizen]\nversion_provider = "uv"\n',
+        )
+        model.write("uv.lock", self.LOCK)
+        return model
+
+    @pytest.fixture
+    def checkout(self, model: ModelRepository) -> GitRepository:
+        model.edit(
+            "CHANGELOG.md",
+            "## [Unreleased]\n\n",
+            "## [Unreleased]\n\n### Fixed\n\n- Fixes the kit.\n\n",
+        )
+        checkout = GitRepository(model.save())
+        checkout.git("init", "-q", "-b", "main")
+        checkout.commit("base")
+        checkout.git("tag", "v1.2.3")
+        return checkout
+
+    # The changelog lands from a file beside it, never from the temporary folder.
+    @pytest.fixture(autouse=True)
+    def no_temporary_folder(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "missing"))
+
+    # Late on 4 March in UTC is already 5 March east of it, so a run that reads the
+    # local day dates the release otherwise.
+    @pytest.fixture(autouse=True)
+    def clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz: tzinfo | None = None) -> Clock:
+                moment = cls(2026, 3, 4, 23, 30, tzinfo=UTC)
+                return moment if tz is UTC else cls(2026, 3, 5, 9, 30)
+
+        monkeypatch.setattr(command, "datetime", Clock)
+
+    def versions(self, checkout: GitRepository) -> list[bool]:
+        return [
+            '"1.2.3"' in (checkout.root / path).read_text() for path in self.VERSIONED
+        ]
+
+    @pytest.mark.parametrize(
+        ("version", "bumped"), [(None, "1.2.4"), ("2.0.0", "2.0.0")]
+    )
+    def test_sets_the_version_and_titles_the_changes_with_it_and_the_day_in_utc(
+        self,
+        checkout: GitRepository,
+        version: str | None,
+        bumped: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        bump(version, root=checkout.root)
+        assert (
+            capsys.readouterr(),
+            (checkout.root / "CHANGELOG.md").read_text(),
+            [
+                f'"{bumped}"' in (checkout.root / path).read_text()
+                for path in self.VERSIONED
+            ],
+        ) == (
+            (f"Released [Unreleased] as [{bumped}] - 2026-03-04\n", ""),
+            (
+                "# Changelog\n\n"
+                f"[Unreleased]: https://example.com/nus/kit/compare/v{bumped}...HEAD\n"
+                f"[{bumped}]: https://example.com/nus/kit/releases/tag/v{bumped}\n"
+                "[1.2.3]: https://example.com/nus/kit/releases/tag/v1.2.3\n"
+                "[1.2.2]: https://example.com/nus/kit/releases/tag/v1.2.2\n\n"
+                f"## [Unreleased]\n\n## [{bumped}] - 2026-03-04\n\n"
+                "### Fixed\n\n- Fixes the kit.\n\n"
+                "## [1.2.3] - 2026-01-02\n\n### Added\n\n- Adds the kit.\n\n"
+                "## [1.2.2] - 2026-01-01\n\n- Starts.\n"
+            ),
+            [True] * len(self.VERSIONED),
+        )
+
+    # A tracked file's edit, and an untracked file in a clone set to hide untracked
+    # files from git status, both count.
+    @pytest.mark.parametrize("changed", ["CHANGELOG.md", "notes.md"])
+    def test_stops_before_any_change_from_a_working_tree_with_changes(
+        self, checkout: GitRepository, capsys: pytest.CaptureFixture[str], changed: str
+    ) -> None:
+        checkout.git("config", "status.showUntrackedFiles", "no")
+        checkout.write(changed, "An unrelated edit.\n")
+        with pytest.raises(SystemExit) as caught:
+            bump(None, root=checkout.root)
+        assert (
+            caught.value.code,
+            capsys.readouterr().err,
+            self.versions(checkout),
+            (checkout.root / changed).read_text(),
+        ) == (
+            1,
+            (
+                f"{checkout.root}: holds changes git status lists, which would ride"
+                " into the release's commit; commit or stash them, then rerun\n"
+            ),
+            [True] * len(self.VERSIONED),
+            "An unrelated edit.\n",
+        )
+
+    def test_stops_where_git_cannot_read_the_working_tree(
+        self, model: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = model.save()
+        with pytest.raises(SystemExit) as caught:
+            bump(None, root=root)
+        assert (caught.value.code, capsys.readouterr().err) == (
+            1,
+            (
+                f"{root}: git status exited 128; fix the cause Git printed above,"
+                " such as a missing clone or revision\n"
+            ),
+        )
+
+    def test_stops_before_any_change_without_unreleased_changes(
+        self, model: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        checkout = GitRepository(model.save())
+        checkout.git("init", "-q", "-b", "main")
+        checkout.commit("base")
+        with pytest.raises(SystemExit) as caught:
+            bump(None, root=checkout.root)
+        assert (
+            caught.value.code,
+            capsys.readouterr().err,
+            self.versions(checkout),
+        ) == (
+            1,
+            (
+                f"{checkout.root}/CHANGELOG.md: lists no change under [Unreleased];"
+                " list each change since the last release there, as AGENTS.md's Pull"
+                " requests says\n"
+            ),
+            [True] * len(self.VERSIONED),
+        )
+
+    def test_stops_on_a_bump_commitizen_refuses(
+        self, checkout: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        checkout.git("tag", "--delete", "v1.2.3")
+        with pytest.raises(SystemExit) as caught:
+            bump(None, root=checkout.root)
+        assert (
+            caught.value.code,
+            capsys.readouterr().err.endswith(
+                f"{checkout.root}: cz bump exited 1; fix the cause it printed above,"
+                " such as a release tag this clone lacks, which git fetch --tags"
+                " origin brings\n"
+            ),
+            self.versions(checkout),
+        ) == (1, True, [True] * len(self.VERSIONED))
+
+    def test_stops_on_manifests_the_bump_leaves_disagreeing(
+        self,
+        checkout: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def disagreeing(bumper: Commitizen, _version: str | None) -> None:
+            manifest = bumper.root / "plugin/.claude-plugin/plugin.json"
+            manifest.write_text(manifest.read_text().replace("1.2.3", "1.2.4"))
+
+        monkeypatch.setattr(Commitizen, "bump", disagreeing)
+        with pytest.raises(SystemExit) as caught:
+            bump(None, root=checkout.root)
+        assert (caught.value.code, capsys.readouterr().err) == (
+            1,
+            (
+                f"{checkout.root}/plugin: holds no manifest nustack can read after cz"
+                " bump; run nustack check for the cause\n"
+            ),
+        )
+
+    @SKIP_AS_ROOT
+    def test_stops_on_a_changelog_it_cannot_write(
+        self, checkout: GitRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        checkout.root.chmod(0o555)
+        try:
+            with pytest.raises(SystemExit) as caught:
+                bump(None, root=checkout.root)
+        finally:
+            checkout.root.chmod(0o755)
+        assert (caught.value.code, capsys.readouterr().err) == (
+            1,
+            (
+                f"{checkout.root}/CHANGELOG.md: cannot be written (Permission"
+                " denied); let your user write to it and its folder, then restore the"
+                " files nustack bump changed with git restore and rerun it\n"
+            ),
+        )
+
+
 class TestReleaseTagCommand:
     """The release workflow publishes only a tag on main that names the version.
 
@@ -824,6 +1054,207 @@ class TestReleaseTagCommand:
                 f"{checkout.root}: git merge-base exited 128; fix the cause Git printed"
                 " above, such as a missing clone or revision\n"
             ),
+        )
+
+
+class TestPushTagCommand:
+    """A release tag lands on origin, on the commit of main that set its version.
+
+    A later commit on main is left untagged, whether or not its pyproject.toml reads,
+    and a root commit that set the version gets the tag. A version main never set, a
+    working tree with changes, which the checkout would carry, and a shallow clone,
+    whose history may stop above the release, are pushed nowhere, a
+    fetch Git refuses stops it with the fix, and a failed push names the tag and
+    leaves nothing a rerun trips on.
+    """
+
+    @pytest.fixture
+    def work(self, tmp_path: Path) -> GitRepository:
+        work = GitRepository(ModelRepository(tmp_path / "work").save())
+        pyproject = (work.root / "pyproject.toml").read_text()
+        (work.root / "pyproject.toml").unlink()
+        work.git("init", "-q", "-b", "main")
+        work.commit("base")
+        work.write("pyproject.toml", pyproject)
+        work.commit("release")
+        return work
+
+    @pytest.fixture
+    def remote(self, work: GitRepository, tmp_path: Path) -> GitRepository:
+        work.git("clone", "-q", "--bare", str(work.root), str(tmp_path / "remote.git"))
+        return GitRepository(tmp_path / "remote.git")
+
+    @pytest.fixture
+    def clone(self, remote: GitRepository, tmp_path: Path) -> GitRepository:
+        remote.git("clone", "-q", str(remote.root), str(tmp_path / "clone"))
+        return GitRepository(tmp_path / "clone")
+
+    @pytest.mark.parametrize("later", ["# A later change.\n{}", "[project"])
+    def test_tags_the_commit_on_main_that_set_the_version(
+        self,
+        work: GitRepository,
+        tmp_path: Path,
+        later: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        release = work.git("rev-parse", "HEAD").strip()
+        pyproject = (work.root / "pyproject.toml").read_text()
+        work.write("pyproject.toml", later.format(pyproject))
+        work.commit("later")
+        work.git("clone", "-q", "--bare", str(work.root), str(tmp_path / "remote.git"))
+        remote = GitRepository(tmp_path / "remote.git")
+        remote.git("clone", "-q", str(remote.root), str(tmp_path / "clone"))
+        clone = GitRepository(tmp_path / "clone")
+        push_tag(Tag("1.2.3"), root=clone.root)
+        assert (
+            capsys.readouterr(),
+            clone.git("rev-parse", "HEAD").strip(),
+            remote.git("rev-parse", "v1.2.3").strip(),
+            clone.git("tag", "--list"),
+        ) == ((f"Pushed v1.2.3, on {release}\n", ""), release, release, "")
+
+    def test_tags_a_root_commit_that_set_the_version(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        work = GitRepository(ModelRepository(tmp_path / "work").save())
+        work.git("init", "-q", "-b", "main")
+        release = str(work.commit("release"))
+        work.git("clone", "-q", "--bare", str(work.root), str(tmp_path / "remote.git"))
+        remote = GitRepository(tmp_path / "remote.git")
+        remote.git("clone", "-q", str(remote.root), str(tmp_path / "clone"))
+        push_tag(Tag("1.2.3"), root=tmp_path / "clone")
+        assert (capsys.readouterr(), remote.git("rev-parse", "v1.2.3").strip()) == (
+            (f"Pushed v1.2.3, on {release}\n", ""),
+            release,
+        )
+
+    def test_pushes_nowhere_a_version_main_never_set(
+        self,
+        clone: GitRepository,
+        remote: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        head = clone.git("rev-parse", "HEAD")
+        with pytest.raises(SystemExit) as caught:
+            push_tag(Tag("9.9.9"), root=clone.root)
+        assert (
+            caught.value.code,
+            capsys.readouterr().err,
+            clone.git("rev-parse", "HEAD"),
+            remote.git("tag", "--list"),
+        ) == (
+            1,
+            (
+                "v9.9.9: names no commit on origin's main: none of its first-parent"
+                " commits sets version 9.9.9; merge the release pull request, then"
+                " rerun\n"
+            ),
+            head,
+            "",
+        )
+
+    def test_pushes_nowhere_from_a_working_tree_with_changes(
+        self,
+        clone: GitRepository,
+        remote: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        clone.write("notes.txt", "uncommitted")
+        head = clone.git("rev-parse", "HEAD")
+        with pytest.raises(SystemExit) as caught:
+            push_tag(Tag("1.2.3"), root=clone.root)
+        assert (
+            caught.value.code,
+            capsys.readouterr().err,
+            clone.git("rev-parse", "HEAD"),
+            remote.git("tag", "--list"),
+        ) == (
+            1,
+            (
+                f"{clone.root}: holds changes git status lists, which the check would"
+                " read in place of main's commit; commit or stash them, then rerun\n"
+            ),
+            head,
+            "",
+        )
+
+    def test_pushes_nowhere_from_a_shallow_clone(
+        self,
+        work: GitRepository,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        pyproject = (work.root / "pyproject.toml").read_text()
+        work.write("pyproject.toml", f"# A later change.\n{pyproject}")
+        work.commit("later")
+        work.git("clone", "-q", "--bare", str(work.root), str(tmp_path / "remote.git"))
+        remote = GitRepository(tmp_path / "remote.git")
+        url = (tmp_path / "remote.git").as_uri()
+        remote.git("clone", "-q", "--depth", "1", url, str(tmp_path / "clone"))
+        with pytest.raises(SystemExit) as caught:
+            push_tag(Tag("1.2.3"), root=tmp_path / "clone")
+        assert (
+            caught.value.code,
+            capsys.readouterr().err,
+            remote.git("tag", "--list"),
+        ) == (
+            1,
+            (
+                f"{tmp_path / 'clone'}: is a shallow clone, whose history may stop"
+                " above the commit that set the version; run git fetch --unshallow"
+                " origin, then rerun\n"
+            ),
+            "",
+        )
+
+    def test_stops_where_git_cannot_fetch(
+        self,
+        clone: GitRepository,
+        remote: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        shutil.rmtree(remote.root)
+        with pytest.raises(SystemExit) as caught:
+            push_tag(Tag("1.2.3"), root=clone.root)
+        assert (caught.value.code, capsys.readouterr().err) == (
+            1,
+            (
+                f"{clone.root}: git fetch exited 128; fix the cause Git printed above,"
+                " such as a missing clone or revision\n"
+            ),
+        )
+
+    def test_names_the_tag_of_a_failed_push_and_pushes_it_on_a_rerun(
+        self,
+        work: GitRepository,
+        clone: GitRepository,
+        remote: GitRepository,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        hook = remote.root / "hooks/pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        with pytest.raises(SystemExit) as caught:
+            push_tag(Tag("1.2.3"), root=clone.root)
+        failed = (
+            caught.value.code,
+            capsys.readouterr().err,
+            clone.git("tag", "--list"),
+        )
+        hook.unlink()
+        push_tag(Tag("1.2.3"), root=clone.root)
+        release = work.git("rev-parse", "HEAD").strip()
+        assert (failed, capsys.readouterr().out, remote.git("rev-parse", "v1.2.3")) == (
+            (
+                1,
+                (
+                    "v1.2.3: was not pushed to origin; fix the cause Git printed"
+                    " above, such as a tag origin already holds, then rerun\n"
+                ),
+                "",
+            ),
+            f"Pushed v1.2.3, on {release}\n",
+            f"{release}\n",
         )
 
 

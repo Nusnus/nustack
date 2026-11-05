@@ -13,6 +13,7 @@ readable UTF-8 file is refused with its reason.
 """
 
 import bisect
+import copy
 import posixpath
 import re
 from dataclasses import dataclass
@@ -120,6 +121,15 @@ class Link:
     target: Path | None
     fragment: str
     line: int
+
+
+@dataclass(frozen=True)
+class DefinitionLines:
+    """A reference definition's label, as markdown-it keys it, and its lines."""
+
+    label: str
+    start: int
+    end: int
 
 
 @dataclass(frozen=True)
@@ -354,6 +364,24 @@ class Document:
     @cached_property
     def definitions(self) -> Definitions:
         return self.defined_in(self.body)
+
+    # markdown-it-py, unlike markdown-it, gives each reference definition a token that
+    # holds its lines once inline_definitions is set:
+    # https://github.com/executablebooks/markdown-it-py/blob/v4.2.0/markdown_it/rules_block/reference.py#L165-L174
+    @cached_property
+    def defining(self) -> MarkdownIt:
+        parser = copy.copy(self.MARKDOWN)
+        parser.options = copy.deepcopy(self.MARKDOWN.options)
+        parser.options["inline_definitions"] = True
+        return parser
+
+    @cached_property
+    def definition_lines(self) -> tuple[DefinitionLines, ...]:
+        return tuple(
+            DefinitionLines(token.meta["id"], *Lines.span(token))
+            for token in self.defining.parse(self.body)
+            if token.type == "definition"
+        )
 
     @cached_property
     def references(self) -> frozendict[str, str]:

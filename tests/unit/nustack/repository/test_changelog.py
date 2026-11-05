@@ -5,9 +5,11 @@ an optional lead, groups its changes by Keep a Changelog's types and gives each 
 and image a full URL. The release below it is the previous one, and a CRLF entry
 reads with line feeds. Each release and the plugin version link to their tag's page,
 and `[Unreleased]`, while that section exists, to the changes since the plugin
-version.
+version. A bump takes an `[Unreleased]` section that lists changes, and titles them
+with the release's version and day below a new one, with every link set.
 """
 
+from datetime import date
 lazy from pathlib import Path
 
 import pytest
@@ -17,6 +19,7 @@ from nustack.github.name import RepositoryUrl
 from nustack.markdown.document import Document
 from nustack.problem import Problem
 from nustack.repository.changelog import Changelog
+from nustack.repository.changelog import Unreleased
 
 
 class TestEntry:
@@ -1256,4 +1259,149 @@ class TestChangelogLinks:
                 self.REPOSITORY_URL, "1.2.3"
             )
             == []
+        )
+
+
+class TestChangelogBump:
+    """A bump takes the `[Unreleased]` section that lists changes.
+
+    A changelog with no such section, or one that shows nothing, is named, and so is
+    a version given that is not newer than every release.
+    """
+
+    HEAD = "# Changelog\n\n## [Unreleased]\n\n"
+    RELEASES = "## [1.2.3] - 2026-01-02\n\n- A.\n\n## [1.2.2] - 2026-01-01\n\n- B.\n"
+
+    def test_takes_an_unreleased_section_that_lists_changes(
+        self, changelog_path: Path
+    ) -> None:
+        changelog = Changelog(
+            Document(changelog_path, self.HEAD + "- C.\n\n" + self.RELEASES)
+        )
+        assert changelog.bump("1.3.0") == Unreleased(
+            changelog, changelog.document.sections[0]
+        )
+
+    def test_names_a_changelog_without_an_unreleased_section(
+        self, changelog_path: Path
+    ) -> None:
+        text = "# Changelog\n\n" + self.RELEASES
+        assert Changelog(Document(changelog_path, text)).bump(None) == [
+            Problem(
+                changelog_path,
+                "has no [Unreleased] section to release; add it above the releases,"
+                " with each change since the last release",
+            )
+        ]
+
+    def test_names_an_unreleased_section_that_shows_nothing(
+        self, changelog_path: Path
+    ) -> None:
+        text = self.HEAD + "<!-- C. -->\n\n" + self.RELEASES
+        assert Changelog(Document(changelog_path, text)).bump(None) == [
+            Problem(
+                changelog_path,
+                "lists no change under [Unreleased]; list each change since the last"
+                " release there, as AGENTS.md's Pull requests says",
+            )
+        ]
+
+    @pytest.mark.parametrize("version", ["1.2.3", "1.2.2", "1.0.0"])
+    def test_names_a_version_no_newer_than_every_release(
+        self, changelog_path: Path, version: str
+    ) -> None:
+        text = self.HEAD + "- C.\n\n" + self.RELEASES
+        assert Changelog(Document(changelog_path, text)).bump(version) == [
+            Problem(
+                version,
+                "is not newer than 1.2.3, the changelog's latest release; give a"
+                " newer version",
+            )
+        ]
+
+    def test_names_a_version_below_a_newer_release_listed_lower(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            self.HEAD + "- C.\n\n## [1.2.2] - 2026-01-02\n\n- A.\n\n"
+            "## [1.10.0] - 2026-01-01\n\n- B.\n"
+        )
+        assert Changelog(Document(changelog_path, text)).bump("1.9.0") == [
+            Problem(
+                "1.9.0",
+                "is not newer than 1.10.0, the changelog's latest release; give a"
+                " newer version",
+            )
+        ]
+
+
+class TestUnreleased:
+    """A release titles the section's changes and opens a new section above them.
+
+    It writes the links of `[Unreleased]` and every release as one block, where the
+    first of them stood above the first `##` heading, or else directly above that
+    heading, drops each link of theirs elsewhere, and keeps every other link, a
+    setext title's underline out, the frontmatter and the heading's line ending.
+    """
+
+    REPOSITORY_URL = RepositoryUrl("github.com", NameWithOwner("o", "r"))
+    DAY = date(2026, 3, 4)
+    LINKS = (
+        "[Unreleased]: https://github.com/o/r/compare/v1.3.0...HEAD\n"
+        "[1.3.0]: https://github.com/o/r/releases/tag/v1.3.0\n"
+        "[1.2.3]: https://github.com/o/r/releases/tag/v1.2.3\n"
+    )
+
+    def released(self, path: Path, text: str) -> str:
+        unreleased = Changelog(Document(path, text)).bump(None)
+        assert isinstance(unreleased, Unreleased)
+        return unreleased.released(self.REPOSITORY_URL, "1.3.0", self.DAY)
+
+    def test_titles_the_changes_and_rewrites_the_links_where_they_stood(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\nIntro.\n\n"
+            "[Unreleased]: https://github.com/o/r/compare/v1.2.3...HEAD\n"
+            "[Kit]: https://kit\n"
+            "[1.2.3]: https://github.com/o/r/releases/tag/v1.2.3\n\n"
+            "## [Unreleased]  \n\n### Added\n\n- C, with [Kit].\n\n"
+            "## [1.2.3] - 2026-01-02\n\n- A.\n"
+        )
+        assert self.released(changelog_path, text) == (
+            "# Changelog\n\nIntro.\n\n" + self.LINKS + "[Kit]: https://kit\n\n"
+            "## [Unreleased]\n\n## [1.3.0] - 2026-03-04\n\n### Added\n\n"
+            "- C, with [Kit].\n\n## [1.2.3] - 2026-01-02\n\n- A.\n"
+        )
+
+    def test_writes_the_links_above_the_first_heading_where_none_stood_there(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n- C.\n\n"
+            "## [1.2.3] - 2026-01-02\n\n- A.\n\n"
+            "[1.2.3]: https://example.com/old\n"
+            '[Unreleased]:\n  https://example.com/old\n  "Old"\n'
+        )
+        assert self.released(changelog_path, text) == (
+            "# Changelog\n\nIntro.\n\n"
+            + self.LINKS
+            + "\n## [Unreleased]\n\n## [1.3.0] - 2026-03-04\n\n- C.\n\n"
+            "## [1.2.3] - 2026-01-02\n\n- A.\n\n"
+        )
+
+    def test_keeps_the_frontmatter_a_setext_underline_and_the_line_ending(
+        self, changelog_path: Path
+    ) -> None:
+        text = (
+            "---\ntitle: Changelog\n---\n# Changelog\r\n\r\n"
+            "[1.2.3]: https://github.com/o/r/releases/tag/v1.2.3\r\n\r\n"
+            "[Unreleased]\r\n----------\r\n\r\n- C.\r\n\r\n"
+            "## [1.2.3] - 2026-01-02\r\n\r\n- A.\r\n"
+        )
+        assert self.released(changelog_path, text) == (
+            "---\ntitle: Changelog\n---\n# Changelog\r\n\r\n"
+            + self.LINKS
+            + "\r\n## [Unreleased]\r\n\r\n## [1.3.0] - 2026-03-04\r\n\r\n"
+            "- C.\r\n\r\n## [1.2.3] - 2026-01-02\r\n\r\n- A.\r\n"
         )

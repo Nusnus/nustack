@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from markdown_it.token import Token
 
+from nustack.markdown.document import DefinitionLines
 from nustack.markdown.document import Document
 from nustack.markdown.document import Fence
 from nustack.markdown.document import Lines
@@ -272,6 +273,25 @@ class TestDocumentDefinitions:
                 "KIT": {"href": "https://a", "title": "T"},
                 "B": {"href": "/b", "title": ""},
             },
+        )
+
+
+class TestDocumentDefinitionLines:
+    """Each link definition's label, as markdown-it keys it, and the lines it spans.
+
+    A definition whose title sits on later lines spans them too, and one nested in a
+    quote counts.
+    """
+
+    def test_spans_each_definition_in_the_body(self) -> None:
+        text = (
+            "---\nname: a\n---\nText.\n\n"
+            '[Kit]: https://a\n[b]:\n  /b\n  "T"\n> [c]: /c\n'
+        )
+        assert Document(Path("/a.md"), text).definition_lines == (
+            DefinitionLines("KIT", 2, 3),
+            DefinitionLines("B", 3, 6),
+            DefinitionLines("C", 6, 7),
         )
 
 

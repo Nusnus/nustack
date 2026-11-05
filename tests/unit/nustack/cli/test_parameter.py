@@ -1,7 +1,8 @@
 """Each parser of the command's values takes a nonempty one and refuses ''.
 
 The repository and tag parsers also refuse what their types' parse refuses, with its
-fix, and the commit parser a commit of the wrong form.
+fix, the version parser a version of the wrong form, with the fix, and the commit
+parser a commit of the wrong form.
 """
 
 from pathlib import Path
@@ -16,6 +17,7 @@ from nustack.cli.parameter import path
 from nustack.cli.parameter import path_text
 from nustack.cli.parameter import tag
 from nustack.cli.parameter import text
+from nustack.cli.parameter import version
 from nustack.github.name import NameWithOwner
 from nustack.release.tag import Tag
 from nustack.sha import Sha
@@ -50,6 +52,27 @@ class TestNameWithOwner:
             typer.BadParameter, match=r"^give a value, not an empty string$"
         ):
             name_with_owner("")
+
+
+class TestVersion:
+    """A version reads as given; one of another form is refused with its fix."""
+
+    def test_reads_the_version(self) -> None:
+        assert version("0.10.0") == "0.10.0"
+
+    def test_refuses_a_version_of_another_form(self) -> None:
+        with pytest.raises(typer.BadParameter) as caught:
+            version("v0.1.0")
+        assert str(caught.value) == (
+            "give the version as MAJOR.MINOR.PATCH, not v0.1.0; use MAJOR.MINOR.PATCH"
+            " without leading zeros, such as 0.0.1"
+        )
+
+    def test_refuses_an_empty_value(self) -> None:
+        with pytest.raises(
+            typer.BadParameter, match=r"^give a value, not an empty string$"
+        ):
+            version("")
 
 
 class TestTag:
