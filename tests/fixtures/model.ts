@@ -116,7 +116,7 @@ export class FakeModel {
       reply = FakeModel.recorded(`${this.host}/summary`)
     else if (skill && load !== undefined) reply = FakeModel.recorded(`${this.host}/${load[1]}`)
     // full.reply is the real reply to "Reply OK. " followed by "OK " 99,496 times, 199,006 tokens, which makes a host
-    // summarize on its own; that 300 KB request is not recorded.
+    // summarize on its own once its test holds it to WINDOW; that 300 KB request is not recorded.
     else if (asked.includes(FakeModel.FILL)) reply = FakeModel.recorded("full")
     return new Response(reply, { headers: { "content-type": "text/event-stream" } })
   }

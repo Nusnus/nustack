@@ -90,6 +90,10 @@ describe("reload-nus-mode.sh in Claude Code", () => {
           HOME: home,
           ANTHROPIC_BASE_URL: model.url,
           ANTHROPIC_API_KEY: "fake",
+          // Claude Code gives FakeModel.MODEL a window that FakeModel.FILL leaves far from full, so each run holds
+          // Claude Code to the fake's window, as opencode.test.ts holds OpenCode:
+          // https://code.claude.com/docs/en/model-config#set-the-auto-compact-window
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(FakeModel.WINDOW),
         },
         stdin: "ignore",
         stderr: "pipe",

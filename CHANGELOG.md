@@ -42,6 +42,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - The scheduled `Sync vendored copies` workflow proposes each upstream change as one pull request per record.
   - `nustack sync` and `nustack sync-description` take `--record`, the vendored copy's record, and `nustack sync` names its branch from the record.
   - `REVIEW.md` has reviewers read every vendored copy's sync pull request, not only writing-for-agents', as untrusted text.
+  - `make smoke` runs Claude Code 2.1.312 and holds it to the fake model's context window, so the prompt that fills that window still makes Claude Code summarize the session on its own. Since 2.1.293, Claude Code gives `claude-haiku-5-5`, the smoke tests' model, a window that prompt leaves far from full.
 
 ### Removed
 
