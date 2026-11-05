@@ -2,3 +2,13 @@
 # ships plugin/ as checked out, so Git checks out every file there with LF line
 # endings: https://git-scm.com/docs/gitattributes#_eol
 plugin/** text eol=lf
+# Git keeps each vendored skill folder's bytes as upstream wrote them, so each
+# copy matches the blobs its record names. A later line wins, so these come last:
+# https://git-scm.com/docs/gitattributes#_text
+.agents/skills/writing-for-agents/** -text
+plugin/skills/defuddle/** -text
+plugin/skills/json-canvas/** -text
+plugin/skills/knap/** -text
+plugin/skills/obsidian-bases/** -text
+plugin/skills/obsidian-cli/** -text
+plugin/skills/obsidian-markdown/** -text

@@ -18,6 +18,7 @@ from nustack.repository.repository import Release
 from nustack.repository.repository import Repository
 from nustack.tree import File
 from nustack.tree import Folder
+from nustack.tree import Missing
 from nustack.tree import Special
 from nustack.tree import Unopened
 from nustack.tree import Unreadable
@@ -62,7 +63,10 @@ class TestRepositoryRelease:
 
 
 class TestRepositoryFiles:
-    """Each required file is present and readable; versions compare where valid."""
+    """Each required file and listed record is present and readable.
+
+    Versions compare where valid, and vendored/ holds only records the sync reads.
+    """
 
     UNREADABLE = "cannot be read (Permission denied); make it readable"
 
@@ -94,6 +98,7 @@ class TestRepositoryFiles:
             "README.md",
             ".cursor-plugin/marketplace.json",
             ".pre-commit-config.yaml",
+            ".gitattributes",
         ],
     )
     def test_reports_a_file_that_cannot_be_read(
@@ -113,6 +118,7 @@ class TestRepositoryFiles:
             "README.md",
             ".cursor-plugin/marketplace.json",
             ".pre-commit-config.yaml",
+            ".gitattributes",
         ],
     )
     def test_reports_a_folder_in_place_of_a_file(
@@ -202,6 +208,90 @@ class TestRepositoryFiles:
                 " the Cursor manifest's 9.9.9; set every file nustack check"
                 " compares to the release's version",
             ),
+        ]
+
+    def test_reports_a_listed_record_that_is_gone(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.fail_read("vendored/copy.json", Missing())
+        assert repository.problems() == [
+            Problem(
+                repository.where("vendored/copy.json"),
+                "is missing; restore the record from the repository",
+            )
+        ]
+
+    def test_reports_a_record_whose_file_path_holds_a_character_outside_the_set(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.write(
+            "vendored/copy.json",
+            json.dumps(
+                {
+                    "upstream": "https://github.com/up/skills",
+                    "source": "skills",
+                    "folder": ".agents/skills",
+                    "skills": ["vendored"],
+                    "commit": "c" * 40,
+                    "files": {
+                        "vendored/LICENSE": "1" * 40,
+                        "vendored/SKILL.md": "2" * 40,
+                        "vendored/a b.md": "3" * 40,
+                    },
+                }
+            ),
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("vendored/copy.json"),
+                "is invalid: files: for each key, write each part of the path in"
+                " letters, digits, ., _ and - alone",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "vendored/README.md",
+            "vendored/copy.JSON",
+            "vendored/sub/copy.json",
+            "vendored/.hidden.json",
+            "vendored/Foo Bar.json",
+        ],
+    )
+    def test_reports_a_file_in_the_records_folder_that_the_sync_never_reads(
+        self, repository: ModelRepository, path: str
+    ) -> None:
+        repository.write(path, "Notes.\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where(path),
+                "is no record the sync reads; name it vendored/<copy>.json, with"
+                " <copy> in kebab case such as obsidian-skills, or move it out of"
+                " vendored/",
+            )
+        ]
+
+    @pytest.mark.parametrize("path", [".pre-commit-config.yaml", ".gitattributes"])
+    def test_reports_a_missing_config(
+        self, repository: ModelRepository, path: str
+    ) -> None:
+        repository.remove(path)
+        assert repository.problems() == [
+            Problem(
+                repository.where(path), "is missing; restore it from the repository"
+            )
+        ]
+
+    def test_reports_attributes_that_are_not_utf_8(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.write(".gitattributes", b"plugin/** text eol=lf\n\xff\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where(".gitattributes"),
+                "is not valid UTF-8; save it as UTF-8",
+            )
         ]
 
 
@@ -659,7 +749,7 @@ class TestRepositoryVersions:
         assert repository.problems() == [
             Problem(
                 repository.where(".github/workflows/release.yml"),
-                "is invalid: the file: %YAML 1.1 reads its on key as true; drop the"
+                "is invalid: %YAML 1.1 reads its on key as true; drop the"
                 ' %YAML 1.1 directive, or quote the key as "on"',
             ),
         ]
@@ -984,7 +1074,8 @@ class TestRepositorySkillTable:
     skill, are Problems naming their lines in the whole file, as are a row's link text
     other than its skill's name and a description other than its skill's. The mode,
     which the model may load, and a skill whose frontmatter or SKILL.md cannot be
-    read, need no row, and the skills after it still need theirs.
+    read, need no row, and the skills after it still need theirs. A skill a record
+    copies into the plugin keeps its row while its folder is gone.
     """
 
     ROW = "| [language-python](plugin/skills/language-python/SKILL.md) | Python. |\n"
@@ -1079,6 +1170,93 @@ class TestRepositorySkillTable:
                 "has no table headed Skill and What it holds; add one with a row"
                 " giving each principle and language skill's description",
             )
+        ]
+
+    def test_asks_for_a_table_with_a_row_for_each_vendored_skill(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.vendor_into_plugin()
+        repository.edit("README.md", "| Skill | What it holds |", "| Skill | Holds |")
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no table headed Skill and What it holds; add one with a row"
+                " giving each principle and language skill's description, and a row"
+                " for each vendored skill",
+            )
+        ]
+
+    def test_keeps_the_row_of_a_vendored_skill_whose_folder_is_gone(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.vendor_into_plugin()
+        repository.remove("plugin/skills/vendored/LICENSE")
+        repository.remove("plugin/skills/vendored/SKILL.md")
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills/vendored"),
+                "is missing; rerun the sync workflow, or restore the copy from the"
+                " commit the record vendored/copy.json names",
+            )
+        ]
+
+    def test_reports_a_vendored_row_whose_link_text_is_not_its_name(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.vendor_into_plugin()
+        repository.edit(
+            "README.md",
+            "| [vendored](plugin/skills/vendored/SKILL.md)",
+            "| [other](plugin/skills/vendored/SKILL.md)",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has a skills table row on line 19 whose link text is not vendored;"
+                " make it vendored",
+            )
+        ]
+
+    def test_reports_a_readme_without_a_vendored_skills_row(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.vendor_into_plugin()
+        repository.edit(
+            "README.md",
+            "| [vendored](plugin/skills/vendored/SKILL.md) | Words. |\n",
+            "",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has no skills table row for vendored; add one that links"
+                " plugin/skills/vendored/SKILL.md under its name and says when it"
+                " applies",
+            )
+        ]
+
+    def test_reports_a_missing_vendored_skills_row_beside_a_second_row(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.vendor_into_plugin()
+        repository.edit("README.md", self.ROW, self.ROW + self.ROW)
+        repository.edit(
+            "README.md",
+            "| [vendored](plugin/skills/vendored/SKILL.md) | Words. |\n",
+            "",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("README.md"),
+                "has more than one skills table row for language-python, on lines 20,"
+                " 21; keep the first and remove the rest",
+            ),
+            Problem(
+                repository.where("README.md"),
+                "has no skills table row for vendored; add one that links"
+                " plugin/skills/vendored/SKILL.md under its name and says when it"
+                " applies",
+            ),
         ]
 
     def test_asks_no_row_of_a_skill_whose_skill_file_cannot_be_read(

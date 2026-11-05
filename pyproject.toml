@@ -50,9 +50,17 @@ dev = [
 required-version = ">=0.13.5"
 
 [tool.ruff]
-# The sync proposes this copy byte for byte from upstream, so the hooks that
-# rewrite text skip it.
-extend-exclude = [ ".agents/skills/writing-for-agents" ]
+# The sync proposes each skill folder a record in vendored/ names byte for byte
+# from upstream, so the hooks that rewrite text skip them.
+extend-exclude = [
+  ".agents/skills/writing-for-agents",
+  "plugin/skills/defuddle",
+  "plugin/skills/json-canvas",
+  "plugin/skills/knap",
+  "plugin/skills/obsidian-bases",
+  "plugin/skills/obsidian-cli",
+  "plugin/skills/obsidian-markdown",
+]
 lint.select = [ "ALL" ]
 # Each rule's page says why: https://docs.astral.sh/ruff/rules/
 lint.ignore = [
@@ -192,6 +200,7 @@ type = "layers"
 layers = [
   "nustack.cli",
   "nustack.release.publication | nustack.repository | nustack.sync",
+  "nustack.record",
   "nustack.plugin",
   "nustack.markdown",
   "nustack.git | nustack.github.gh",
@@ -212,9 +221,11 @@ source_modules = [
   "nustack.plugin.plugin",
   "nustack.plugin.skill",
   "nustack.problem",
+  "nustack.record",
   "nustack.release.tag",
   "nustack.repository.changelog",
   "nustack.repository.config",
+  "nustack.repository.gitattributes",
   "nustack.repository.notes",
   "nustack.repository.page",
   "nustack.repository.pyproject",

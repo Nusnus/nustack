@@ -1,8 +1,8 @@
 /**
  * The OpenCode loader reads each skill folder into the skill OpenCode registers, registers every skill the plugin ships
- * with only the mode left for the model to invoke, and fails with one error naming each skill folder or SKILL.md it
- * cannot load, or the skills folder it cannot read; once every skill loads, a missing mode fails it with an error naming
- * the mode's SKILL.md. It puts the mode back in a session's context once a summarization drops it.
+ * with the principle and language skills hidden from the model, and fails with one error naming each skill folder or
+ * SKILL.md it cannot load, or the skills folder it cannot read; once every skill loads, a missing mode fails it with an
+ * error naming the mode's SKILL.md. It puts the mode back in a session's context once a summarization drops it.
  */
 import { afterEach, describe, expect, test } from "bun:test"
 import { chmod, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
@@ -23,6 +23,7 @@ import { skipAsRoot } from "../../fixtures/permissions.ts"
 import { FakeRegistry } from "../../fixtures/registry.ts"
 import { FakeSession, FakeStorage } from "../../fixtures/session.ts"
 import { thrown } from "../../fixtures/thrown.ts"
+import { VENDORED_SKILLS } from "../../fixtures/vendored.ts"
 
 const SKILLS = new SkillFolder(join(import.meta.dirname, "..", "..", "..", "plugin", "skills"))
 
@@ -355,11 +356,10 @@ describe("SkillFolder", () => {
     ])
   })
 
-  test("lets the model invoke the mode alone", async () => {
+  test("lets the model invoke the mode and the vendored skills alone", async () => {
     const skills = await SKILLS.skills()
-    expect(skills.filter((skill) => skill.autoinvoke).map((skill): string => skill.id)).toEqual([
-      "nus-mode",
-    ])
+    const invocable = skills.filter((skill) => skill.autoinvoke).map((skill): string => skill.id)
+    expect(invocable.sort()).toEqual([...VENDORED_SKILLS, "nus-mode"].sort())
   })
 
   test("refuses a skills folder it cannot read, naming the errno and the fix", async () => {

@@ -1,0 +1,33 @@
+{
+  "upstream": "https://github.com/kepano/obsidian-skills",
+  "source": "skills",
+  "folder": "plugin/skills",
+  "skills": [
+    "obsidian-markdown",
+    "obsidian-bases",
+    "json-canvas",
+    "obsidian-cli",
+    "defuddle",
+    "knap"
+  ],
+  "commit": "3ccff5338ea700537839b21900aa5358a0402c98",
+  "files": {
+    "defuddle/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "defuddle/SKILL.md": "c1c9b1ba572cb725cb616ccd2d36f1737c65f18e",
+    "json-canvas/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "json-canvas/SKILL.md": "8fb2c9de2bbba52b53ca243fbfdab650ee61711c",
+    "json-canvas/references/EXAMPLES.md": "c94f99641d9d20f36dbb66e1e686432bb790cb00",
+    "knap/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "knap/SKILL.md": "c27139dcb94c45d49d5fb0b5ff82148c83799496",
+    "obsidian-bases/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "obsidian-bases/SKILL.md": "e857041265fb8ac9f6f7c6606f2dbc762c45a91d",
+    "obsidian-bases/references/FUNCTIONS_REFERENCE.md": "047888deca657c2da5a56163b7156b9a423642cd",
+    "obsidian-cli/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "obsidian-cli/SKILL.md": "0046c45abc11cbba48cee538e9cce9993a62747b",
+    "obsidian-markdown/LICENSE": "33d692ee84f4464f575f2d1e927f19cf1c8ccc57",
+    "obsidian-markdown/SKILL.md": "bca51a429c020a4cb6740a917517116e66d428b1",
+    "obsidian-markdown/references/CALLOUTS.md": "c086824c64156d17731c94a7029d3496dadbaa04",
+    "obsidian-markdown/references/EMBEDS.md": "668851abe0f056493e162f0a866762cced15c991",
+    "obsidian-markdown/references/PROPERTIES.md": "e46a63abadd7c18224a79c2c9ea902bfb3e88bd6"
+  }
+}

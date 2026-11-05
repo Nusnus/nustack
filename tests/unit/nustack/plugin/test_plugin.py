@@ -106,9 +106,12 @@ class TestPluginManifests:
     def test_names_one_manifest_only_while_all_agree(
         self, repository: ModelRepository
     ) -> None:
-        agreeing = Plugin(repository.snapshot().plugin).manifest
+        agreeing = Plugin(repository.snapshot().plugin, frozenset()).manifest
         repository.edit(self.CURSOR, '"A kit."', '"Another kit."')
-        assert (agreeing is None, Plugin(repository.snapshot().plugin).manifest) == (
+        assert (
+            agreeing is None,
+            Plugin(repository.snapshot().plugin, frozenset()).manifest,
+        ) == (
             False,
             None,
         )
@@ -945,6 +948,89 @@ class TestPluginSkillText:
     ) -> None:
         repository.edit(self.PATH, "Name each part for what it does.", text)
         assert repository.problems() == []
+
+
+class TestPluginVendored:
+    """A vendored skill loads where hosts find it, bound only by what hosts need.
+
+    Upstream's files, frontmatter fields, length and words pass, and the mode does not
+    index it; its name, its description and its links are still checked.
+    """
+
+    SKILL = "plugin/skills/vendored/SKILL.md"
+
+    @pytest.fixture(autouse=True)
+    def vendored(self, repository: ModelRepository) -> None:
+        repository.vendor_into_plugin()
+
+    def test_accepts_the_model_repository_with_a_vendored_skill(
+        self, repository: ModelRepository
+    ) -> None:
+        assert repository.problems() == []
+
+    def test_reports_a_plugin_copy_its_record_no_longer_lists(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.write("plugin/skills/dropped/LICENSE", "MIT\n")
+        repository.write(
+            "plugin/skills/dropped/SKILL.md",
+            "---\nname: dropped\ndescription: Words.\n---\n",
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where("plugin/skills/dropped"),
+                "holds a LICENSE as a vendored copy does, yet no record lists it;"
+                " remove the folder, and to copy the skill, list it in a record with"
+                " commit null and files {}, as AGENTS.md says, and rerun the sync"
+                " workflow",
+            )
+        ]
+
+    def test_accepts_upstream_text_that_nustacks_own_rules_would_reject(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.copy_file(
+            "SKILL.md",
+            "---\nname: vendored\ndescription: Words.\nlicense: MIT\n---\n"
+            "# In fast-mode, Claude reads .cursor/rules since 2026.\n"
+            + "line\n" * 600
+            + "[Calls](references/CALLS.md)\n",
+        )
+        repository.copy_file("references/CALLS.md", "# Calls\nClaude, 2026.\n")
+        assert repository.problems() == []
+
+    def test_reports_a_name_other_than_its_folder(
+        self, repository: ModelRepository
+    ) -> None:
+        repository.copy_file("SKILL.md", "---\nname: other\ndescription: W.\n---\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where(self.SKILL),
+                "name differs from its folder 'vendored'; use one name for both",
+            )
+        ]
+
+    def test_reports_a_missing_description(self, repository: ModelRepository) -> None:
+        repository.copy_file("SKILL.md", "---\nname: vendored\n---\n")
+        assert repository.problems() == [
+            Problem(
+                repository.where(self.SKILL),
+                "frontmatter is invalid: description: add it",
+            )
+        ]
+
+    def test_reports_a_link_to_no_file(self, repository: ModelRepository) -> None:
+        repository.copy_file(
+            "SKILL.md", "---\nname: vendored\ndescription: W.\n---\n[Gone](gone.md)\n"
+        )
+        assert repository.problems() == [
+            Problem(
+                repository.where(self.SKILL),
+                f"links to {repository.where('plugin/skills/vendored/gone.md')}, which"
+                f" is not a file inside {repository.where('plugin')}; link to a file"
+                " inside it, or to a full URL",
+            )
+        ]
 
 
 class TestPluginLinks:

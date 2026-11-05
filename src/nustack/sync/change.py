@@ -54,7 +54,8 @@ class Edit:
 class FileChange:
     """Compares one copied file's base and proposed blobs into a reviewer's evidence.
 
-    A side is absent when the file is added or removed.
+    Its path starts with its skill's folder. A side is absent when the file is
+    added or removed.
     """
 
     POLICIES: ClassVar[str] = "agents/"
@@ -62,6 +63,8 @@ class FileChange:
         r"disable-model-invocation|allow_implicit_invocation|triggers"
     )
     LOADING_FIELD: ClassVar[re.Pattern[str]] = re.compile(rf"\b(?:{LOADING})\b")
+    # A model-invoked skill loads when its description matches the task.
+    DESCRIPTION: ClassVar[re.Pattern[str]] = re.compile(r"description:")
     MARKERS: ClassVar[re.Pattern[str]] = re.compile(
         rf"\b(?:AGENTS\.md|CLAUDE\.md|REVIEW\.md|nus-mode|nustack|{LOADING}|"
         r"git (?:push|commit)|curl|sudo)\b|\bhttps?://",
@@ -152,8 +155,12 @@ class FileChange:
         return tuple(edits)
 
     @property
+    def in_skill(self) -> str:
+        return self.path.partition("/")[2]
+
+    @property
     def policy(self) -> bool:
-        return self.path.startswith(self.POLICIES)
+        return self.in_skill.startswith(self.POLICIES)
 
     @cached_property
     def loading_lines(self) -> tuple[Edit, ...]:
@@ -167,7 +174,10 @@ class FileChange:
             line
             for line in self.edits
             if self.policy
-            or (self.path == Skill.FILE and line.number <= frontmatter_lines[line.side])
+            or (
+                self.in_skill == Skill.FILE
+                and line.number <= frontmatter_lines[line.side]
+            )
         )
 
     @property
@@ -175,7 +185,9 @@ class FileChange:
         if self.texts is None:
             return Comparison.BINARY
         changed = any(
-            self.LOADING_FIELD.search(line.text) for line in self.loading_lines
+            self.LOADING_FIELD.search(line.text)
+            or (self.in_skill == Skill.FILE and self.DESCRIPTION.match(line.text))
+            for line in self.loading_lines
         )
         return Comparison.CHANGED if changed else Comparison.UNCHANGED
 
@@ -193,7 +205,7 @@ class FileChange:
         if path is None or posixpath.isabs(path):
             return True
         target = posixpath.normpath(posixpath.join(posixpath.dirname(self.path), path))
-        return target == ".." or target.startswith("../")
+        return target.partition("/")[0] != self.path.partition("/")[0]
 
     @classmethod
     def lines_of(cls, text: str) -> tuple[str, ...]:

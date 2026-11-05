@@ -10,11 +10,12 @@ class Passage(StrEnum):
         "\n| ⚠️ **[CI](https://checks)** | Approve this pull request's workflows if"
         " prompted; see the linked runs for results. |"
     )
-    UNMATCHED = (
-        "No first-parent change to the upstream paths matched the base copy,"
-        " including its license and modes. The commit range is unknown."
+    UNKNOWN_COMMIT = (
+        "The base's record names no commit that upstream's head holds. The commit"
+        " range is unknown."
     )
     EMPTY_SCANS = (
+        "\n\n**New upstream skills the record does not list (0).**"
         "\n\n**New outside CommonMark targets by file (0).**"
         "\n\n**Lines to inspect (0; - base, + copy).**"
     )

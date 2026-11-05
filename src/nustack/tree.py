@@ -182,8 +182,10 @@ class Tree:
 class Snapshot:
     """What `nustack check` reads from a repository.
 
-    That is the plugin, the files released beside it, and the paths of the
-    harness's sources and tests, with each folder among them that would not list.
+    That is the plugin, the files released beside it, the vendored copies' records
+    and the skill folders they name, and the paths of the harness's sources and
+    tests and of the files in each skills folder a copy may land in outside the
+    plugin, with each folder among them that would not list.
     """
 
     root: Path
@@ -192,6 +194,9 @@ class Snapshot:
     sources: tuple[PurePosixPath, ...]
     tests: tuple[PurePosixPath, ...]
     unlisted: frozendict[PurePosixPath, Unopened]
+    records: frozendict[PurePosixPath, Read]
+    copies: frozendict[PurePosixPath, Tree]
+    destination_files: tuple[PurePosixPath, ...]
 
     def read(self, path: PurePosixPath) -> Read:
         return self.files[path]

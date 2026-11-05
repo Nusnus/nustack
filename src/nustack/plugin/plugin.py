@@ -3,7 +3,11 @@
 No check reads through an entry that could lead outside it. It holds only the files
 nustack ships, each of the kind it should be. Its manifests agree, its mode indexes
 every skill, each playbook step ends on a done condition, its skill text holds on
-every host and every day, and every link resolves.
+every host and every day, and every link resolves. A vendored skill, which a record
+names, holds whatever files its record lists, and nustack's skill text rules skip
+it, since nustack's authors write none of it. Its links stay checked, since a
+broken one fails the agent that follows it; the sync's pull request names the
+break for the owner to raise upstream.
 """
 
 import re
@@ -40,9 +44,13 @@ class Plugin:
     Its manifest is the one the release files match: every valid manifest, when
     they agree. A manifest that differs from the first in a field other than its
     version is named here; the repository names a differing version, since it
-    compares versions across every file that holds one.
+    compares versions across every file that holds one. While a record will not
+    read, the vendored skills are unknown, so every skill folder named neither with
+    an authored prefix nor as a mode counts as vendored, and no rule an author keeps
+    misreads a copy.
     """
 
+    FOLDER: ClassVar[PurePosixPath] = PurePosixPath("plugin")
     MANIFESTS: ClassVar[frozendict[PurePosixPath, str]] = frozendict(
         {
             PurePosixPath(".devin-plugin/plugin.json"): "Devin",
@@ -51,6 +59,11 @@ class Plugin:
         }
     )
     LICENSE: ClassVar[PurePosixPath] = PurePosixPath("LICENSE")
+    LEFTOVER: ClassVar[str] = (
+        "holds a LICENSE as a vendored copy does, yet no record lists it; remove the"
+        " folder, and to copy the skill, list it in a record with commit null and files"
+        " {}, as AGENTS.md says, and rerun the sync workflow"
+    )
     LOADER: ClassVar[PurePosixPath] = Exports.LOADER
     PACKAGE: ClassVar[PurePosixPath] = PurePosixPath("package.json")
     HOOKS: ClassVar[tuple[PurePosixPath, ...]] = (
@@ -88,6 +101,7 @@ class Plugin:
     HOOK_OUTPUT: ClassVar[int] = 10_000
     HOOK_ROOM: ClassVar[int] = 1_000
     tree: Tree
+    vendored: frozenset[str] | None
 
     @property
     def root(self) -> Path:
@@ -123,10 +137,45 @@ class Plugin:
             case _:
                 return None
 
+    # A folder that holds a LICENSE beside an unprefixed name is a copy a record
+    # dropped, so it is named once as that, and no rule an author keeps misreads it.
+    @cached_property
+    def leftovers(self) -> frozenset[str]:
+        if self.vendored is None:
+            return frozenset()
+        return (
+            frozenset(
+                path.parent.name
+                for path in self.tree.files
+                if path.name == Skill.LICENSE
+                and path.parent.parent == self.SKILLS
+                and not self.is_authored_name(path.parent.name)
+            )
+            - self.vendored
+        )
+
+    @cached_property
+    def vendored_names(self) -> frozenset[str]:
+        if self.vendored is not None:
+            return self.vendored | self.leftovers
+        return frozenset(
+            path.name
+            for path, entry in self.tree.entries.items()
+            if isinstance(entry, Folder)
+            and path.parent == self.SKILLS
+            and not self.is_authored_name(path.name)
+        )
+
     @cached_property
     def skills(self) -> tuple[Skill, ...]:
         return tuple(
-            Skill(self.root / path, self.tree.read(path / Skill.FILE))
+            Skill(
+                self.root / path,
+                self.tree.read(path / Skill.FILE),
+                Kind.VENDORED
+                if path.name in self.vendored_names
+                else Kind.of(path.name),
+            )
             for path, entry in self.tree.entries.items()
             if isinstance(entry, Folder) and path.parent == self.SKILLS
         )
@@ -143,6 +192,14 @@ class Plugin:
             for path in self.tree.files
             if path.parent in folders and path.suffix == ".md"
         )
+
+    @cached_property
+    def vendored_folders(self) -> tuple[PurePosixPath, ...]:
+        return tuple(self.SKILLS / name for name in sorted(self.vendored_names))
+
+    @classmethod
+    def is_authored_name(cls, name: str) -> bool:
+        return Kind.of(name) is not Kind.MODE or bool(cls.MODE_NAME.fullmatch(name))
 
     @cached_property
     def documents(self) -> frozendict[PurePosixPath, Document]:
@@ -195,6 +252,10 @@ class Plugin:
         return [
             *self.manifest_problems,
             *self.required_problems(),
+            *(
+                Problem(self.root / self.SKILLS / name, self.LEFTOVER)
+                for name in sorted(self.leftovers)
+            ),
             *self.file_problems(),
             *(problem for skill in self.skills for problem in skill.problems()),
             *self.mode_problems(),
@@ -279,6 +340,7 @@ class Plugin:
             PurePosixPath(skill.path.relative_to(self.root)) for skill in self.skills
         }
         expected |= set(self.playbooks)
+        expected |= {path for path in self.tree.entries if not self.authored(path)}
         problems = []
         for path, entry in self.tree.entries.items():
             match entry:
@@ -336,7 +398,7 @@ class Plugin:
         expected = [
             (skill.path, section)
             for skill in self.skills
-            if (section := skill.kind.section) is not None
+            if (section := skill.kind.index_heading) is not None
             and not isinstance(skill.read, Absent)
         ]
         expected += [
@@ -380,8 +442,9 @@ class Plugin:
                 f"names a mode other than {mode.name}; call the mode by its "
                 "folder's name",
             )
-            for document in self.documents.values()
-            if any(name != mode.name for name in self.MODE_NAME.findall(document.text))
+            for path, document in self.documents.items()
+            if self.authored(path)
+            and any(name != mode.name for name in self.MODE_NAME.findall(document.text))
         ]
         return problems
 
@@ -402,9 +465,12 @@ class Plugin:
         return [
             problem
             for path, document in self.documents.items()
-            if path.is_relative_to(self.SKILLS)
+            if path.is_relative_to(self.SKILLS) and self.authored(path)
             for problem in self.skill_text_problems(document)
         ]
+
+    def authored(self, path: PurePosixPath) -> bool:
+        return not any(path.is_relative_to(folder) for folder in self.vendored_folders)
 
     def skill_text_problems(self, document: Document) -> list[Problem]:
         return [

@@ -57,8 +57,8 @@ class TestReleaseWorkflow:
             (
                 b"%YAML 1.1\n---\non:\n  push:\n    tags: [v*]\n",
                 (
-                    "the file: %YAML 1.1 reads its on key as true; drop the %YAML 1.1"
-                    ' directive, or quote the key as "on"'
+                    "%YAML 1.1 reads its on key as true; drop the %YAML 1.1 directive,"
+                    ' or quote the key as "on"'
                 ),
             ),
         ],

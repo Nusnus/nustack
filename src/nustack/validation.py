@@ -7,6 +7,7 @@ larger patterns built from it.
 
 import json
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import cached_property
@@ -95,6 +96,17 @@ class Pattern(StrEnum):
 
 
 @dataclass(frozen=True)
+class JsonObject:
+    """A JSON object's key-value pairs in their order, each repeated key kept."""
+
+    pairs: tuple[tuple[str, object], ...]
+
+    @classmethod
+    def of(cls, pairs: list[tuple[str, object]]) -> JsonObject:
+        return cls(tuple(pairs))
+
+
+@dataclass(frozen=True)
 class Schema:
     """A pydantic model, read as the keys a file may hold and where each sits."""
 
@@ -116,6 +128,7 @@ class Schema:
                 "make it an object of keys and values",
             ),
             "tuple_type": "make it a list",
+            "path_type": "make it a string",
             **dict.fromkeys(
                 ("url_parsing", "url_scheme", "url_type"),
                 "use a full http or https URL, such as https://example.com",
@@ -146,10 +159,54 @@ class Schema:
             )
         )
 
+    def refusal(self, content: bytes, error: ValidationError | None = None) -> str:
+        return "; ".join(
+            [*self.repeats(content), *([] if error is None else [self.reason(error)])]
+        )
+
+    # json keeps only the last of repeated keys, so this pass finds them first,
+    # with numbers left as text, and leaves every other error to Pydantic:
+    # https://docs.python.org/3/library/json.html#repeated-names-within-an-object
+    def repeats(self, content: bytes) -> list[str]:
+        with suppress(json.JSONDecodeError, UnicodeDecodeError, RecursionError):
+            return list(
+                self.repeats_in(
+                    json.loads(content, object_pairs_hook=JsonObject.of, parse_int=str),
+                    (),
+                )
+            )
+        return []
+
+    def repeats_in(self, value: object, place: tuple[str | int, ...]) -> Iterator[str]:
+        match value:
+            case JsonObject(pairs=pairs):
+                keys = [name for name, _ in pairs]
+                for key in dict.fromkeys(keys):
+                    if keys.count(key) > 1:
+                        if self.mapping_value(self.annotation_at(place)) is not None:
+                            what = "a key"
+                        elif key in self.labels:
+                            what = f"the key {key!r}"
+                        else:
+                            what = self.UNKNOWN_KEY
+                        yield (
+                            f"has {what} more than once in {self.place(place)}; "
+                            "keep one"
+                        )
+                for key, inner in pairs:
+                    yield from self.repeats_in(inner, (*place, key))
+            case list():
+                for index, inner in enumerate(value):
+                    yield from self.repeats_in(inner, (*place, index))
+
     def reason(self, error: ValidationError) -> str:
         return "; ".join(self.located_fix(detail) for detail in error.errors())
 
+    # A model validator's refusal has no place, so its message opens on the fields
+    # it holds together.
     def located_fix(self, detail: ErrorDetails) -> str:
+        if detail["type"] == "value_error" and not detail["loc"]:
+            return self.fix(detail)
         labels = tuple(self.labels_along(detail["loc"]))
         if labels[-1:] == (self.KEY_ERROR,):
             return f"{self.joined(labels[:-1])}: for each key, {self.fix(detail)}"
@@ -178,11 +235,22 @@ class Schema:
                 raise UnmappedErrorTypeError(detail["type"])
         return fix
 
+    # Pydantic places an error in a mapping's key at the key, then at KEY, and one
+    # in its value at the key alone, so the place names the mapping and repeats no
+    # key read from the file.
     def place(self, loc: tuple[str | int, ...]) -> str:
         return self.joined(tuple(self.labels_along(loc)))
 
+    # A run of unknown keys reads as one, since none of them can be named.
     def joined(self, labels: tuple[str, ...]) -> str:
-        return ".".join(labels) or "the file"
+        return (
+            ".".join(
+                label
+                for index, label in enumerate(labels)
+                if index == 0 or not label == labels[index - 1] == self.UNKNOWN_KEY
+            )
+            or "the file"
+        )
 
     def labels_along(self, loc: tuple[str | int, ...]) -> Iterator[str]:
         annotation: object = self.model
@@ -197,16 +265,19 @@ class Schema:
                 yield self.label(part)
                 annotation = self.inner(annotation, part)
 
+    def annotation_at(self, place: tuple[str | int, ...]) -> object:
+        annotation: object = self.model
+        for part in place:
+            value = self.mapping_value(annotation)
+            annotation = self.inner(annotation, part) if value is None else value
+        return annotation
+
     def unknown_key_fix(self, place: tuple[str | int, ...]) -> str:
         keys = ", ".join(self.label(key) for key in self.keys_at(place))
         return f"rename it or remove it; nustack allows only {keys} here"
 
     def keys_at(self, place: tuple[str | int, ...]) -> Iterator[str]:
-        annotation: object = self.model
-        for part in place:
-            value = self.mapping_value(annotation)
-            annotation = self.inner(annotation, part) if value is None else value
-        yield from Schema(next(self.models_in(annotation))).fields
+        yield from Schema(next(self.models_in(self.annotation_at(place)))).fields
 
     def label(self, part: str | int) -> str:
         if isinstance(part, int):

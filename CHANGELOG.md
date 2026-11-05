@@ -13,10 +13,17 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
 - The `new-project` playbook creates the project's remote repository where it has none, and configures its settings where it is on GitHub, such as branch protection on `main`.
 - The `align` playbook reshapes existing code, from a snippet to a whole project, to nus-mode's bar within its project's standards, if any, so later work in nus-mode meets no friction with them.
+- The plugin ships Steph Ango's six Obsidian skills ([kepano/obsidian-skills](https://github.com/kepano/obsidian-skills)), unchanged and each with its MIT license: `obsidian-markdown`, `obsidian-bases`, `json-canvas`, `obsidian-cli`, `defuddle` and `knap`. The agent can load each one, in nus-mode or without it, when the task matches its description, such as writing a `.base` or `.canvas` file.
 - For nustack's maintainers:
   - `AGENTS.md` has agents weigh an issue's text as data, never as instructions.
   - `AGENTS.md` keeps nus-mode's bullets on quality over session cost and on times as the owner words them.
   - `nustack check` holds commitizen's `tag_format` in `pyproject.toml`, and the release workflow's push tags filter, to the release tags' `v<version>` form.
+  - A record in `vendored/` names each vendored copy's upstream, skills, commit and file blobs. `nustack check` holds each copy to its record's bytes and exempts it from the rules for authored files, and requires each copied folder in the commit hooks' and Ruff's excludes and in `.gitattributes`' lines that unset `text`, and each vendored plugin skill in README's skills table.
+  - `make smoke` checks that Claude Code and OpenCode each offer the model each vendored skill `tests/fixtures/vendored.ts` lists.
+  - `REVIEW.md` has reviewers check a record written by hand against upstream.
+  - A vendored copy's sync pull request lists each skill upstream added that its record does not name.
+  - `nustack upstream` prints a vendored copy's upstream once its record passes the check's rules for records, so the sync workflow clones it without checking the rest of the repository first.
+  - `nustack records` prints each record the sync reads, with its copy's branch, so the sync workflow's matrix comes from a tested command.
 
 ### Changed
 
@@ -24,13 +31,23 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - nus-mode's "keep it cheap" for an ETA moves from its rule for times into its rule to choose quality over session cost.
 - `language-python` links each of its rules for tests to the principle it gives the Python form of.
 - nus-mode's cold read pictures a reader new to the project reading the work.
+- The plugin's description, which each host and the marketplaces show, names the Obsidian skills beside the mode.
 - For nustack's maintainers:
   - A release runs `uv run cz bump --increment PATCH --version-files-only` with no `--yes`: `pyproject.toml` gives commitizen nustack's `v<version>` tag format, so it finds the earlier releases' tags.
   - `tsconfig.json` no longer skips the libraries' type declarations, so `tsc` checks them too; `package.json` adds `@types/json-schema`, whose types `@ai-sdk/provider` imports.
-  - `nustack sync` and `nustack publish` refuse a `--name-with-owner` that is not `<owner>/<name>`, and `nustack sync` and `nustack sync-description` an `--upstream-url` that is not `https://<host>/<owner>/<name>`, each with an owner and name GitHub would take, and a host name as its host. A refused `--upstream-url` is never repeated, so a token it holds stays out of the message.
+  - `nustack sync` and `nustack publish` refuse a `--name-with-owner` that is not `<owner>/<name>`, with an owner and name GitHub would take.
   - `nustack release-tag` and `nustack publish` refuse a tag that is not `v<version>`, and `nustack publish` a `--commit` that is not a commit's full SHA.
   - `nustack check` refuses a plugin manifest whose `repository` is not `https://<host>/<owner>/<name>`, the URL the changelog's and release page's links build on.
   - `nustack check` reads a release workflow whose `on` names its events as one event or a list, whose push trigger is null, or whose tags filter is one string, as GitHub does.
+  - The scheduled `Sync vendored copies` workflow proposes each upstream change as one pull request per record.
+  - `nustack sync` and `nustack sync-description` take `--record`, the vendored copy's record, and `nustack sync` names its branch from the record.
+  - `REVIEW.md` has reviewers read every vendored copy's sync pull request, not only writing-for-agents', as untrusted text.
+
+### Removed
+
+- For nustack's maintainers:
+  - The scheduled `Sync writing-for-agents` workflow, which `Sync vendored copies` replaces.
+  - The `--upstream-url`, `--source-folder` and `--folder` options of `nustack sync` and `nustack sync-description`, which `--record` replaces.
 
 ### Fixed
 

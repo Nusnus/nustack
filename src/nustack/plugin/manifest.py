@@ -5,17 +5,13 @@ order, every repeated key kept, and held to the fields their host accepts. A fil
 that is not valid JSON, or a field that breaks its schema, is refused with the fix.
 """
 
-import json
 from abc import abstractmethod
-from contextlib import suppress
-from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated
 from typing import ClassVar
 from typing import Literal
 from typing import Self
 from typing import get_args
-lazy from collections.abc import Iterator
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -38,17 +34,6 @@ class InvalidMetadataError(ValueError):
     """A metadata file that is not valid JSON, or breaks its schema."""
 
 
-@dataclass(frozen=True)
-class JsonObject:
-    """A JSON object's key-value pairs in their order, each repeated key kept."""
-
-    pairs: tuple[tuple[str, object], ...]
-
-    @classmethod
-    def of(cls, pairs: list[tuple[str, object]]) -> JsonObject:
-        return cls(tuple(pairs))
-
-
 class Metadata(BaseModel):
     """JSON metadata a host reads, which allows no unknown field and never changes."""
 
@@ -56,48 +41,14 @@ class Metadata(BaseModel):
 
     @classmethod
     def parse(cls, content: bytes) -> Self:
-        repeats: list[str] = []
-        # json keeps only the last of repeated keys, so this pass finds them first,
-        # with numbers left as text, and leaves every other error to Pydantic:
-        # https://docs.python.org/3/library/json.html#repeated-names-within-an-object
-        with suppress(json.JSONDecodeError, UnicodeDecodeError, RecursionError):
-            repeats = list(
-                cls.repeats_in(
-                    json.loads(content, object_pairs_hook=JsonObject.of, parse_int=str),
-                    (),
-                )
-            )
+        schema = Schema(cls)
         try:
             metadata = cls.model_validate_json(content)
         except ValidationError as error:
-            reasons = [*repeats, Schema(cls).reason(error)]
-            raise InvalidMetadataError("; ".join(reasons)) from error
-        if repeats:
-            raise InvalidMetadataError("; ".join(repeats))
+            raise InvalidMetadataError(schema.refusal(content, error)) from error
+        if refusal := schema.refusal(content):
+            raise InvalidMetadataError(refusal)
         return metadata
-
-    @classmethod
-    def repeats_in(cls, value: object, place: tuple[str | int, ...]) -> Iterator[str]:
-        match value:
-            case JsonObject(pairs=pairs):
-                schema = Schema(cls)
-                keys = [name for name, _ in pairs]
-                for key in dict.fromkeys(keys):
-                    if keys.count(key) > 1:
-                        what = (
-                            f"the key {key!r}"
-                            if key in schema.labels
-                            else schema.UNKNOWN_KEY
-                        )
-                        yield (
-                            f"has {what} more than once in {schema.place(place)}; "
-                            "keep one"
-                        )
-                for key, inner in pairs:
-                    yield from cls.repeats_in(inner, (*place, key))
-            case list():
-                for index, inner in enumerate(value):
-                    yield from cls.repeats_in(inner, (*place, index))
 
 
 class Person(Metadata):

@@ -31,8 +31,9 @@ def sync(tmp_path: Path) -> Sync:
     upstream.write(f"{Sync.SOURCE_FOLDER}/tool", "").chmod(0o755)
     second = upstream.commit("second")
     checkout = GitRepository.init(tmp_path / "checkout")
-    checkout.write(f"{Sync.FOLDER}/LICENSE", "MIT\n")
-    checkout.write(f"{Sync.FOLDER}/SKILL.md", "old\n")
+    for path, data in Sync.BASE.items():
+        checkout.write(f"{Sync.COPY}/{path}", data.decode())
+    checkout.write(Sync.RECORD, Sync.record_of(first, Sync.BASE).text)
     checkout.commit("base")
     return Sync(upstream, checkout, first, second)
 

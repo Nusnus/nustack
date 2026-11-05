@@ -5,13 +5,13 @@ folder lists. The marketplaces list the plugin as its manifests describe it, the
 changelog and the harness carry its version, the harness's commitizen settings name
 every file that holds it and the form of its release tag, which the release
 workflow's tag filter matches, the loader's package agrees with it, and it ships the
-repository's license unchanged. The vendored copy is left as written, the test suite
-mirrors what it tests, and the README activates nus-mode as its playbook says, gives
-each principle and language skill its description, and holds the install and use
-steps the release page copies. Joined on the page, those steps and the changelog
-entry each resolve every reference label they use as they do on their own. A
-repository that keeps every rule yields what the release ships: the plugin and its
-release page.
+repository's license unchanged. Each vendored copy holds what its record lists, left
+as written, the test suite mirrors what it tests, and the README activates nus-mode
+as its playbook says, gives each principle and language skill its description, lists
+each vendored skill, and holds the install and use steps the release page copies.
+Joined on the page, those steps and the changelog entry each resolve every
+reference label they use as they do on their own. A repository that keeps every
+rule yields what the release ships: the plugin and its release page.
 """
 
 from dataclasses import dataclass
@@ -23,6 +23,7 @@ from typing import assert_never
 lazy from collections.abc import Callable
 
 from nustack.markdown.document import Document
+from nustack.markdown.table import Row
 from nustack.markdown.table import Tables
 from nustack.plugin.manifest import ClaudeMarketplace
 from nustack.plugin.manifest import CursorMarketplace
@@ -32,20 +33,22 @@ from nustack.plugin.manifest import Marketplace
 from nustack.plugin.manifest import Package
 from nustack.plugin.plugin import Plugin
 from nustack.plugin.skill import Frontmatter
+from nustack.plugin.skill import Kind
 from nustack.plugin.skill import Skill
 from nustack.problem import Problem
+from nustack.record import CopyRecord
 from nustack.release.tag import Tag
 from nustack.repository.changelog import Changelog
 from nustack.repository.config import InvalidConfigError
+from nustack.repository.gitattributes import GitAttributes
+from nustack.repository.hooks import Hooks
 from nustack.repository.notes import ReleaseNotes
 from nustack.repository.page import PageSteps
 from nustack.repository.pyproject import InvalidPyprojectError
 from nustack.repository.pyproject import Pyproject
 from nustack.repository.release_workflow import ReleaseWorkflow
 from nustack.repository.suite import Suite
-from nustack.repository.vendored import Hooks
-from nustack.repository.vendored import SyncWorkflow
-from nustack.repository.vendored import VendoredCopy
+from nustack.repository.vendored import VendoredCopies
 from nustack.tree import Absent
 from nustack.tree import Blocked
 from nustack.tree import File
@@ -57,6 +60,7 @@ from nustack.tree import Tree
 from nustack.tree import Unreadable
 from nustack.version import Version
 from nustack.version import version_order
+lazy from nustack.github.name import RepositoryUrl
 
 
 @dataclass(frozen=True)
@@ -80,7 +84,6 @@ class Repository:
     a fix that breaks a correct link.
     """
 
-    PLUGIN: ClassVar[PurePosixPath] = PurePosixPath("plugin")
     CHANGELOG: ClassVar[PurePosixPath] = PurePosixPath("CHANGELOG.md")
     LICENSE: ClassVar[PurePosixPath] = PurePosixPath("LICENSE")
     README: ClassVar[PurePosixPath] = PurePosixPath("README.md")
@@ -93,8 +96,8 @@ class Repository:
     MARKETPLACES: ClassVar[frozendict[PurePosixPath, tuple[type[Marketplace], str]]] = (
         frozendict(
             {
-                CLAUDE_MARKETPLACE: (ClaudeMarketplace, f"./{PLUGIN}"),
-                CURSOR_MARKETPLACE: (CursorMarketplace, str(PLUGIN)),
+                CLAUDE_MARKETPLACE: (ClaudeMarketplace, f"./{Plugin.FOLDER}"),
+                CURSOR_MARKETPLACE: (CursorMarketplace, str(Plugin.FOLDER)),
             }
         )
     )
@@ -111,7 +114,7 @@ class Repository:
         *MARKETPLACES,
         Pyproject.PATH,
         Hooks.PATH,
-        SyncWorkflow.PATH,
+        GitAttributes.PATH,
         ReleaseWorkflow.PATH,
     )
     SOURCES: ClassVar[PurePosixPath] = Suite.PYTHON_SOURCES
@@ -123,8 +126,50 @@ class Repository:
         return self.snapshot.root
 
     @cached_property
+    def record_readings(self) -> frozendict[PurePosixPath, CopyRecord | Problem]:
+        return frozendict(
+            (
+                path,
+                CopyRecord.reading(
+                    self.root,
+                    path,
+                    read,
+                    "is missing; restore the record from the repository",
+                ),
+            )
+            for path, read in self.snapshot.records.items()
+        )
+
+    # The plugin's skills wait on the vendored ones, which wait on this repository's
+    # URL, so the manifests are read here without the records.
+    @cached_property
+    def home(self) -> RepositoryUrl | None:
+        manifest = Plugin(self.snapshot.plugin, None).manifest
+        return None if manifest is None else manifest.repository
+
+    @cached_property
+    def vendored(self) -> VendoredCopies:
+        return VendoredCopies(
+            self.root,
+            frozendict(
+                (path, reading)
+                for path, reading in self.record_readings.items()
+                if isinstance(reading, CopyRecord)
+            ),
+            self.snapshot.copies,
+            self.snapshot.destination_files,
+            self.home,
+        )
+
+    @cached_property
     def plugin(self) -> Plugin:
-        return Plugin(self.snapshot.plugin)
+        readable = not any(
+            isinstance(reading, Problem) for reading in self.record_readings.values()
+        )
+        return Plugin(
+            self.snapshot.plugin,
+            self.vendored.recorded_plugin_skills if readable else None,
+        )
 
     @cached_property
     def changelog(self) -> Changelog | Problem:
@@ -189,6 +234,21 @@ class Repository:
             case unexpected:
                 assert_never(unexpected)
 
+    @cached_property
+    def hooks(self) -> Hooks | Problem:
+        return self.parsed(Hooks.PATH, self.RESTORE, Hooks.parse, InvalidConfigError)
+
+    @cached_property
+    def gitattributes(self) -> GitAttributes | Problem:
+        match self.content(GitAttributes.PATH, self.RESTORE):
+            case bytes() as content:
+                try:
+                    return GitAttributes.parse(content)
+                except UnicodeDecodeError:
+                    return Problem(self.root / GitAttributes.PATH, Problem.NOT_UTF8)
+            case problem:
+                return problem
+
     def release(self) -> Release | list[Problem]:
         problems = self.problems()
         match problems, self.notes:
@@ -228,7 +288,7 @@ class Repository:
                     (
                         *self.snapshot.sources,
                         *(
-                            self.PLUGIN / path
+                            Plugin.FOLDER / path
                             for path, entry in self.plugin.tree.entries.items()
                             if isinstance(entry, File | Unreadable)
                         ),
@@ -428,7 +488,7 @@ class Repository:
         return [
             *(
                 (
-                    self.PLUGIN / path,
+                    Plugin.FOLDER / path,
                     f"the {host} manifest",
                     reading.version if isinstance(reading, Manifest) else None,
                 )
@@ -450,8 +510,8 @@ class Repository:
                 pyproject.project.version if isinstance(pyproject, Pyproject) else None,
             ),
             (
-                self.PLUGIN / Plugin.PACKAGE,
-                str(self.PLUGIN / Plugin.PACKAGE),
+                Plugin.FOLDER / Plugin.PACKAGE,
+                str(Plugin.FOLDER / Plugin.PACKAGE),
                 package.version if isinstance(package, Package) else None,
             ),
         ]
@@ -505,22 +565,27 @@ class Repository:
                 assert_never(unexpected)
 
     def vendored_problems(self) -> list[Problem]:
-        problems: list[Problem] = []
-        configs: list[Hooks | SyncWorkflow] = []
-        for kind in (Hooks, SyncWorkflow):
-            match self.parsed(kind.PATH, self.RESTORE, kind.parse, InvalidConfigError):
-                case Problem() as problem:
-                    problems.append(problem)
-                case config:
-                    configs.append(config)
-        match configs, self.pyproject:
-            case (
-                [Hooks() as hooks, SyncWorkflow() as workflow],
-                Pyproject() as pyproject,
-            ):
-                return VendoredCopy(self.root, hooks, workflow, pyproject).problems()
-            case _:
-                return problems
+        problems = [
+            reading
+            for reading in self.record_readings.values()
+            if isinstance(reading, Problem)
+        ]
+        hooks, attributes = self.hooks, self.gitattributes
+        config = [read for read in (hooks, attributes) if isinstance(read, Problem)]
+        # A record the check cannot read names folders it cannot know, so it holds
+        # no exclude to them until the record reads.
+        if problems:
+            return [*problems, *config, *self.vendored.problems(None, None, None)]
+        pyproject = self.pyproject if isinstance(self.pyproject, Pyproject) else None
+        return [
+            *config,
+            *self.vendored.leftover_problems(),
+            *self.vendored.problems(
+                None if isinstance(hooks, Problem) else hooks,
+                pyproject,
+                None if isinstance(attributes, Problem) else attributes,
+            ),
+        ]
 
     def activation_problems(self) -> list[Problem]:
         readme = self.readme
@@ -554,13 +619,18 @@ class Repository:
             if tuple(cell.text for cell in table.header) == self.SKILL_TABLE
         ]
         hidden = self.hidden_descriptions()
-        if hidden and not tables:
+        # A skill a record names keeps its row while its folder is gone, before
+        # the first sync or while the check asks to restore the copy, so the sync's
+        # pull request needs no README change and no row reads as stale.
+        vendored = sorted(self.vendored.plugin_skills)
+        if (hidden or vendored) and not tables:
             return [
                 Problem(
                     readme.path,
                     f"has no table headed {' and '.join(self.SKILL_TABLE)}; add one"
                     " with a row giving each principle and language skill's"
-                    " description",
+                    " description"
+                    + (", and a row for each vendored skill" if vendored else ""),
                 )
             ]
         rows = [row for table in tables for row in table.body]
@@ -568,7 +638,7 @@ class Repository:
             self.root / self.skill_file(skill.name): skill.name
             for skill in self.plugin.skills
             if isinstance(skill.read, File | Unreadable)
-        }
+        } | {self.root / self.skill_file(name): name for name in vendored}
         targets = {
             link.line: link.target
             for row in rows
@@ -609,34 +679,17 @@ class Repository:
                         f" {', '.join(lines)}; keep the first and remove the rest",
                     )
                 )
-        for skill, description in hidden:
-            row = next(
-                (
-                    row
-                    for row in rows
-                    if targets.get(row.line) == self.root / self.skill_file(skill.name)
-                ),
-                None,
+        for name in vendored:
+            _, found = self.row_problems(
+                readme, rows, targets, name, "says when it applies"
             )
-            if row is None:
-                problems.append(
-                    Problem(
-                        readme.path,
-                        f"has no skills table row for {skill.name}; add one that links"
-                        f" {self.skill_file(skill.name)} under its name and copies its"
-                        " description",
-                    )
-                )
-                continue
-            if row.cells[0].label != skill.name:
-                problems.append(
-                    Problem(
-                        readme.path,
-                        f"has a skills table row on line {readme.file_line(row.line)}"
-                        f" whose link text is not {skill.name}; make it {skill.name}",
-                    )
-                )
-            if row.cells[1].text != description:
+            problems += found
+        for skill, description in hidden:
+            row, found = self.row_problems(
+                readme, rows, targets, skill.name, "copies its description"
+            )
+            problems += found
+            if row is not None and row.cells[1].text != description:
                 problems.append(
                     Problem(
                         readme.path,
@@ -647,19 +700,48 @@ class Repository:
                 )
         return problems
 
+    # The ending says what a missing row holds besides the link.
+    def row_problems(
+        self,
+        readme: Document,
+        rows: list[Row],
+        targets: dict[int, Path | None],
+        name: str,
+        ending: str,
+    ) -> tuple[Row | None, list[Problem]]:
+        path = self.root / self.skill_file(name)
+        row = next((row for row in rows if targets.get(row.line) == path), None)
+        if row is None:
+            return None, [
+                Problem(
+                    readme.path,
+                    f"has no skills table row for {name}; add one that links"
+                    f" {self.skill_file(name)} under its name and {ending}",
+                )
+            ]
+        if row.cells[0].label != name:
+            return row, [
+                Problem(
+                    readme.path,
+                    f"has a skills table row on line {readme.file_line(row.line)}"
+                    f" whose link text is not {name}; make it {name}",
+                )
+            ]
+        return row, []
+
     def hidden_descriptions(self) -> list[tuple[Skill, str]]:
         descriptions: list[tuple[Skill, str]] = []
         for skill in self.plugin.skills:
             document = skill.document
-            if document is None:
+            if document is None or skill.kind is Kind.VENDORED:
                 continue
-            frontmatter = skill.read_frontmatter(document)
+            frontmatter = skill.read_frontmatter(document, Frontmatter)
             if isinstance(frontmatter, Frontmatter) and frontmatter.hidden_from_model:
                 descriptions.append((skill, frontmatter.description))
         return descriptions
 
     def skill_file(self, name: str) -> str:
-        return f"{self.PLUGIN}/{Plugin.SKILLS}/{name}/{Skill.FILE}"
+        return f"{Plugin.FOLDER}/{Plugin.SKILLS}/{name}/{Skill.FILE}"
 
     def page_steps_problems(self) -> list[Problem]:
         page_steps = self.page_steps

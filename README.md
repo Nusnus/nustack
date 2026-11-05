@@ -11,15 +11,16 @@
 
 > **Trust a coding agent to work like a senior engineer while you're away.**
 
-nustack carries Tomer Nosrati's way of building software into [Devin](https://devin.ai), [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com) and [OpenCode](https://opencode.ai) as one mode, **nus-mode**. Given a task, the mode follows the playbook that fits, if any, reads each principle and language skill that applies, and holds the result to them.
+nustack carries Tomer Nosrati's way of building software into [Devin](https://devin.ai), [Claude Code](https://claude.com/claude-code), [Cursor](https://cursor.com) and [OpenCode](https://opencode.ai) as one mode, **nus-mode**, plus Steph Ango's Obsidian skills. Given a task, the mode follows the playbook that fits, if any, reads each principle and language skill that applies, and holds the result to them.
 
 | | What you get |
 | --- | --- |
-| 🧭 **One mode** | One entry point: invoke `nus-mode` with a task, or add one line to a project's `AGENTS.md`. |
+| 🧭 **One mode** | One entry point to nustack's own skills: invoke `nus-mode` with a task, or add one line to a project's `AGENTS.md`. |
 | 🎯 **One goal** | A low [friction rate](plugin/skills/nus-mode/SKILL.md#goal), which settles conflicts between principles. |
 | 📋 **Playbooks** | Whole tasks as numbered steps, each ending on a checkable done condition. |
 | 🧱 **Principles** | One skill each, read in full when the work needs it, and never restated elsewhere. |
 | 🐍 **Languages** | One skill per language: its tools, and each principle's form in that language where it differs. |
+| 📓 **Obsidian skills** | Steph Ango's Obsidian skills ([kepano/obsidian-skills](https://github.com/kepano/obsidian-skills)), shipped unchanged beside the mode. |
 | ✅ **Checked like code** | `make check` enforces the skills' structure ([AGENTS.md › Checks](AGENTS.md#checks)). |
 
 ## 🔀 How it works
@@ -77,7 +78,7 @@ Invoke the mode with the task. In Claude Code:
 /nustack:nus-mode Align this repository with nus-mode.
 ```
 
-Devin uses the same [`/<plugin>:<skill>`](https://docs.devin.ai/desktop/devin-local/customizations) form: `/nustack:nus-mode <task>`. In [Cursor](https://cursor.com/docs/skills), type `/`, pick nus-mode, then write the task. In OpenCode, [mention](https://opencode.ai/v2/docs/skills/) it: `@nus-mode <task>`.
+Devin uses the same [`/<plugin>:<skill>`](https://docs.devin.ai/desktop/devin-local/customizations) form: `/nustack:nus-mode <task>`. In [Cursor](https://cursor.com/docs/skills), type `/`, pick nus-mode, then write the task. In OpenCode, [mention](https://opencode.ai/v2/docs/skills/) it: `@nus-mode <task>`. Invoke any other skill the same way, such as `/nustack:obsidian-bases` in Claude Code and Devin, `/` then obsidian-bases in Cursor, or `@obsidian-bases` in OpenCode.
 
 The agent works on its own once you say so, and offers to once it is highly confident it can; once it works on its own, it asks you only what nus-mode's [standing rules](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/SKILL.md#standing-rules) leave to you.
 
@@ -94,7 +95,7 @@ Work in this repository in nus-mode: load the skill before you start.
 
 ## 🧩 What's inside
 
-### How the principles and language skills load
+### How the skills load
 
 nus-mode loads the principle and language skills itself: its [SKILL.md](plugin/skills/nus-mode/SKILL.md) lists when each applies, and the agent reads each applicable skill's file in full.
 
@@ -106,13 +107,14 @@ sequenceDiagram
   H->>M: loads it, when you ask or the project's AGENTS.md does
   M->>M: matches the task to a playbook
   M->>P: reads its file in full when it applies
-  Note over H,P: The host never offers either kind to the model on its own
+  Note over H,P: The host never offers a principle or language skill to the model on its own
 ```
 
 | Skill | Can the model load it alone? | Frontmatter |
 | --- | --- | --- |
 | 🧭 nus-mode | ✅ Yes, so a project's `AGENTS.md` can turn it on | No `disable-model-invocation` or `triggers` |
 | 🧱 `principle-*` and 🐍 `language-*` | 🚫 No: nus-mode reads it, and you can still invoke it by name | `disable-model-invocation: true` hides it in Claude Code, [Cursor](https://cursor.com/docs/skills) and, through the loader, OpenCode; `triggers: [user]` hides it in Devin |
+| 📓 Obsidian skills | ✅ Yes, with or without nus-mode, where its description matches the task; invoke one by name, as [Use](#2️⃣-use) shows, to be sure it loads | Upstream's own, unchanged |
 
 Because they are hidden, the principle and language skills stay out of the model's skill list and normally arrive through the mode, which brings the goal and the tie-break with them. A skill you invoke by name, or a file the model opens on its own, loads without the mode.
 
@@ -138,8 +140,14 @@ Because they are hidden, the principle and language skills stay out of the model
 | 📖 [principle-self-explanatory-code](plugin/skills/principle-self-explanatory-code/SKILL.md) | Code that explains itself, and docs for what it cannot say. |
 | 📝 [principle-pr-descriptions](plugin/skills/principle-pr-descriptions/SKILL.md) | PR descriptions a reviewer takes in at a glance. |
 | 🐍 [language-python](plugin/skills/language-python/SKILL.md) | Python's tools, and where Python changes how a principle applies. |
+| 📓 [obsidian-markdown](plugin/skills/obsidian-markdown/SKILL.md) | Obsidian Flavored Markdown. |
+| 📓 [obsidian-bases](plugin/skills/obsidian-bases/SKILL.md) | Obsidian Bases, `.base` files. |
+| 📓 [json-canvas](plugin/skills/json-canvas/SKILL.md) | JSON Canvas, `.canvas` files. |
+| 📓 [obsidian-cli](plugin/skills/obsidian-cli/SKILL.md) | The Obsidian CLI. |
+| 📓 [defuddle](plugin/skills/defuddle/SKILL.md) | Web pages to Markdown with the Defuddle CLI. |
+| 📓 [knap](plugin/skills/knap/SKILL.md) | Markdown from Knap templates and data. |
 
-nus-mode's [`SKILL.md`](plugin/skills/nus-mode/SKILL.md) is the index that counts; this table shows the skills at a glance.
+nus-mode's [`SKILL.md`](plugin/skills/nus-mode/SKILL.md) is the index for nustack's own playbooks, principles and language skills, and [`vendored/obsidian-skills.json`](vendored/obsidian-skills.json) is the one for the Obsidian skills; this table shows them all at a glance.
 
 ## 🗂️ Layout
 
@@ -156,20 +164,22 @@ nustack/
 │   └── skills/
 │       ├── nus-mode/           the mode and its playbooks
 │       ├── principle-*/        one principle per skill
-│       └── language-*/         one language per skill
+│       ├── language-*/         one language per skill
+│       └── …                   the Obsidian skills, each named in vendored/obsidian-skills.json
 ├── .claude-plugin/             the Claude Code marketplace
 ├── .cursor-plugin/             the Cursor marketplace
 ├── src/nustack/                the harness and the `nustack` command
 │   ├── cli/                    the `nustack` command and the parsers of its values
 │   ├── release/                a plugin release, published on GitHub from its v<version> tag
-│   ├── repository/             the files released and configured beside the plugin, the test suite's layout and the vendored copy, read from disk
-│   ├── sync/                   the writing-for-agents sync: the copy, its review evidence and its pull request
+│   ├── repository/             the files released and configured beside the plugin, the test suite's layout and the vendored copies, read from disk
+│   ├── sync/                   the sync of each vendored copy: the copy, its review evidence and its pull request
 │   ├── plugin/                 the rules the plugin, its skills and manifests keep, and its bundle
 │   ├── markdown/               the Markdown documents are written in, down to a skill's frontmatter
 │   └── github/                 GitHub: a repository's name and URL, and its pull requests and releases by gh
 ├── tests/                      unit, integration and smoke tests
 ├── .devin/blueprint.yaml       the Devin environment
 ├── .agents/skills/             skills for working on nustack
+├── vendored/                   one record per vendored copy, which the sync workflow updates
 ├── package.json                the loader's tools; their config sits beside it
 ├── AGENTS.md                   the rules for changing nustack
 ├── REVIEW.md                   what Devin Review holds each pull request to
@@ -185,6 +195,8 @@ Contributions follow [AGENTS.md](AGENTS.md), which holds the rules for changing 
 [pstack](https://github.com/cursor/plugins/tree/main/pstack) and its `poteto-mode`, from which nustack and nus-mode take their names and their structure: a mode that routes work to playbooks, with one skill per principle.
 
 [AI Hero](https://www.aihero.dev) by Matt Pocock: nustack words the texts [AGENTS.md](AGENTS.md) names by his [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) skill. A scheduled workflow proposes changes from [his skills repository](https://github.com/mattpocock/skills) with a comparison to nustack's copy for the owner to [review](REVIEW.md).
+
+[Steph Ango (kepano)](https://github.com/kepano): the plugin ships his [obsidian-skills](https://github.com/kepano/obsidian-skills) unchanged, each with its MIT license, and the same scheduled workflow proposes each upstream change.
 
 ## 📄 License
 

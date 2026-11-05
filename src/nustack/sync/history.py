@@ -1,8 +1,8 @@
 """Upstream's history as the sync reads it, found by the files the workflow copies.
 
-The copied revision is identified by those paths, and each commit is read from
-Git's NUL-framed log with its subject kept as untrusted text, and refused unless Git
-names it by its SHA-1.
+The copied revision is identified by those paths, the base's by its record, and
+each commit is read from Git's NUL-framed log with its subject kept as untrusted
+text, and refused unless Git names it by its SHA-1.
 """
 
 from dataclasses import dataclass
@@ -26,11 +26,13 @@ class Commit:
 
 @dataclass(frozen=True)
 class History:
-    """The copied revision, the newest one the base holds, and the commits since.
+    """The copied revision, the one the base's record names, and the commits since.
 
     The copied revision is the newest first-parent revision of upstream's head that
     changed the copied paths, or the head itself when none did, so the description
-    names the same commit until upstream changes what the sync copies.
+    names the same commit until upstream changes what the sync copies. The baseline
+    is absent when the record names no commit, or one upstream's head no longer
+    holds.
     """
 
     copied: Sha

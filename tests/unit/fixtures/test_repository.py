@@ -7,19 +7,22 @@ lazy from pathlib import Path
 
 import pytest
 
+from nustack.record import CopyRecord
 from nustack.repository.disk import Disk
+from nustack.tree import Folder
 from nustack.tree import Missing
 from nustack.tree import NotAFolder
 from nustack.tree import Special
 from nustack.tree import Symlink
 from nustack.tree import Unopened
+from nustack.tree import Unreadable
 from tests.fixtures.permissions import SKIP_AS_ROOT
 from tests.fixtures.repository import MissingTextError
 from tests.fixtures.repository import ModelRepository
 
 
 class TestModelRepository:
-    """Each entry a test puts in the plugin leaves the snapshot Disk would read.
+    """Each entry a test puts in the plugin or a copy reads as Disk reads it.
 
     An edit replaces the first copy of its text, and an edit of text the file does not
     hold names the file and the text.
@@ -119,3 +122,94 @@ class TestModelRepository:
         shutil.rmtree(root / "plugin")
         (root / "plugin").write_text("x")
         assert repository.snapshot() == Disk(root).snapshot()
+
+    def test_reads_only_the_symlink_in_a_copy_once_one_is_put(
+        self, tmp_path: Path
+    ) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.put_in_copy(".agents/skills/vendored/link", Symlink())
+        root = repository.save()
+        (root / ".agents/skills/vendored/link").symlink_to(root / "LICENSE")
+        assert repository.snapshot() == Disk(root).snapshot()
+
+    def test_reads_a_special_file_in_a_copy_beside_its_files(
+        self, tmp_path: Path
+    ) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.put_in_copy(".agents/skills/vendored/pipe", Special())
+        root = repository.save()
+        os.mkfifo(root / ".agents/skills/vendored/pipe")
+        assert repository.snapshot() == Disk(root).snapshot()
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root reads every file")
+    def test_reads_a_file_in_a_copy_that_cannot_be_read(self, tmp_path: Path) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.put_in_copy(
+            ".agents/skills/vendored/LICENSE",
+            Unreadable("cannot be read (Permission denied); make it readable"),
+        )
+        root = repository.save()
+        (root / ".agents/skills/vendored/LICENSE").chmod(0)
+        try:
+            assert repository.snapshot() == Disk(root).snapshot()
+        finally:
+            (root / ".agents/skills/vendored/LICENSE").chmod(0o644)
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
+    def test_reads_only_a_folder_in_a_copy_that_will_not_open(
+        self, tmp_path: Path
+    ) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.put_in_copy(
+            ".agents/skills/vendored/notes",
+            Unopened(
+                "cannot be opened (Permission denied); give the folder read and"
+                " execute permission"
+            ),
+        )
+        root = repository.save()
+        (root / ".agents/skills/vendored/notes").mkdir()
+        (root / ".agents/skills/vendored/notes").chmod(0)
+        try:
+            assert repository.snapshot() == Disk(root).snapshot()
+        finally:
+            (root / ".agents/skills/vendored/notes").chmod(0o755)
+
+    def test_reads_a_folder_named_as_a_record(self, tmp_path: Path) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.fail_read("vendored/folder.json", Folder())
+        root = repository.save()
+        (root / "vendored/folder.json").mkdir()
+        assert repository.snapshot() == Disk(root).snapshot()
+
+    def test_reads_a_broken_symlink_named_as_a_record(self, tmp_path: Path) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.fail_read("vendored/gone.json", Unreadable(CopyRecord.SYMLINK))
+        root = repository.save()
+        (root / "vendored/gone.json").symlink_to(root / "gone")
+        assert repository.snapshot() == Disk(root).snapshot()
+
+    def test_reads_a_symlink_to_a_record_as_one_it_cannot_read(
+        self, tmp_path: Path
+    ) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.fail_read("vendored/link.json", Unreadable(CopyRecord.SYMLINK))
+        root = repository.save()
+        (root / "vendored/link.json").symlink_to(root / "vendored/copy.json")
+        assert repository.snapshot() == Disk(root).snapshot()
+
+    def test_reads_only_a_file_in_a_copy_folders_place(self, tmp_path: Path) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.remove(".agents/skills/vendored/LICENSE")
+        repository.remove(".agents/skills/vendored/SKILL.md")
+        repository.write(".agents/skills/vendored", "x")
+        repository.put_in_copy(".agents/skills/vendored/.", NotAFolder())
+        assert repository.snapshot() == Disk(repository.save()).snapshot()
+
+    def test_reads_a_missing_copy_folder_as_one_missing_entry(
+        self, tmp_path: Path
+    ) -> None:
+        repository = ModelRepository(tmp_path)
+        repository.remove(".agents/skills/vendored/LICENSE")
+        repository.remove(".agents/skills/vendored/SKILL.md")
+        assert repository.snapshot() == Disk(repository.save()).snapshot()

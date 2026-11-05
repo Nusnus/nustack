@@ -285,6 +285,18 @@ class TestMarketplace:
             "has the key 'source' more than once in plugins.0; keep one"
         )
 
+    def test_names_where_a_key_repeats_under_an_unknown_key(self) -> None:
+        with pytest.raises(InvalidMetadataError) as caught:
+            ClaudeMarketplace.parse(
+                b'{"name": "kit", "description": "A kit.", "owner": {"name": "Ada"},'
+                b' "plugins": [], "extra": {"inner": {"a": 1, "a": 2}}}'
+            )
+        assert str(caught.value) == (
+            "has an unknown key more than once in an unknown key;"
+            " keep one; an unknown key: rename it or remove it; nustack allows only"
+            " name, owner, plugins, description here"
+        )
+
 
 class TestExports:
     """OpenCode loads the file the package points it to."""

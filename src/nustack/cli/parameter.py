@@ -1,7 +1,7 @@
 """The parsers of the `nustack` command's values.
 
-Each refuses an empty value, and a repository name or URL, a release tag or a commit
-of the wrong form, with the fix for its form.
+Each refuses an empty value, and a repository name, a release tag or a commit of the
+wrong form, with the fix for its form.
 
 Typer passes an option given as '' as an empty string, not as absent, so each
 parser refuses it rather than run on with an empty path or name:
@@ -15,7 +15,6 @@ import typer
 
 from nustack.github.name import GitHubNameError
 from nustack.github.name import NameWithOwner
-from nustack.github.name import RepositoryUrl
 from nustack.release.tag import Tag
 from nustack.release.tag import TagError
 from nustack.sha import Sha
@@ -24,10 +23,6 @@ from nustack.sha import ShaError
 
 def path(value: str) -> Path:
     return Path(path_text(value))
-
-
-def repository_url(value: str) -> RepositoryUrl:
-    return read_with(RepositoryUrl.parse, value)
 
 
 def name_with_owner(value: str) -> NameWithOwner:

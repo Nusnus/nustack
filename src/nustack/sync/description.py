@@ -21,7 +21,7 @@ from nustack.problem import Problem
 from nustack.sync.change import Comparison
 from nustack.sync.change import FileChange
 from nustack.sync.tree import CopyTree
-lazy from nustack.github.name import RepositoryUrl
+lazy from nustack.record import CopyRecord
 lazy from nustack.sync.history import History
 
 
@@ -29,18 +29,8 @@ lazy from nustack.sync.history import History
 class SyncLinks:
     """Trusted workflow links; copied text never supplies a Markdown destination."""
 
-    upstream_url: RepositoryUrl
     run: str
     checks: str
-
-
-@dataclass(frozen=True)
-class SyncCopy:
-    """Where the sync copies from and to: upstream's clone, its skill, and the copy."""
-
-    clone: Path
-    source_folder: str
-    folder: str
 
 
 @dataclass(frozen=True)
@@ -51,46 +41,58 @@ class SyncDescription:
     NOT_COMPARED: ClassVar[str] = f"not compared ({NON_TEXT})"
     COPY_ROW: ClassVar[str] = "| ✅ **[Copy]({run})** |"
     links: SyncLinks
-    source_folder: str
-    folder: str
+    record: CopyRecord
     history: History
     changes: tuple[FileChange, ...]
+    new_skills: tuple[str, ...]
+
+    @property
+    def purpose(self) -> str:
+        if self.record.in_plugin:
+            return "ships in nustack's plugin to every user"
+        return "steers how agents work on nustack"
+
+    # writing-for-agents governs only wording; a plugin skill directs whatever its
+    # description says it covers.
+    @property
+    def scope(self) -> str:
+        if self.record.in_plugin:
+            return "instructions beyond what each skill's description says it covers"
+        return "instructions beyond wording"
 
     @property
     def lead(self) -> str:
         copied = self.history.copied
-        source_url = f"{self.links.upstream_url}/tree/{copied}/{self.source_folder}"
+        source_url = f"{self.record.upstream}/tree/{copied}/{self.record.source}"
+        skills = ", ".join(self.record.skills)
         return (
-            f"**Copies [writing-for-agents at {copied.short}]({source_url}) "
-            f"into `{self.folder}/`** for the owner to review before it steers "
-            "how agents word nustack's docs."
+            f"**Copies [{skills} at {copied.short}]({source_url}) "
+            f"into `{self.record.folder}/`** for the owner to review before it "
+            f"{self.purpose}."
         )
 
     @cached_property
     def facts(self) -> str:
         counts = Counter(change.status for change in self.changes)
-        files = {change.path: change for change in self.changes}
-        license_change = files.get(CopyTree.LICENSE)
-        license_status = license_change.status if license_change else "unchanged"
-        skill_change = files.get(Skill.FILE)
-        comparison = (
-            skill_change.frontmatter_comparison
-            if skill_change
-            else Comparison.UNCHANGED
+        licenses = "; ".join(
+            f"{code(change.path)} {change.status}"
+            for change in self.changes
+            if change.in_skill == CopyTree.LICENSE
         )
-        match comparison:
-            case Comparison.CHANGED | Comparison.UNCHANGED:
-                frontmatter_status = comparison.value
-            case Comparison.BINARY:
-                frontmatter_status = self.NOT_COMPARED
-            case unexpected:
-                assert_never(unexpected)
+        skill_files = [
+            change for change in self.changes if change.in_skill == Skill.FILE
+        ]
+        frontmatter = "; ".join(
+            f"{code(change.path)} {self.frontmatter_status(change)}"
+            for change in skill_files
+            if change.frontmatter_comparison is not Comparison.UNCHANGED
+        )
         policies = [change for change in self.changes if change.policy]
         policy = "; ".join(
             f"{code(change.path)} {change.status}{self.loading_note(change.loading)}"
             for change in policies
         )
-        watched = [*policies, *([skill_change] if skill_change else [])]
+        watched = [*policies, *skill_files]
         loading = any(change.loading is not Comparison.UNCHANGED for change in watched)
         return (
             f"{self.COPY_ROW.format(run=self.links.run)} Compared the base copy with "
@@ -98,30 +100,45 @@ class SyncDescription:
             f"{counts['added']} added, "
             f"{counts['changed']} changed, {counts['removed']} removed. |\n"
             f"| {'⚠️ ' if loading else ''}**Terms and loading** | {CopyTree.LICENSE}: "
-            f"{license_status}. {Skill.FILE} frontmatter: "
-            f"{frontmatter_status}. "
+            f"{licenses or 'unchanged'}. {Skill.FILE} frontmatter: "
+            f"{frontmatter or 'unchanged'}. "
             f"{FileChange.POLICIES} policy files: {policy or 'unchanged'}. |\n"
             f"| ⚠️ **[CI]({self.links.checks})** | Approve this pull request's "
             "workflows if prompted; see the linked runs for results. |"
         )
 
+    def frontmatter_status(self, change: FileChange) -> str:
+        match change.frontmatter_comparison:
+            case Comparison.CHANGED | Comparison.UNCHANGED as comparison:
+                return comparison.value
+            case Comparison.BINARY:
+                return self.NOT_COMPARED
+            case unexpected:
+                assert_never(unexpected)
+
     @cached_property
     def provenance(self) -> str:
         if self.history.baseline is None:
             return (
-                "No first-parent change to the upstream paths matched the base "
-                "copy, including its license and modes. The commit range is unknown."
+                "The base's record names no commit that upstream's head holds. The"
+                " commit range is unknown."
             )
         baseline, copied = self.history.baseline, self.history.copied
-        upstream_url = self.links.upstream_url
+        if baseline == copied:
+            return (
+                f"Upstream changed nothing the copy holds since `{baseline.short}`,"
+                " the commit the base's record names, so the copy drifted from its"
+                " record. This pull request restores each file's bytes to the blob"
+                " the record names and its mode to upstream's."
+            )
+        upstream_url = self.record.upstream
         compare = f"{upstream_url}/compare/{baseline}...{copied}"
         return (
             f"[Compare upstream from `{baseline.short}` to `{copied.short}`]"
-            f"({compare}). The start is the newest first-parent path revision "
-            "matching the base copy, not a recorded sync SHA.\n\n"
+            f"({compare}). The start is the commit the base's record names.\n\n"
             + fold(
-                f"Upstream commits touching the skill or repository {CopyTree.LICENSE} "
-                f"({len(self.history.commits)})",
+                "Upstream commits touching the skills or repository"
+                f" {CopyTree.LICENSE} ({len(self.history.commits)})",
                 (
                     f"[`{commit.sha.short}`]({upstream_url}/commit/{commit.sha}) "
                     f"{code(commit.subject)}"
@@ -156,6 +173,11 @@ class SyncDescription:
             (
                 self.provenance,
                 fold(f"Changed files under the copy ({len(files)})", files),
+                fold(
+                    f"New upstream skills the record does not list"
+                    f" ({len(self.new_skills)})",
+                    map(code, self.new_skills),
+                ),
                 fold(f"New outside CommonMark targets by file ({len(links)})", links),
                 fold(f"Lines to inspect ({len(lines)}; - base, + copy)", lines),
                 (
@@ -166,9 +188,9 @@ class SyncDescription:
                     f"`{FileChange.POLICIES}`, plus "
                     "added lines naming rules, invocation fields, selected commands "
                     "or HTTP(S) URLs. Both scans skip binary comparisons.\n\n"
-                    "**Owner review:** read the whole diff for instructions beyond "
-                    "wording, claims of authority or wider loading. These cues "
-                    "cannot decide any of them."
+                    f"**Owner review:** read the whole diff for {self.scope}, "
+                    "claims of authority or wider loading. These cues cannot decide "
+                    "any of them."
                 ),
             )
         )
@@ -270,8 +292,8 @@ class SyncTemplate:
     def fill(self, description: SyncDescription) -> str:
         fills = {
             self.LEAD: description.lead,
-            self.FEEDBACK: "| **Feedback wanted** | Whether to accept this copy as "
-            "wording guidance for nustack |",
+            self.FEEDBACK: "| **Feedback wanted** | Whether to accept this copy,"
+            f" which {description.purpose} |",
             self.CHECK: description.facts,
             self.RISK: "| **Risk** | The copy is untrusted. The owner clears each "
             "review finding; a passing check does not clear it. |",

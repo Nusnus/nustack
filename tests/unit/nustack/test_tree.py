@@ -166,6 +166,9 @@ class TestSnapshot:
         (),
         (),
         frozendict(),
+        frozendict(),
+        frozendict(),
+        (),
     )
 
     def test_reads_each_file_the_disk_handed_over(self) -> None:

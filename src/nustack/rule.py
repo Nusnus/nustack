@@ -33,16 +33,20 @@ class Rule(StrEnum):
     SKILLS = (
         "each skill folder names the mode or starts with a skill prefix spelled "
         "right, its frontmatter and triggers follow Writing skill text, and its "
-        "SKILL.md stays under the line limit"
+        "SKILL.md stays under the line limit; a vendored skill, which a record in "
+        "vendored/ names, needs only a name matching its folder and a description"
     )
     MODE = (
-        "plugin/skills/ holds exactly one mode, every plugin document calls it by "
-        "its name, its body opens with its title and fits the Claude Code hook's "
-        "output, and it indexes each playbook, principle and language skill under "
-        "its own heading"
+        "plugin/skills/ holds exactly one mode, every plugin document outside the "
+        "vendored skills calls it by its name, its body opens with its title and "
+        "fits the Claude Code hook's output, and it indexes each playbook, "
+        "principle and language skill under its own heading"
     )
     PLAYBOOK_STEPS = "each playbook step ends on a done condition"
-    SKILL_TEXT = "skill text names no agent host, model, host's folder or date"
+    SKILL_TEXT = (
+        "skill text outside the vendored skills names no agent host, model, host's "
+        "folder or date"
+    )
     LINKS = (
         "every link in plugin/ is a full URL or a relative path to a file there, "
         "and each anchor names a heading in that file"
@@ -56,15 +60,24 @@ class Rule(StrEnum):
         "release to its tag and [Unreleased] to the changes since the plugin version"
     )
     VENDORED = (
-        "the commit hooks that rewrite text, and Ruff's extend-exclude, skip the "
-        "folder the writing-for-agents sync copies into"
+        "vendored/ holds only records named <copy>.json, with <copy> in kebab case; "
+        "each is valid, names skill "
+        "folders no other record names, holds or sits in, copies no skill named as "
+        "the mode, a principle or a language skill, copies nothing from this "
+        "repository, and copies only into .agents/skills or plugin/skills; each "
+        "folder it names holds exactly the files it lists, with the bytes it lists; "
+        "a skill folder there that holds a LICENSE has a record; and the commit "
+        "hooks that rewrite text, and Ruff's extend-exclude, skip exactly the "
+        "folders the records name, and .gitattributes ends on a line that unsets "
+        "text for each of them"
     )
     ACTIVATION = "README.md's activation line is the new-project playbook's"
     SKILL_TABLE = (
         "README.md's tables headed 'Skill' and 'What it holds' give each principle and "
         "language skill a row that links its SKILL.md under the skill's name and "
-        "holds the description its SKILL.md holds, and every row links a skill's "
-        "SKILL.md, no skill's twice"
+        "holds the description its SKILL.md holds, give each vendored skill a row "
+        "that links its SKILL.md under the skill's name, and every row links a "
+        "skill's SKILL.md, no skill's twice"
     )
     PAGE_STEPS = (
         "README.md holds one ### 1️⃣ Install and one ### 2️⃣ Use section for the "

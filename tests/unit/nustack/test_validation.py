@@ -4,6 +4,7 @@ A text pattern written once serves a field's check and any larger pattern.
 """
 
 import re
+from typing import Annotated
 lazy from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from pydantic import Field
 from pydantic import HttpUrl
 from pydantic import ValidationError
 
+from nustack.validation import JsonObject
 from nustack.validation import Pattern
 from nustack.validation import Schema
 from nustack.validation import UnmappedErrorTypeError
@@ -84,6 +86,13 @@ class TestPattern:
         )
 
 
+class TestJsonObject:
+    """A JSON object keeps each of its pairs in order, a repeated key included."""
+
+    def test_keeps_each_pair_of_a_repeated_key(self) -> None:
+        assert JsonObject.of([("a", 1), ("a", 2)]).pairs == (("a", 1), ("a", 2))
+
+
 class TestSchema:
     """Every way a value breaks its schema reaches the user as a field and a fix.
 
@@ -144,6 +153,17 @@ class TestSchema:
         optional_inner: tuple[TestSchema.Outer.Inner, ...] | None = None
         listed: list[str] = Field(default_factory=list)
         nested: frozendict[str, frozendict[str, str]] = frozendict()
+
+    class Mapped(BaseModel):
+        """A model with a mapping field, whose keys and values each have a pattern."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        files: frozendict[
+            Annotated[str, Field(pattern=Pattern.NAME.value)],
+            Annotated[str, Field(pattern=Pattern.SHA.value)],
+        ]
+        name: str = "a"
 
     def test_labels_every_key_at_every_depth(self) -> None:
         assert Schema(self.Outer).labels == {
@@ -218,6 +238,79 @@ class TestSchema:
         assert str(caught.value) == (
             "pydantic's error type 'int_parsing' has no fix; add one to Schema.fix,"
             " with a test"
+        )
+
+    def test_places_an_error_in_a_mappings_key_or_value_without_its_key(
+        self,
+    ) -> None:
+        with pytest.raises(ValidationError) as caught:
+            self.Mapped.model_validate({"files": {"Bad": "x"}})
+        assert Schema(self.Mapped).reason(caught.value) == (
+            "files: for each key, use kebab case, such as nus-mode; files.<key>: use"
+            " 40 lowercase hex digits, such as 81c986c0e0a7c511f2941ed3cec09f7975687f80"
+        )
+
+    @pytest.mark.parametrize(
+        ("content", "repeats"),
+        [
+            (
+                b'{"name": "a", "name": "b"}',
+                ["has the key 'name' more than once in the file; keep one"],
+            ),
+            (
+                b'{"inner": [{"plain": "x", "plain": "y"}]}',
+                ["has the key 'plain' more than once in inner.0; keep one"],
+            ),
+            (
+                b'{"odd": {"k": 1, "k": 2}}',
+                ["has an unknown key more than once in an unknown key; keep one"],
+            ),
+            (
+                b'{"odd": {"x": {"k": 1, "k": 2}}}',
+                ["has an unknown key more than once in an unknown key; keep one"],
+            ),
+            (
+                b'{"odd": {"plain": 1, "plain": 2}}',
+                ["has the key 'plain' more than once in an unknown key; keep one"],
+            ),
+        ],
+    )
+    def test_names_each_key_written_twice(
+        self, content: bytes, repeats: list[str]
+    ) -> None:
+        assert Schema(self.Outer).repeats(content) == repeats
+
+    def test_names_a_key_written_twice_in_a_mapping_without_the_key(self) -> None:
+        assert Schema(self.Mapped).repeats(b'{"files": {"a": "1", "a": "2"}}') == [
+            "has a key more than once in files; keep one"
+        ]
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            b'{"name": "a", "inner": [{"plain": "x"}], "odd": {"k": 1}}',
+            b'{"name": "a", "name"',
+            b"\xff",
+            b"[" * 100_000,
+        ],
+    )
+    def test_finds_no_repeat_in_content_without_one_or_that_does_not_parse(
+        self, content: bytes
+    ) -> None:
+        assert Schema(self.Outer).repeats(content) == []
+
+    def test_refuses_content_naming_its_repeats_then_its_errors(self) -> None:
+        content = b'{"name": "Bad", "name": "Bad"}'
+        with pytest.raises(ValidationError) as caught:
+            self.Outer.model_validate_json(content)
+        assert Schema(self.Outer).refusal(content, caught.value) == (
+            "has the key 'name' more than once in the file; keep one; inner: add it;"
+            " name: use kebab case, such as nus-mode"
+        )
+
+    def test_refuses_content_by_its_repeats_alone_without_an_error(self) -> None:
+        assert Schema(self.Outer).refusal(b'{"name": "a", "name": "b"}') == (
+            "has the key 'name' more than once in the file; keep one"
         )
 
     def test_names_the_file_for_an_error_at_its_top(self) -> None:

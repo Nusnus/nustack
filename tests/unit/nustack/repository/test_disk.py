@@ -4,18 +4,22 @@ A path it cannot read, stat or list keeps the disk's reason, and one that an ent
 above it blocks names that entry, as the model repository does.
 """
 
+import json
 import os
 import socket
 from pathlib import Path
 from pathlib import PurePosixPath
 from unittest import mock
 
+from nustack.problem import Problem
 from nustack.repository.disk import Disk
+from nustack.repository.repository import Repository
 from nustack.tree import Blocked
 from nustack.tree import File
 from nustack.tree import Folder
 from nustack.tree import Missing
 from nustack.tree import NotAFolder
+from nustack.tree import Read
 from nustack.tree import Special
 from nustack.tree import Symlink
 from nustack.tree import Tree
@@ -44,6 +48,73 @@ class TestDisk:
         self, repository: ModelRepository
     ) -> None:
         assert Disk(repository.save()).snapshot() == repository.snapshot()
+
+    def test_reads_no_record_through_a_symlinked_records_folder(
+        self, repository: ModelRepository
+    ) -> None:
+        root = repository.save()
+        records = root.with_name("records")
+        (root / "vendored").rename(records)
+        (root / "vendored").symlink_to(records)
+        assert Repository(Disk(root).snapshot()).problems() == [
+            Problem(
+                root / "vendored/copy.json",
+                f"cannot be read, since {root}/vendored is a symlink, which the check"
+                " never reads through; replace it with the folder itself",
+            )
+        ]
+
+    def test_reads_the_skill_folders_of_every_record_in_a_destination(self) -> None:
+        records: frozendict[PurePosixPath, Read] = frozendict(
+            {
+                PurePosixPath("vendored/a.json"): File(
+                    json.dumps(
+                        {
+                            "upstream": "https://github.com/up/skills",
+                            "source": "skills",
+                            "folder": ".agents/skills",
+                            "skills": ["a"],
+                            "commit": None,
+                            "files": {},
+                        },
+                        indent=2,
+                    ).encode()
+                    + b"\n"
+                ),
+                PurePosixPath("vendored/b.json"): File(
+                    json.dumps(
+                        {
+                            "upstream": "https://github.com/up/skills",
+                            "source": "skills",
+                            "folder": "plugin/skills",
+                            "skills": ["b"],
+                            "commit": None,
+                            "files": {},
+                        },
+                        indent=2,
+                    ).encode()
+                    + b"\n"
+                ),
+                PurePosixPath("vendored/c.json"): File(
+                    json.dumps(
+                        {
+                            "upstream": "https://github.com/up/skills",
+                            "source": "skills",
+                            "folder": "src",
+                            "skills": ["c"],
+                            "commit": None,
+                            "files": {},
+                        },
+                        indent=2,
+                    ).encode()
+                    + b"\n"
+                ),
+            }
+        )
+        assert Disk.skill_folders(records) == {
+            PurePosixPath(".agents/skills/a"),
+            PurePosixPath("plugin/skills/b"),
+        }
 
     def test_reads_a_path_under_a_file_as_blocked_where_the_model_repository_does(
         self, repository: ModelRepository

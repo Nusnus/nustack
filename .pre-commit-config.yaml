@@ -21,10 +21,10 @@ repos:
       - id: destroyed-symlinks
       - id: detect-private-key
       - id: end-of-file-fixer
-        # The sync workflow (.github/workflows/sync-writing-for-agents.yml)
-        # proposes this copy byte for byte from its source, so the hooks that
-        # rewrite or restyle text skip it.
-        exclude: &copy ^\.agents/skills/writing\-for\-agents/
+        # The sync workflow (.github/workflows/sync.yml) proposes each skill
+        # folder a record in vendored/ names byte for byte from its source, so
+        # the hooks that rewrite or restyle text skip those folders.
+        exclude: &copy ^(?:\.agents/skills/writing\-for\-agents|plugin/skills/defuddle|plugin/skills/json\-canvas|plugin/skills/knap|plugin/skills/obsidian\-bases|plugin/skills/obsidian\-cli|plugin/skills/obsidian\-markdown)/
       - id: fix-byte-order-marker
         exclude: *copy
       - id: mixed-line-ending

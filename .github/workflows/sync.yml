@@ -1,0 +1,128 @@
+name: Sync vendored copies
+
+# For each record in vendored/, proposes the newest version of the skills it
+# names on its upstream's default branch, unchanged, as a pull request that
+# replaces the copy and updates the record, so review reads it from here.
+# nustack check holds each copy to the blobs its record names, never to
+# upstream's newest version, since upstream's newest version always wins and
+# a check against it would fail every unrelated pull request from upstream's
+# change until this sync merged. The owner merges each sync after review, since
+# the copies steer the agents that write nustack's docs and reach the plugin's
+# users. GitHub holds the workflows of a pull request this job's token opens or
+# updates until someone with write access approves them, so the owner approves
+# them while reviewing and merges once they pass
+# (https://docs.github.com/en/actions/concepts/security/github_token). Each job
+# works from the default branch whatever ref starts it, so the pull request
+# holds only the sync commit. The records job asks the API for that branch,
+# since a scheduled run's event payload holds no repository, and each sync job
+# checks out the commit the records job checked, so a push to the branch between
+# the jobs changes nothing they read
+# (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule;
+# https://docs.github.com/en/rest/repos/repos#get-a-repository).
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# An explicit bash adds -o pipefail, so a piped command fails its step:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#defaultsrunshell
+defaults:
+  run:
+    shell: bash
+
+# A second run waits for the first, so the two never push a branch at once:
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  records:
+    name: List the records
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    outputs:
+      copies: ${{ steps.list.outputs.copies }}
+      ref: ${{ steps.head.outputs.commit }}
+    steps:
+      # gh takes its host from GH_HOST, not from the server the workflow runs
+      # on, and its token for an Enterprise Server host from GH_ENTERPRISE_TOKEN
+      # (https://cli.github.com/manual/gh_help_environment).
+      - id: base
+        name: Find the default branch
+        run: |
+          export GH_HOST=${GITHUB_SERVER_URL#https://}
+          name=$(gh api "repos/$GH_REPO" --jq .default_branch)
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+        env:
+          GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ steps.base.outputs.name }}
+          persist-credentials: false
+      - id: head
+        name: Name the commit the records come from
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      # The matrix takes its records from a JSON list:
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#fromjson
+      - id: list
+        name: List each record in vendored/ with its copy's branch
+        run: |
+          copies=$(uv run --locked nustack records)
+          echo "copies=$copies" >> "$GITHUB_OUTPUT"
+    timeout-minutes: 5
+
+  sync:
+    name: Sync ${{ matrix.copy.record }}
+    permissions:
+      contents: write
+      pull-requests: write
+    needs: records
+    runs-on: ubuntu-26.04
+    env:
+      BRANCH: ${{ matrix.copy.branch }}
+      RECORD: ${{ matrix.copy.record }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ needs.records.outputs.ref }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      # nustack upstream holds the record alone to the check's rules for records,
+      # so a copy that drifted from its record still reaches the sync, which
+      # restores it. nustack sync reads upstream's trees and fetches each blob it
+      # copies, so the clone needs no old blobs
+      # (https://git-scm.com/docs/git-clone#Documentation/git-clone.txt---filterltfilter-specgt).
+      - name: Clone upstream's default branch
+        run: |
+          upstream=$(uv run --locked nustack upstream --record "$RECORD")
+          git clone --filter=blob:none --single-branch --no-checkout \
+            -- "$upstream.git" "$RUNNER_TEMP/upstream"
+      - name: Copy the skills and propose them in a pull request
+        run: |
+          export GH_HOST=${GITHUB_SERVER_URL#https://}
+          # Opening the pull request needs the repository setting that lets
+          # GitHub Actions create pull requests:
+          # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
+          uv run --locked nustack sync \
+            --run "$RUN" \
+            --checks "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions?query=branch:$BRANCH" \
+            --clone "$RUNNER_TEMP/upstream" --record "$RECORD" \
+            --name-with-owner "$GITHUB_REPOSITORY" \
+            --remote-url "https://x-access-token:${GH_TOKEN}@${GH_HOST}/${GITHUB_REPOSITORY}.git"
+        env:
+          GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 5
+    # Each copy proposes its own pull request, on purpose: the owner reviews and
+    # merges each upstream on its own, and one failing leaves the others to run.
+    strategy:
+      matrix:
+        copy: ${{ fromJSON(needs.records.outputs.copies) }}
+      fail-fast: false

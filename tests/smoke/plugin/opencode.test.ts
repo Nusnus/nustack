@@ -4,6 +4,7 @@
  * it, and leaves it out of a session that never did, even one whose prompt held its text. Each test checks that request
  * also lacks a prompt sent before the summary, so the summary replaced it.
  * A session that loaded another skill whose body quotes the mode gets no reload either.
+ * Its skill tool offers the model each vendored skill tests/fixtures/vendored.ts lists.
  * A host's requests carry IDs and times that change on each run, so each test checks what the request holds.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
@@ -13,6 +14,7 @@ import { Bundle } from "../../fixtures/bundle.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
 import { FakeModel } from "../../fixtures/model.ts"
 import { finished } from "../../fixtures/process.ts"
+import { VENDORED_SKILLS } from "../../fixtures/vendored.ts"
 
 /** opencode stopped or failed while a smoke test drove it. */
 class OpencodeError extends Error {
@@ -154,6 +156,12 @@ describe("plugin/opencode.ts in OpenCode", () => {
       )
     return stdout
   }
+
+  test("offers the model each vendored skill", async () => {
+    await ask(null, FakeModel.UNLOADED)
+    const sent = model.sentWith(FakeModel.UNLOADED)
+    expect(VENDORED_SKILLS.filter((name) => !sent.includes(`<name>${name}</name>`))).toEqual([])
+  })
 
   test("sends nus-mode again after a summary the user asks for", async () => {
     const session = await ask(null, FakeModel.LOAD)

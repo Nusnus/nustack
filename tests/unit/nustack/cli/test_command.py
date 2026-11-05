@@ -10,11 +10,10 @@ import pytest
 
 from nustack.cli.command import app
 from nustack.cli.command import sync_description
-from nustack.github.name import NameWithOwner
-from nustack.github.name import RepositoryUrl
 from nustack.rule import Rule
 from nustack.sync.description import SyncLinks
 from tests.fixtures.permissions import SKIP_AS_ROOT
+from tests.fixtures.sync.command import StoppedSync
 from tests.fixtures.terminal import plain
 lazy from tests.fixtures.repository import ModelRepository
 
@@ -46,9 +45,14 @@ class TestEmptyValues:
                 "Invalid value for '--root': give a path, not an empty string",
             ),
             (
-                ["sync-description", "--upstream-url", ""],
-                "Usage: nustack sync-description [OPTIONS]",
-                "Invalid value for '--upstream-url': give a value, not an empty string",
+                ["upstream", "--record", ""],
+                "Usage: nustack upstream [OPTIONS]",
+                "Invalid value for '--record': give a path, not an empty string",
+            ),
+            (
+                ["upstream", "--root", ""],
+                "Usage: nustack upstream [OPTIONS]",
+                "Invalid value for '--root': give a path, not an empty string",
             ),
             (
                 ["sync-description", "--run", ""],
@@ -66,24 +70,14 @@ class TestEmptyValues:
                 "Invalid value for '--clone': give a path, not an empty string",
             ),
             (
-                ["sync-description", "--source-folder", ""],
+                ["sync-description", "--record", ""],
                 "Usage: nustack sync-description [OPTIONS]",
-                "Invalid value for '--source-folder': give a path, not an empty string",
-            ),
-            (
-                ["sync-description", "--folder", ""],
-                "Usage: nustack sync-description [OPTIONS]",
-                "Invalid value for '--folder': give a path, not an empty string",
+                "Invalid value for '--record': give a path, not an empty string",
             ),
             (
                 ["sync-description", "--root", ""],
                 "Usage: nustack sync-description [OPTIONS]",
                 "Invalid value for '--root': give a path, not an empty string",
-            ),
-            (
-                ["sync", "--upstream-url", ""],
-                "Usage: nustack sync [OPTIONS]",
-                "Invalid value for '--upstream-url': give a value, not an empty string",
             ),
             (
                 ["sync", "--run", ""],
@@ -101,19 +95,9 @@ class TestEmptyValues:
                 "Invalid value for '--clone': give a path, not an empty string",
             ),
             (
-                ["sync", "--source-folder", ""],
+                ["sync", "--record", ""],
                 "Usage: nustack sync [OPTIONS]",
-                "Invalid value for '--source-folder': give a path, not an empty string",
-            ),
-            (
-                ["sync", "--folder", ""],
-                "Usage: nustack sync [OPTIONS]",
-                "Invalid value for '--folder': give a path, not an empty string",
-            ),
-            (
-                ["sync", "--branch", ""],
-                "Usage: nustack sync [OPTIONS]",
-                "Invalid value for '--branch': give a value, not an empty string",
+                "Invalid value for '--record': give a path, not an empty string",
             ),
             (
                 ["sync", "--remote-url", ""],
@@ -237,21 +221,14 @@ class TestHelp:
             (
                 ["sync-description", "-h"],
                 (
-                    "*  --upstream-url           <url>   The upstream repository's URL."
-                    " [required]"
+                    "*  --record          <path>  The copy's record, by its path from"
+                    " the repository's folder. [required]"
                 ),
             ),
             (
                 ["sync-description", "-h"],
                 (
-                    "*  --source-folder          <path>  The skill's folder in"
-                    " upstream. [required]"
-                ),
-            ),
-            (
-                ["sync-description", "-h"],
-                (
-                    "--root                   <path>  The nustack repository's folder."
+                    "--root            <path>  The nustack repository's folder."
                     " [default: .]"
                 ),
             ),
@@ -583,17 +560,166 @@ class TestNotes:
         )
 
 
+class TestRecords:
+    """The sync workflow's matrix lists each record the sync reads, with its branch.
+
+    A file in vendored/ the sync never reads is left out, and none at all stops it.
+    """
+
+    def test_prints_each_record_the_sync_reads_with_its_branch(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.write("vendored/.hidden.json", "{}")
+        repository.write("vendored/README.md", "Notes.\n")
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["records", "--root", str(root)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ('[{"record": "vendored/copy.json", "branch": "sync/copy"}]\n', ""),
+        )
+
+    def test_exits_1_when_no_record_is_left_to_sync(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.remove("vendored/copy.json")
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["records", "--root", str(root)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{root}/vendored: holds no record the sync reads; add one as"
+                    " AGENTS.md says\n"
+                ),
+            ),
+        )
+
+
+class TestUpstream:
+    """The sync workflow reads a copy's upstream from a record the check accepts.
+
+    It holds the record alone, so a copy that drifted from its record still
+    reaches the sync, which restores it.
+    """
+
+    def test_prints_the_upstream_beside_a_copy_that_drifted_from_its_record(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.write(".agents/skills/vendored/SKILL.md", "drifted\n")
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["upstream", "--record", "vendored/copy.json", "--root", str(root)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            0,
+            ("https://github.com/up/skills\n", ""),
+        )
+
+    def test_exits_1_naming_a_record_the_check_refuses(
+        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        repository.write("vendored/copy.json", "{}")
+        root = repository.save()
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["upstream", "--record", "vendored/copy.json", "--root", str(root)])
+        assert (caught.value.code, capsys.readouterr()) == (
+            1,
+            (
+                "",
+                (
+                    f"{root}/vendored/copy.json: is invalid: upstream: add it; source:"
+                    " add it; folder: add it; skills: add it; commit: add it; files:"
+                    " add it\n"
+                ),
+            ),
+        )
+
+
 class TestSyncDescription:
     """No sync PR opens from a template that lost what the sync fills.
 
-    A missing template stops the command too, named by its full path.
+    A missing template stops the command too, named by its full path, as does a
+    record that is missing, invalid, a symlink or outside vendored/.
     """
 
-    LINKS = SyncLinks(
-        RepositoryUrl("x.io", NameWithOwner("up", "skills")),
-        "https://x.io/run",
-        "https://x.io/checks",
-    )
+    LINKS = SyncLinks("https://x.io/run", "https://x.io/checks")
+
+    @pytest.fixture
+    def stopped(self, capsys: pytest.CaptureFixture[str]) -> StoppedSync:
+        return StoppedSync(self.LINKS, capsys)
+
+    def test_exits_1_naming_a_missing_record(
+        self, repository: ModelRepository, stopped: StoppedSync
+    ) -> None:
+        repository.remove("vendored/copy.json")
+        root = repository.save()
+        assert stopped.report(root) == (
+            1,
+            "",
+            (
+                f"{root}/vendored/copy.json: is missing; pass a record in vendored/"
+                " by its path from the repository's folder\n"
+            ),
+        )
+
+    def test_exits_1_naming_an_invalid_record(
+        self, repository: ModelRepository, stopped: StoppedSync
+    ) -> None:
+        repository.write("vendored/copy.json", "{}")
+        root = repository.save()
+        assert stopped.report(root) == (
+            1,
+            "",
+            (
+                f"{root}/vendored/copy.json: is invalid: upstream: add it; source: add"
+                " it; folder: add it; skills: add it; commit: add it; files: add it\n"
+            ),
+        )
+
+    def test_exits_1_naming_a_symlinked_record(
+        self, repository: ModelRepository, stopped: StoppedSync
+    ) -> None:
+        repository.remove("vendored/copy.json")
+        root = repository.save()
+        (root / "vendored").mkdir(exist_ok=True)
+        (root / "vendored/copy.json").symlink_to("copy.json")
+        assert stopped.report(root) == (
+            1,
+            "",
+            (
+                f"{root}/vendored/copy.json: is a symlink, which the check never reads"
+                " through; replace it with the record itself\n"
+            ),
+        )
+
+    def test_exits_1_naming_a_record_path_that_is_not_plain(
+        self, repository: ModelRepository, stopped: StoppedSync
+    ) -> None:
+        root = repository.save()
+        assert stopped.report(root, "./vendored/copy.json") == (
+            1,
+            "",
+            (
+                f"{root}/vendored/copy.json: is no plain path; pass it as"
+                " vendored/<copy>.json, with no . part, no // and no / at either end\n"
+            ),
+        )
+
+    def test_exits_1_naming_a_record_outside_the_records_folder(
+        self, repository: ModelRepository, stopped: StoppedSync
+    ) -> None:
+        root = repository.save()
+        assert stopped.report(root, "copy.json") == (
+            1,
+            "",
+            (
+                f"{root}/copy.json: is no record the sync reads; name it"
+                " vendored/<copy>.json, with <copy> in kebab case such as"
+                " obsidian-skills\n"
+            ),
+        )
 
     def test_exits_1_naming_the_missing_template_by_its_full_path(
         self,
@@ -606,12 +732,10 @@ class TestSyncDescription:
         monkeypatch.chdir(root.parent)
         with pytest.raises(SystemExit) as caught:
             sync_description(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=root,
-                source_folder="skills/s",
-                folder="copy",
+                record="vendored/copy.json",
                 root=Path(root.name),
             )
         output = capsys.readouterr()
@@ -625,7 +749,7 @@ class TestSyncDescription:
         )
 
     def test_exits_1_naming_each_line_the_template_lost(
-        self, repository: ModelRepository, capsys: pytest.CaptureFixture[str]
+        self, repository: ModelRepository, stopped: StoppedSync
     ) -> None:
         repository.write(
             ".github/pull_request_template.md",
@@ -635,18 +759,7 @@ class TestSyncDescription:
             " <!-- result --> |\n\n<!-- Files -->\n\n<!-- One heading per idea -->\n",
         )
         root = repository.save()
-        with pytest.raises(SystemExit) as caught:
-            sync_description(
-                upstream_url=self.LINKS.upstream_url,
-                run=self.LINKS.run,
-                checks=self.LINKS.checks,
-                clone=root,
-                source_folder="skills/s",
-                folder="copy",
-                root=root,
-            )
-        output = capsys.readouterr()
-        assert (caught.value.code, output.out, output.err) == (
+        assert stopped.report(root) == (
             1,
             "",
             (

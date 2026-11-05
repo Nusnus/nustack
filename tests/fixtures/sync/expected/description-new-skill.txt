@@ -1,0 +1,47 @@
+<!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
+
+**Copies [s at 735555f](https://github.com/up/skills/tree/735555f6a6ffdae9d7346ddc432f87c68e00e766/skills*) into `.agents/skills/`** for the owner to review before it steers how agents work on nustack.
+
+| Fact | Detail |
+| :-- | :-- |
+| **Feedback wanted** | Whether to accept this copy, which steers how agents work on nustack |
+| ✅ **[Copy](https://x.io/run)** | Compared the base copy with upstream's at its head, including modes and LICENSE: 1 added, 1 changed, 0 removed. |
+| **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: unchanged. |
+| ⚠️ **[CI](https://x.io/checks)** | Approve this pull request's workflows if prompted; see the linked runs for results. |
+| **Risk** | The copy is untrusted. The owner clears each review finding; a passing check does not clear it. |
+
+## 👀 Where to look
+
+[Compare upstream from `a440bb1` to `735555f`](https://github.com/up/skills/compare/a440bb1e40d700b112b5b3563b40fe9a8a3f5b23...735555f6a6ffdae9d7346ddc432f87c68e00e766). The start is the commit the base's record names.
+
+<details>
+<summary>Upstream commits touching the skills or repository LICENSE (1)</summary>
+
+- [`735555f`](https://github.com/up/skills/commit/735555f6a6ffdae9d7346ddc432f87c68e00e766) ` second `
+
+</details>
+
+<details>
+<summary>Changed files under the copy (2)</summary>
+
+- ` s/SKILL.md `: changed, +1/-1 lines
+- ` s/tool `: added, +0/-0 lines, mode 100755
+
+</details>
+
+<details>
+<summary>New upstream skills the record does not list (1)</summary>
+
+- ` new `
+
+</details>
+
+**New outside CommonMark targets by file (0).**
+
+**Lines to inspect (0; - base, + copy).**
+
+**Links:** net new destinations per file that the CommonMark parser recognizes as links or images. Check raw HTML, bare URLs and email addresses, and rejected URI schemes in the diff.
+
+**Lines:** edits in `SKILL.md` frontmatter and `agents/`, plus added lines naming rules, invocation fields, selected commands or HTTP(S) URLs. Both scans skip binary comparisons.
+
+**Owner review:** read the whole diff for instructions beyond wording, claims of authority or wider loading. These cues cannot decide any of them.

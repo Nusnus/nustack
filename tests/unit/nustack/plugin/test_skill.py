@@ -22,17 +22,18 @@ class TestKind:
     """A skill's folder name alone tells nus-mode how to load and index it."""
 
     @pytest.mark.parametrize(
-        ("kind", "prefix", "section"),
+        ("kind", "prefix", "index_heading"),
         [
             (Kind.MODE, None, None),
             (Kind.PRINCIPLE, "principle-", "Principles"),
             (Kind.LANGUAGE, "language-", "Languages"),
+            (Kind.VENDORED, None, None),
         ],
     )
     def test_names_its_prefix_and_the_mode_heading_that_indexes_it(
-        self, kind: Kind, prefix: str | None, section: str | None
+        self, kind: Kind, prefix: str | None, index_heading: str | None
     ) -> None:
-        assert (kind.prefix, kind.section) == (prefix, section)
+        assert (kind.prefix, kind.index_heading) == (prefix, index_heading)
 
     def test_lists_the_prefixes(self) -> None:
         assert Kind.prefixes() == "'principle-' or 'language-'"
@@ -122,7 +123,7 @@ class TestSkill:
     )
 
     def test_is_named_for_its_folder(self) -> None:
-        skill = Skill(Path("/p/skills/principle-naming"), Missing())
+        skill = Skill(Path("/p/skills/principle-naming"), Missing(), Kind.PRINCIPLE)
         assert (skill.name, skill.kind, skill.path) == (
             "principle-naming",
             Kind.PRINCIPLE,
@@ -132,7 +133,12 @@ class TestSkill:
     @KINDS
     def test_with_valid_frontmatter_has_no_problems(self, name: str) -> None:
         text = f"---\nname: {name}\ndescription: N.\n{ModelRepository.HIDDEN}# N\n"
-        assert Skill(Path(f"/p/skills/{name}"), File(text.encode())).problems() == []
+        assert (
+            Skill(
+                Path(f"/p/skills/{name}"), File(text.encode()), Kind.of(name)
+            ).problems()
+            == []
+        )
 
     @pytest.mark.parametrize(
         ("folder", "problem"),
@@ -159,13 +165,15 @@ class TestSkill:
         self, folder: str, problem: Problem
     ) -> None:
         text = f"---\nname: {folder}\ndescription: N.\n---\n# N\n"
-        skill = Skill(Path("/p/skills") / folder, File(text.encode()))
+        skill = Skill(Path("/p/skills") / folder, File(text.encode()), Kind.MODE)
         assert skill.problems() == [problem]
 
     def test_with_a_misspelled_prefix_and_no_skill_md_has_both_problems(self) -> None:
         assert [
             problem.what
-            for problem in Skill(Path("/p/skills/principal-x"), Missing()).problems()
+            for problem in Skill(
+                Path("/p/skills/principal-x"), Missing(), Kind.MODE
+            ).problems()
         ] == [
             (
                 "starts with a prefix close to 'principle-'; rename the folder to start"
@@ -175,7 +183,7 @@ class TestSkill:
         ]
 
     def test_without_a_skill_md_is_a_problem(self) -> None:
-        assert Skill(Path("/p/skills/empty"), Missing()).problems() == [
+        assert Skill(Path("/p/skills/empty"), Missing(), Kind.MODE).problems() == [
             Problem(
                 Path("/p/skills/empty"),
                 "has no SKILL.md; add one or remove the folder",
@@ -186,14 +194,14 @@ class TestSkill:
     def test_leaves_a_skill_md_that_does_not_read_to_the_plugin(
         self, read: File | Unreadable
     ) -> None:
-        assert Skill(self.MODE, read).problems() == []
+        assert Skill(self.MODE, read, Kind.MODE).problems() == []
 
     @pytest.mark.parametrize(
         "opening", ["\ufeff---\n", "---\r", "# A skill\n"], ids=["bom", "cr", "none"]
     )
     def test_that_opens_no_frontmatter_is_a_problem(self, opening: str) -> None:
         text = opening + "name: nus-mode\ndescription: N.\n---\n"
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "has no frontmatter; open it with a line that holds only ---, and save"
@@ -228,7 +236,7 @@ class TestSkill:
     )
     def test_with_a_name_hosts_reject_is_a_problem(self, name: str, what: str) -> None:
         text = f"---\nname: {name}\ndescription: N.\n---\n"
-        skill = Skill(self.MODE, File(text.encode()))
+        skill = Skill(self.MODE, File(text.encode()), Kind.MODE)
         assert skill.problems() == [Problem(self.MODE_FILE, what)]
 
     @KIND_FILES
@@ -322,12 +330,16 @@ class TestSkill:
     def test_with_frontmatter_hosts_cannot_read_is_a_problem(
         self, name: str, file: Path, text: str, what: str
     ) -> None:
-        skill = Skill(Path(f"/p/skills/{name}"), File(text.format(name=name).encode()))
+        skill = Skill(
+            Path(f"/p/skills/{name}"),
+            File(text.format(name=name).encode()),
+            Kind.of(name),
+        )
         assert skill.problems() == [Problem(file, what)]
 
     def test_with_a_name_other_than_its_folder_is_a_problem(self) -> None:
         text = "---\nname: other\ndescription: N.\n---\n"
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "name differs from its folder 'nus-mode'; use one name for both",
@@ -368,9 +380,9 @@ class TestSkill:
         self, name: str, file: Path, what: str, fields: str
     ) -> None:
         text = f"---\nname: {name}\ndescription: N.\n{fields}---\n"
-        assert Skill(Path(f"/p/skills/{name}"), File(text.encode())).problems() == [
-            Problem(file, what)
-        ]
+        assert Skill(
+            Path(f"/p/skills/{name}"), File(text.encode()), Kind.of(name)
+        ).problems() == [Problem(file, what)]
 
     @pytest.mark.parametrize(
         "fields",
@@ -384,7 +396,7 @@ class TestSkill:
     )
     def test_reports_a_mode_that_sets_how_it_is_invoked(self, fields: str) -> None:
         text = f"---\nname: nus-mode\ndescription: N.\n{fields}---\n"
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "a mode skill leaves disable-model-invocation and triggers unset, so"
@@ -392,9 +404,29 @@ class TestSkill:
             )
         ]
 
+    def test_vendored_needs_only_a_name_and_a_description(self) -> None:
+        text = (
+            "---\nname: principle-naming\ndescription: N.\nlicense: MIT\n---\n"
+            + "line\n" * 600
+        )
+        skill = Skill(
+            Path("/p/skills/principle-naming"), File(text.encode()), Kind.VENDORED
+        )
+        assert (skill.kind, skill.problems()) == (Kind.VENDORED, [])
+
+    def test_vendored_without_a_description_is_a_problem(self) -> None:
+        text = "---\nname: knap\n---\n"
+        skill = Skill(Path("/p/skills/knap"), File(text.encode()), Kind.VENDORED)
+        assert skill.problems() == [
+            Problem(
+                Path("/p/skills/knap/SKILL.md"),
+                "frontmatter is invalid: description: add it",
+            )
+        ]
+
     def test_at_the_line_limit_is_a_problem(self) -> None:
         text = "---\nname: nus-mode\ndescription: N.\n---\n" + "line\n" * 496
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "has 500 lines, where it needs under 500; shorten it",
@@ -403,7 +435,7 @@ class TestSkill:
 
     def test_reports_the_line_limit_beside_missing_frontmatter(self) -> None:
         text = "# Nus mode\n" + "line\n" * 499
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "has no frontmatter; open it with a line that holds only ---, and"
@@ -419,7 +451,7 @@ class TestSkill:
         self,
     ) -> None:
         text = "---\nname: nus-mode---\ndescription: N.---\n---\n" + "line\n" * 496
-        assert Skill(self.MODE, File(text.encode())).problems() == [
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == [
             Problem(
                 self.MODE_FILE,
                 "frontmatter is invalid: line 2 holds ---, which some hosts read as"
@@ -439,4 +471,4 @@ class TestSkill:
     @pytest.mark.parametrize("line", ["line\n", "a\u2028b\x85c\u2029d\n"])
     def test_just_under_the_line_limit_has_no_problems(self, line: str) -> None:
         text = "---\nname: nus-mode\ndescription: N.\n---\n" + line * 495
-        assert Skill(self.MODE, File(text.encode())).problems() == []
+        assert Skill(self.MODE, File(text.encode()), Kind.MODE).problems() == []

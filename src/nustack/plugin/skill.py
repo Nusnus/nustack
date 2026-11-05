@@ -2,7 +2,8 @@
 
 Its folder name gives its kind, which decides the frontmatter it holds and so how
 hosts load it. Its name matches its folder, and its `SKILL.md` reads as UTF-8 and
-stays under the line limit.
+stays under the line limit. A vendored skill keeps only what hosts need to load
+it, since nustack's authors write none of it.
 """
 
 import difflib
@@ -38,16 +39,20 @@ from nustack.validation import Schema
 
 
 class Kind(StrEnum):
-    """What a skill is to the plugin: the mode, or a skill the mode reads as a file."""
+    """What a skill is to the plugin: the mode, a file the mode reads, or vendored.
+
+    A record names a vendored skill, whatever its folder's name.
+    """
 
     MODE = "mode"
     PRINCIPLE = "principle"
     LANGUAGE = "language"
+    VENDORED = "vendored"
 
     @property
     def prefix(self) -> str | None:
         match self:
-            case Kind.MODE:
+            case Kind.MODE | Kind.VENDORED:
                 return None
             case Kind.PRINCIPLE:
                 return "principle-"
@@ -57,7 +62,7 @@ class Kind(StrEnum):
                 assert_never(unexpected)
 
     @property
-    def section(self) -> str | None:
+    def index_heading(self) -> str | None:
         match self:
             case Kind.MODE:
                 return None
@@ -65,6 +70,8 @@ class Kind(StrEnum):
                 return "Principles"
             case Kind.LANGUAGE:
                 return "Languages"
+            case Kind.VENDORED:
+                return None
             case unexpected:
                 assert_never(unexpected)
 
@@ -84,14 +91,22 @@ class Kind(StrEnum):
         )
 
 
-class Frontmatter(BaseModel):
-    """The frontmatter of a `SKILL.md`, as every host reads it."""
+class HostFrontmatter(BaseModel):
+    """The frontmatter fields every host needs to load a `SKILL.md`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # The Agent Skills limits: https://agentskills.io/specification
+    NAME_LENGTH: ClassVar[int] = 64
+    name: str = Field(pattern=Pattern.NAME.value, max_length=NAME_LENGTH)
+    description: str = Field(pattern=Pattern.NON_BLANK.value, max_length=1024)
+
+
+class Frontmatter(HostFrontmatter):
+    """The frontmatter of a `SKILL.md` nustack's authors write, as hosts read it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    # The Agent Skills limits: https://agentskills.io/specification
-    name: str = Field(pattern=Pattern.NAME.value, max_length=64)
-    description: str = Field(pattern=Pattern.NON_BLANK.value, max_length=1024)
     # None leaves the field to each host's default.
     disable_model_invocation: StrictBool | None = Field(
         default=None, alias="disable-model-invocation"
@@ -127,18 +142,16 @@ class Skill:
     """A skill folder, and the text of its `SKILL.md` when that reads as UTF-8."""
 
     FILE: ClassVar[str] = "SKILL.md"
+    LICENSE: ClassVar[str] = "LICENSE"
     MAX_LINES: ClassVar[int] = 500
     TYPO_SIMILARITY: ClassVar[float] = 0.8
     folder: Path
     read: Read
+    kind: Kind
 
     @property
     def name(self) -> str:
         return self.folder.name
-
-    @property
-    def kind(self) -> Kind:
-        return Kind.of(self.name)
 
     @property
     def path(self) -> Path:
@@ -186,21 +199,21 @@ class Skill:
                 assert_never(unexpected)
         if self.document is None:
             return problems
-        match self.read_frontmatter(self.document):
-            case tuple() as refused:
-                problems += refused
-            case frontmatter:
-                if frontmatter.name != self.name:
-                    problems.append(
-                        Problem(
-                            self.path,
-                            f"name differs from its folder {self.name!r}; "
-                            "use one name for both",
-                        )
-                    )
-                problems += self.invocation_problems(frontmatter)
+        match self.kind:
+            case Kind.VENDORED:
+                # name_problems finds nothing in a vendored skill, so = and += agree.
+                problems += self.frontmatter_problems(  # pragma: no mutate
+                    self.read_frontmatter(self.document, HostFrontmatter)
+                )
+            case Kind.MODE | Kind.PRINCIPLE | Kind.LANGUAGE as kind:
+                frontmatter = self.read_frontmatter(self.document, Frontmatter)
+                problems += self.frontmatter_problems(frontmatter)
+                if isinstance(frontmatter, Frontmatter):
+                    problems += self.invocation_problems(kind, frontmatter)
+            case unexpected:
+                assert_never(unexpected)
         lines = len(self.document.text_lines)
-        if lines >= self.MAX_LINES:
+        if lines >= self.MAX_LINES and self.kind is not Kind.VENDORED:
             problems.append(
                 Problem(
                     self.path,
@@ -222,15 +235,36 @@ class Skill:
             )
         ]
 
-    def invocation_problems(self, frontmatter: Frontmatter) -> list[Problem]:
-        match self.kind:
+    def frontmatter_problems(
+        self, frontmatter: HostFrontmatter | tuple[Problem, ...]
+    ) -> list[Problem]:
+        match frontmatter:
+            case tuple() as refused:
+                return list(refused)
+            case HostFrontmatter(name=name) if name != self.name:
+                return [
+                    Problem(
+                        self.path,
+                        f"name differs from its folder {self.name!r}; "
+                        "use one name for both",
+                    )
+                ]
+            case _:
+                return []
+
+    def invocation_problems(
+        self,
+        kind: Literal[Kind.MODE, Kind.PRINCIPLE, Kind.LANGUAGE],
+        frontmatter: Frontmatter,
+    ) -> list[Problem]:
+        match kind:
             case Kind.PRINCIPLE | Kind.LANGUAGE:
                 if frontmatter.hidden_from_model:
                     return []
                 return [
                     Problem(
                         self.path,
-                        f"a {self.kind} skill needs disable-model-invocation: true"
+                        f"a {kind} skill needs disable-model-invocation: true"
                         " and triggers: [user]; set both in its frontmatter",
                     )
                 ]
@@ -248,7 +282,9 @@ class Skill:
             case unexpected:
                 assert_never(unexpected)
 
-    def read_frontmatter(self, document: Document) -> Frontmatter | tuple[Problem, ...]:
+    def read_frontmatter[M: HostFrontmatter](
+        self, document: Document, model: type[M]
+    ) -> M | tuple[Problem, ...]:
         try:
             block = FrontmatterBlock.of(document.text)
             if block is None:
@@ -264,9 +300,9 @@ class Skill:
         except InvalidFrontmatterError as error:
             return self.invalid_frontmatter(error.reasons)
         try:
-            return Frontmatter.model_validate(fields)
+            return model.model_validate(fields)
         except ValidationError as error:
-            return self.invalid_frontmatter([Schema(Frontmatter).reason(error)])
+            return self.invalid_frontmatter([Schema(model).reason(error)])
 
     def invalid_frontmatter(self, reasons: Iterable[str]) -> tuple[Problem, ...]:
         return tuple(

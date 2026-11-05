@@ -1,9 +1,10 @@
 """A repository read from disk once, into the snapshot every check decides on.
 
-The plugin folder is scanned without following a symlink; a symlink, or a folder
-the disk will not list, leaves only those entries, so no check sees part of the
-tree. Each file released beside the plugin reads as its kind, and the harness's
-sources and tests as their paths beside each folder that would not list. A refusal
+The plugin folder, and each skill folder a vendored copy's record names, is scanned
+without following a symlink; a symlink, or a folder the disk will not list, leaves
+only those entries, so no check sees part of the tree. Each file released beside
+the plugin, and each record, reads as its kind, and the harness's sources and tests
+as their paths beside each folder that would not list. A refusal
 keeps the disk's reason, and a path that a file, a shut folder or a symlink loop
 blocks names what blocks it.
 """
@@ -14,7 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 
+from nustack.plugin.plugin import Plugin
+from nustack.record import CopyRecord
 from nustack.repository.repository import Repository
+from nustack.repository.vendored import VendoredCopies
 from nustack.tree import Blocked
 from nustack.tree import Entry
 from nustack.tree import File
@@ -39,16 +43,75 @@ class Disk:
     def snapshot(self) -> Snapshot:
         sources, unlisted_sources = self.listing(Repository.SOURCES)
         tests, unlisted_tests = self.listing(Repository.TESTS)
+        listed, unlisted_records = self.listing(CopyRecord.FOLDER)
+        records = frozendict(
+            (path, self.read_record(self.root / path))
+            for path in sorted({*listed, *self.globbed(CopyRecord.FOLDER)})
+        )
+        copied = self.skill_folders(records)
+        listings = [
+            self.listing(folder)
+            for folder in VendoredCopies.DESTINATIONS
+            if not folder.is_relative_to(Plugin.FOLDER)
+        ]
+        # A symlink holds no file of its own, so it marks no leftover copy.
+        destination_files = tuple(
+            path
+            for files, _ in listings
+            for path in files
+            if not (self.root / path).is_symlink()
+        )
+        # Each copy's own tree names a folder in it that will not open.
+        unlisted_destinations = {
+            path: unopened
+            for _, unlisted in listings
+            for path, unopened in unlisted.items()
+            if not any(path.is_relative_to(copy) for copy in copied)
+        }
         return Snapshot(
             self.root,
-            self.tree(self.root / Repository.PLUGIN),
+            self.tree(self.root / Plugin.FOLDER),
             frozendict(
                 (path, self.read(self.root / path)) for path in Repository.FILES
             ),
             sources,
             tests,
-            frozendict(sorted((unlisted_sources | unlisted_tests).items())),
+            frozendict(
+                sorted(
+                    (
+                        unlisted_sources
+                        | unlisted_tests
+                        | unlisted_records
+                        | unlisted_destinations
+                    ).items()
+                )
+            ),
+            records,
+            frozendict(
+                (folder, self.tree(self.root / folder)) for folder in sorted(copied)
+            ),
+            destination_files,
         )
+
+    # Only the folders a valid record names in a destination are read. Each record
+    # is parsed again, beside Repository.record_readings, on purpose: Disk reads
+    # bytes and never Problems, so the snapshot it returns, like the model
+    # repository's, holds the records unparsed, and the check names each record it
+    # cannot read from that snapshot alone.
+    @staticmethod
+    def skill_folders(records: frozendict[PurePosixPath, Read]) -> set[PurePosixPath]:
+        folders: set[PurePosixPath] = set()
+        for path, read in records.items():
+            # The folders drop each Problem, so the path and fix it names never show.
+            reading = CopyRecord.reading(  # pragma: no mutate
+                Path(), path, read, CopyRecord.MISSING
+            )
+            if (
+                isinstance(reading, CopyRecord)
+                and reading.folder in VendoredCopies.DESTINATIONS
+            ):
+                folders |= set(reading.skill_folders)
+        return folders
 
     def tree(self, root: Path) -> Tree:
         if (unusable := self.unusable_root(root)) is not None:
@@ -100,6 +163,16 @@ class Disk:
         if not stat.S_ISDIR(mode):
             return NotAFolder()
         return None
+
+    # The sync workflow's glob follows a symlink, so a record, like the plugin, is
+    # read only where it and its folder are themselves.
+    @classmethod
+    def read_record(cls, path: Path) -> Read:
+        if path.parent.is_symlink():
+            return Unreadable.since(path.parent, CopyRecord.FOLDER_SYMLINK)
+        if path.is_symlink():
+            return Unreadable(CopyRecord.SYMLINK)
+        return cls.read(path)
 
     @classmethod
     def read(cls, path: Path) -> Read:
@@ -166,6 +239,14 @@ class Disk:
                 if (parent / name).is_file()
             ]
         return tuple(sorted(files)), unlisted
+
+    # The sync workflow globs <folder>/*.json, so it reaches an entry there that is
+    # no regular file too, which the check then reads and reports.
+    def globbed(self, folder: PurePosixPath) -> tuple[PurePosixPath, ...]:
+        return tuple(
+            self.inside(self.root, path)
+            for path in (self.root / folder).glob(f"*{CopyRecord.SUFFIX}")
+        )
 
     @staticmethod
     def inside(root: Path, path: Path) -> PurePosixPath:

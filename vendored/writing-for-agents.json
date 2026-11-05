@@ -1,0 +1,15 @@
+{
+  "upstream": "https://github.com/mattpocock/skills",
+  "source": "skills/productivity",
+  "folder": ".agents/skills",
+  "skills": [
+    "writing-for-agents"
+  ],
+  "commit": "1bb95954ef0d06ba4d64a9c267fb75f57c614a1f",
+  "files": {
+    "writing-for-agents/LICENSE": "f1dd2c09108dde1a5f56097cee8461b3ea834499",
+    "writing-for-agents/SKILL-MECHANICS.md": "9cdbdb22aadc438755392216e75ad9a14cc9832e",
+    "writing-for-agents/SKILL.md": "a37608daf6e835e767deecfb498facecaaba82ba",
+    "writing-for-agents/agents/openai.yaml": "079c933b75743dec18b5d0c01006def20b6aad26"
+  }
+}

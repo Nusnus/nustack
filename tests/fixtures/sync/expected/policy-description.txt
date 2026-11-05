@@ -1,21 +1,21 @@
 <!-- Follow plugin/skills/principle-pr-descriptions/SKILL.md, keeping only the parts it calls for in this change. -->
 
-**Copies [writing-for-agents at 4aaccb5](https://github.com/mattpocock/skills/tree/4aaccb58d40559d7e3c59a029b2290ae5ba538de/skills/productivity/writing-for-agents) into `.agents/skills/writing-for-agents/`** for the owner to review before it steers how agents word nustack's docs.
+**Copies [writing-for-agents at 4aaccb5](https://github.com/mattpocock/skills/tree/4aaccb58d40559d7e3c59a029b2290ae5ba538de/skills/productivity) into `.agents/skills/`** for the owner to review before it steers how agents work on nustack.
 
 | Fact | Detail |
 | :-- | :-- |
-| **Feedback wanted** | Whether to accept this copy as wording guidance for nustack |
+| **Feedback wanted** | Whether to accept this copy, which steers how agents work on nustack |
 | ✅ **[Copy](#copy)** | Compared the base copy with upstream's at its head, including modes and LICENSE: 0 added, 1 changed, 0 removed. |
-| ⚠️ **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: ` agents/openai.yaml ` changed ⚠️ a loading field changed. |
+| ⚠️ **Terms and loading** | LICENSE: unchanged. SKILL.md frontmatter: unchanged. agents/ policy files: ` writing-for-agents/agents/openai.yaml ` changed ⚠️ a loading field changed. |
 | ⚠️ **[CI](#checks)** | Approve this pull request's workflows if prompted; see the linked runs for results. |
 | **Risk** | The copy is untrusted. The owner clears each review finding; a passing check does not clear it. |
 
 ## 👀 Where to look
 
-[Compare upstream from `b405fe0` to `4aaccb5`](https://github.com/mattpocock/skills/compare/b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243...4aaccb58d40559d7e3c59a029b2290ae5ba538de). The start is the newest first-parent path revision matching the base copy, not a recorded sync SHA.
+[Compare upstream from `b405fe0` to `4aaccb5`](https://github.com/mattpocock/skills/compare/b405fe0a2e5550bb7f54d6c7b44ba7cd251a5243...4aaccb58d40559d7e3c59a029b2290ae5ba538de). The start is the commit the base's record names.
 
 <details>
-<summary>Upstream commits touching the skill or repository LICENSE (1)</summary>
+<summary>Upstream commits touching the skills or repository LICENSE (1)</summary>
 
 - [`4aaccb5`](https://github.com/mattpocock/skills/commit/4aaccb58d40559d7e3c59a029b2290ae5ba538de) ` fix: make writing-for-agents model-invokable in Codex `
 
@@ -24,21 +24,23 @@
 <details>
 <summary>Changed files under the copy (1)</summary>
 
-- ` agents/openai.yaml `: changed, +2/-4 lines
+- ` writing-for-agents/agents/openai.yaml `: changed, +2/-4 lines
 
 </details>
+
+**New upstream skills the record does not list (0).**
 
 **New outside CommonMark targets by file (0).**
 
 <details>
 <summary>Lines to inspect (6; - base, + copy)</summary>
 
-- ` - agents/openai.yaml:2 ` `   display_name: "Writing Great Skills" `
-- ` - agents/openai.yaml:3 ` `   short_description: "Principles for predictable skills" `
-- ` - agents/openai.yaml:4 ` ` policy: `
-- ` - agents/openai.yaml:5 ` `   allow_implicit_invocation: false `
-- ` + agents/openai.yaml:2 ` `   display_name: "Writing for Agents" `
-- ` + agents/openai.yaml:3 ` `   short_description: "Write documents agents consume" `
+- ` - writing-for-agents/agents/openai.yaml:2 ` `   display_name: "Writing Great Skills" `
+- ` - writing-for-agents/agents/openai.yaml:3 ` `   short_description: "Principles for predictable skills" `
+- ` - writing-for-agents/agents/openai.yaml:4 ` ` policy: `
+- ` - writing-for-agents/agents/openai.yaml:5 ` `   allow_implicit_invocation: false `
+- ` + writing-for-agents/agents/openai.yaml:2 ` `   display_name: "Writing for Agents" `
+- ` + writing-for-agents/agents/openai.yaml:3 ` `   short_description: "Write documents agents consume" `
 
 </details>
 

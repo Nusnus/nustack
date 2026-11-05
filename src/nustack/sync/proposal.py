@@ -20,7 +20,7 @@ from nustack.sync.action import action
 from nustack.sync.description import SyncDescription
 lazy from nustack.github.gh import GitHub
 lazy from nustack.github.name import NameWithOwner
-lazy from nustack.github.name import RepositoryUrl
+lazy from nustack.record import CopyRecord
 lazy from nustack.sync.git import CopyGit
 
 
@@ -34,13 +34,16 @@ class Proposal:
 
     def propose(
         self,
-        upstream_url: RepositoryUrl,
+        copy: str,
+        record: CopyRecord,
         checkout_git: CopyGit,
         github: GitHub,
         body: str,
     ) -> str | Problem:
-        upstream_name_with_owner = upstream_url.name_with_owner
-        title = f"docs: sync writing-for-agents from {upstream_name_with_owner}"
+        upstream_name_with_owner = record.upstream.name_with_owner
+        # A copy in the plugin changes what users get; any other steers agents.
+        kind = "feat" if record.in_plugin else "docs"
+        title = f"{kind}: sync {copy} from {upstream_name_with_owner}"
         match github.open_pulls(self.base, self.branch):
             case ():
                 pull = None
@@ -72,8 +75,8 @@ class Proposal:
                 # https://github.com/cli/cli/blob/v2.103.3/pkg/cmd/pr/close/close.go#L80-L109
                 github.close_pull(
                     number,
-                    f"{upstream_name_with_owner}'s writing-for-agents matches the copy"
-                    f" on {self.base} again, so this sync proposes nothing.",
+                    f"{upstream_name_with_owner}'s {copy} matches the copy on"
+                    f" {self.base} again, so this sync proposes nothing.",
                 )
                 checkout_git.withdraw(self.remote_url, self.branch)
                 return (
@@ -88,23 +91,27 @@ class Proposal:
                     f" {self.base}'s head."
                 )
             case Open():
-                self.push(checkout_git, upstream_name_with_owner, title)
+                self.push(checkout_git, copy, upstream_name_with_owner, title)
                 github.create_pull(self.base, self.branch, title, body)
                 return f"Opened a pull request proposing {self.branch} for {self.base}."
             case Update(number):
-                self.push(checkout_git, upstream_name_with_owner, title)
+                self.push(checkout_git, copy, upstream_name_with_owner, title)
                 github.edit_pull(number, body)
                 return f"Updated pull request #{number} with the new copy."
             case unexpected:
                 assert_never(unexpected)
 
     def push(
-        self, checkout_git: CopyGit, upstream_name_with_owner: NameWithOwner, title: str
+        self,
+        checkout_git: CopyGit,
+        copy: str,
+        upstream_name_with_owner: NameWithOwner,
+        title: str,
     ) -> None:
         checkout_git.push(
             self.remote_url,
             self.branch,
             title,
-            "Copies the newest writing-for-agents skill from"
-            f" {upstream_name_with_owner} main.",
+            f"Copies the newest {copy} from {upstream_name_with_owner}'s default"
+            " branch.",
         )

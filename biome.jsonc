@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   // Biome checks every TypeScript file kind tsc reads, and skips dot-files and dot-folders as tsc
-  // does, so it never rewrites the writing-for-agents copy the sync proposes byte for byte.
+  // does, so it never rewrites the writing-for-agents copy the sync proposes byte for byte. The
+  // vendored skill folders under plugin/skills/ hold no TypeScript file, so neither tool reads them;
+  // a TypeScript file a sync adds there shows in its pull request, which review holds as REVIEW.md says.
   // tsc's rule:
   // https://github.com/microsoft/typescript-go/blob/typescript/v7.0.2/internal/vfs/vfsmatch/MATCHING_ALGORITHM.md?plain=1#L424-L425
   "files": { "includes": ["**/*.{ts,tsx,mts,cts}", "!!**/.*"] },

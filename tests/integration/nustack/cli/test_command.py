@@ -15,8 +15,6 @@ from nustack.cli.command import publish
 from nustack.cli.command import release_tag
 from nustack.cli.command import sync as sync_command
 from nustack.cli.command import sync_description
-from nustack.github.name import NameWithOwner
-from nustack.github.name import RepositoryUrl
 from nustack.release.tag import Tag
 from nustack.sha import Sha
 from nustack.sync.description import SyncLinks
@@ -32,30 +30,64 @@ lazy from tests.fixtures.sync.repositories import Sync
 class TestSyncDescriptionCommand:
     """A person gets the body sync would publish, or a Problem and no body.
 
-    A clone that is no Git repository, or a body too large for GitHub, stops it.
+    A clone or checkout that is no Git repository, a record the check refuses, a
+    skill upstream no longer holds, or a body too large for GitHub, stops it.
     """
 
-    LINKS = SyncLinks(
-        RepositoryUrl("x.io", NameWithOwner("up", "skills")),
-        "https://x.io/run",
-        "https://x.io/checks",
-    )
+    LINKS = SyncLinks("https://x.io/run", "https://x.io/checks")
 
     def test_prints_the_description_of_the_upstream_change(
         self, sync: Sync, capsys: pytest.CaptureFixture[str], repository_root: Path
     ) -> None:
         sync_description(
-            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
             clone=sync.upstream.root,
-            source_folder=sync.SOURCE_FOLDER,
-            folder=sync.FOLDER,
+            record=sync.RECORD,
             root=sync.checkout.root,
         )
         expected = repository_root / "tests/fixtures/sync/expected/description.txt"
         output = capsys.readouterr()
         assert (output.out, output.err) == (expected.read_text(), "")
+
+    def test_lists_a_skill_upstream_added_after_the_last_copied_change(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str], repository_root: Path
+    ) -> None:
+        sync.upstream.write(f"{sync.SOURCE}/new/SKILL.md", "new\n")
+        sync.upstream.commit("add a skill")
+        sync_description(
+            run=self.LINKS.run,
+            checks=self.LINKS.checks,
+            clone=sync.upstream.root,
+            record=sync.RECORD,
+            root=sync.checkout.root,
+        )
+        expected = (
+            repository_root / "tests/fixtures/sync/expected/description-new-skill.txt"
+        )
+        output = capsys.readouterr()
+        assert (output.out, output.err) == (expected.read_text(), "")
+
+    def test_says_nothing_is_proposed_when_the_copy_matches_upstream(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        files = {"LICENSE": b"MIT\n", "SKILL.md": b"new\n", "tool": b""}
+        for path, data in files.items():
+            sync.checkout.write(f"{Sync.COPY}/{path}", data.decode())
+        (sync.checkout.root / Sync.COPY / "tool").chmod(0o755)
+        sync.checkout.write(sync.RECORD, Sync.record_of(sync.second, files).text)
+        sync.checkout.commit("synced")
+        sync_description(
+            run=self.LINKS.run,
+            checks=self.LINKS.checks,
+            clone=sync.upstream.root,
+            record=sync.RECORD,
+            root=sync.checkout.root,
+        )
+        assert capsys.readouterr() == (
+            "The copy matches upstream; the sync proposes nothing.\n",
+            "",
+        )
 
     def test_takes_each_option_by_its_flag(
         self,
@@ -69,18 +101,14 @@ class TestSyncDescriptionCommand:
             app(
                 [
                     "sync-description",
-                    "--upstream-url",
-                    "https://x.io/up/skills",
                     "--run",
                     "https://x.io/run",
                     "--checks",
                     "https://x.io/checks",
                     "--clone",
                     "upstream",
-                    "--source-folder",
-                    sync.SOURCE_FOLDER,
-                    "--folder",
-                    sync.FOLDER,
+                    "--record",
+                    sync.RECORD,
                     "--root",
                     "checkout",
                 ]
@@ -104,12 +132,10 @@ class TestSyncDescriptionCommand:
         monkeypatch.chdir(missing.parent)
         with pytest.raises(SystemExit) as caught:
             sync_description(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=Path("missing"),
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
+                record=sync.RECORD,
                 root=sync.checkout.root,
             )
         output = capsys.readouterr()
@@ -122,19 +148,43 @@ class TestSyncDescriptionCommand:
             ),
         )
 
-    def test_stops_at_a_description_too_large_for_github(
-        self, sync: Sync, capsys: pytest.CaptureFixture[str]
+    def test_stops_at_a_checkout_that_is_no_git_repository_naming_its_full_path(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
-        sync.upstream.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "nustack\n" * 9000)
-        sync.upstream.commit("third")
+        checkout = tmp_path / "plain"
+        for path in (sync.RECORD, ".github/pull_request_template.md"):
+            (checkout / path).parent.mkdir(parents=True, exist_ok=True)
+            (checkout / path).write_bytes((sync.checkout.root / path).read_bytes())
         with pytest.raises(SystemExit) as caught:
             sync_description(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
+                record=sync.RECORD,
+                root=checkout,
+            )
+        output = capsys.readouterr()
+        assert (caught.value.code, output.out, output.err) == (
+            1,
+            "",
+            (
+                f"{checkout}: git ls-tree exited 128; fix the cause Git printed above,"
+                " such as a missing clone or revision\n"
+            ),
+        )
+
+    def test_stops_on_a_skill_upstream_no_longer_holds_naming_its_full_path(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        sync.checkout.write(
+            sync.RECORD, Sync.record_of(sync.first, Sync.BASE, source="missing").text
+        )
+        with pytest.raises(SystemExit) as caught:
+            sync_description(
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=sync.upstream.root,
+                record=sync.RECORD,
                 root=sync.checkout.root,
             )
         output = capsys.readouterr()
@@ -142,8 +192,58 @@ class TestSyncDescriptionCommand:
             1,
             "",
             (
-                f"{sync.checkout.root}/copy: the sync description of this copy is"
-                " 307233 bytes, over the 65536 GitHub accepts; quote less in"
+                f"{sync.checkout.root}/{Sync.COPY}/SKILL.md: has no upstream"
+                " source; set the record's source to the upstream folder that holds"
+                " the skill's folder, rename the skill in the record's skills to"
+                " upstream's new name as AGENTS.md says, or drop the skill from the"
+                " record's skills\n"
+            ),
+        )
+
+    def test_stops_on_a_record_the_check_refuses_naming_its_full_path(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        sync.checkout.write(
+            sync.RECORD, Sync.record_of(sync.first, Sync.BASE, folder="copy").text
+        )
+        with pytest.raises(SystemExit) as caught:
+            sync_description(
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=sync.upstream.root,
+                record=sync.RECORD,
+                root=sync.checkout.root,
+            )
+        output = capsys.readouterr()
+        assert (caught.value.code, output.out, output.err) == (
+            1,
+            "",
+            (
+                f"{sync.checkout.root}/{Sync.RECORD}: folder: names no skills folder"
+                " a host reads; set it to .agents/skills or plugin/skills\n"
+            ),
+        )
+
+    def test_stops_at_a_description_too_large_for_github(
+        self, sync: Sync, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        sync.upstream.write(f"{sync.SOURCE_FOLDER}/SKILL.md", "nustack\n" * 9000)
+        sync.upstream.commit("third")
+        with pytest.raises(SystemExit) as caught:
+            sync_description(
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=sync.upstream.root,
+                record=sync.RECORD,
+                root=sync.checkout.root,
+            )
+        output = capsys.readouterr()
+        assert (caught.value.code, output.out, output.err) == (
+            1,
+            "",
+            (
+                f"{sync.checkout.root}/.agents/skills: the sync description of this"
+                " copy is 325263 bytes, over the 65536 GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change\n"
             ),
         )
@@ -158,11 +258,7 @@ class TestSyncCommand:
     reply no recording holds, such as an empty default branch, is the test's own.
     """
 
-    LINKS = SyncLinks(
-        RepositoryUrl("github.com", NameWithOwner("up", "skills")),
-        "https://x.io/run",
-        "#checks",
-    )
+    LINKS = SyncLinks("https://x.io/run", "#checks")
 
     @pytest.fixture
     def default_branch(self, gh: FakeGh, github_fixtures: Path) -> None:
@@ -185,13 +281,10 @@ class TestSyncCommand:
         )
         proposal = Proposal("main", "sync/w", remote_url)
         sync_command(
-            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
             clone=sync.upstream.root,
-            source_folder=sync.SOURCE_FOLDER,
-            folder=sync.FOLDER,
-            branch=proposal.branch,
+            record=sync.RECORD,
             remote_url=proposal.remote_url,
             name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
@@ -221,25 +314,19 @@ class TestSyncCommand:
         )
         gh.replay(*GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/one.json")
         sync_command(
-            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
             clone=sync.upstream.root,
-            source_folder=sync.SOURCE_FOLDER,
-            folder=sync.FOLDER,
-            branch="sync/w",
+            record=sync.RECORD,
             remote_url=remote_url,
             name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
         )
         sync_command(
-            upstream_url=self.LINKS.upstream_url,
             run=self.LINKS.run,
             checks=self.LINKS.checks,
             clone=sync.upstream.root,
-            source_folder=sync.SOURCE_FOLDER,
-            folder=sync.FOLDER,
-            branch="sync/w",
+            record=sync.RECORD,
             remote_url=remote_url,
             name_with_owner=GhArgv.REPOSITORY,
             root=sync.checkout.root,
@@ -247,6 +334,75 @@ class TestSyncCommand:
         assert capsys.readouterr().out.splitlines()[-1] == (
             "Closed pull request #267: the copy matches upstream again."
         )
+
+    @pytest.mark.usefixtures("default_branch")
+    def test_proposes_restoring_a_copy_that_drifted_from_a_record_of_upstreams_head(
+        self,
+        sync: Sync,
+        remote_url: str,
+        gh: FakeGh,
+        github_fixtures: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        sync.checkout.write(
+            Sync.RECORD,
+            Sync.record_of(
+                sync.second,
+                {"LICENSE": b"MIT\n", "SKILL.md": b"new\n", "tool": b""},
+            ).text,
+        )
+        sync.checkout.commit("drift")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
+        sync_command(
+            run=self.LINKS.run,
+            checks=self.LINKS.checks,
+            clone=sync.upstream.root,
+            record=sync.RECORD,
+            remote_url=remote_url,
+            name_with_owner=GhArgv.REPOSITORY,
+            root=sync.checkout.root,
+        )
+        assert (
+            capsys.readouterr().out,
+            sync.checkout.git("show", f"HEAD:{Sync.COPY}/SKILL.md"),
+        ) == ("Opened a pull request proposing sync/w for main.\n", "new\n")
+
+    @pytest.mark.usefixtures("default_branch")
+    def test_names_the_new_upstream_skills_when_it_proposes_nothing(
+        self,
+        sync: Sync,
+        remote_url: str,
+        gh: FakeGh,
+        github_fixtures: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        sync.upstream.write(f"{sync.SOURCE}/new/SKILL.md", "new\n")
+        sync.upstream.commit("add a skill")
+        gh.replay(
+            *GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/none.json"
+        )
+        gh.replay(*GhArgv.OPEN_PULLS, recording=github_fixtures / "open-pulls/one.json")
+        for _ in range(2):
+            sync_command(
+                run=self.LINKS.run,
+                checks=self.LINKS.checks,
+                clone=sync.upstream.root,
+                record=sync.RECORD,
+                remote_url=remote_url,
+                name_with_owner=GhArgv.REPOSITORY,
+                root=sync.checkout.root,
+            )
+        assert capsys.readouterr().out.splitlines()[-3:] == [
+            "Opened a pull request proposing sync/w for main.",
+            "Closed pull request #267: the copy matches upstream again.",
+            (
+                "Upstream holds skills the record does not list: new; add each one the"
+                " copy should hold to the skills of vendored/w.json. Each run names"
+                " them again until a sync records a commit that holds them."
+            ),
+        ]
 
     @pytest.mark.usefixtures("default_branch")
     def test_stops_on_a_gh_command_that_failed(
@@ -261,13 +417,10 @@ class TestSyncCommand:
         )
         with pytest.raises(SystemExit) as caught:
             sync_command(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
-                branch="sync/w",
+                record=sync.RECORD,
                 remote_url="remote",
                 name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
@@ -290,13 +443,10 @@ class TestSyncCommand:
         )
         with pytest.raises(SystemExit) as caught:
             sync_command(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
-                branch="sync/w",
+                record=sync.RECORD,
                 remote_url="remote",
                 name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
@@ -315,16 +465,16 @@ class TestSyncCommand:
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        sync.checkout.write(
+            sync.RECORD, Sync.record_of(sync.first, Sync.BASE, source="missing").text
+        )
         monkeypatch.chdir(sync.checkout.root.parent)
         with pytest.raises(SystemExit) as caught:
             sync_command(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source_folder="missing",
-                folder=sync.FOLDER,
-                branch="sync/w",
+                record=sync.RECORD,
                 remote_url="remote",
                 name_with_owner=GhArgv.REPOSITORY,
                 root=Path(sync.checkout.root.name),
@@ -332,8 +482,11 @@ class TestSyncCommand:
         assert (caught.value.code, capsys.readouterr().err) == (
             1,
             (
-                f"{sync.checkout.root}/copy/SKILL.md: has no upstream source; pass"
-                " --source-folder the skill's folder upstream\n"
+                f"{sync.checkout.root}/{Sync.COPY}/SKILL.md: has no upstream"
+                " source; set the record's source to the upstream folder that holds"
+                " the skill's folder, rename the skill in the record's skills to"
+                " upstream's new name as AGENTS.md says, or drop the skill from the"
+                " record's skills\n"
             ),
         )
 
@@ -344,13 +497,10 @@ class TestSyncCommand:
         gh.reply(*GhArgv.DEFAULT_BRANCH, stdout="\n")
         with pytest.raises(SystemExit) as caught:
             sync_command(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=sync.upstream.root,
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
-                branch="sync/w",
+                record=sync.RECORD,
                 remote_url="remote",
                 name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,
@@ -374,13 +524,10 @@ class TestSyncCommand:
         monkeypatch.chdir(missing.parent)
         with pytest.raises(SystemExit) as caught:
             sync_command(
-                upstream_url=self.LINKS.upstream_url,
                 run=self.LINKS.run,
                 checks=self.LINKS.checks,
                 clone=Path("missing"),
-                source_folder=sync.SOURCE_FOLDER,
-                folder=sync.FOLDER,
-                branch="sync/w",
+                record=sync.RECORD,
                 remote_url="remote",
                 name_with_owner=GhArgv.REPOSITORY,
                 root=sync.checkout.root,

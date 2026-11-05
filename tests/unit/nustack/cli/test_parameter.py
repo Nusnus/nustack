@@ -14,11 +14,9 @@ from nustack.cli.parameter import name_with_owner
 from nustack.cli.parameter import nonempty
 from nustack.cli.parameter import path
 from nustack.cli.parameter import path_text
-from nustack.cli.parameter import repository_url
 from nustack.cli.parameter import tag
 from nustack.cli.parameter import text
 from nustack.github.name import NameWithOwner
-from nustack.github.name import RepositoryUrl
 from nustack.release.tag import Tag
 from nustack.sha import Sha
 
@@ -34,29 +32,6 @@ class TestPath:
             typer.BadParameter, match=r"^give a path, not an empty string$"
         ):
             path("")
-
-
-class TestRepositoryUrl:
-    """A repository's URL reads as its type parses it; a refusal fails as given."""
-
-    def test_reads_the_host_and_the_name(self) -> None:
-        assert repository_url("https://github.com/o/r") == RepositoryUrl(
-            "github.com", NameWithOwner("o", "r")
-        )
-
-    def test_refuses_what_its_type_refuses(self) -> None:
-        with pytest.raises(typer.BadParameter) as caught:
-            repository_url("https://github.com/o")
-        assert str(caught.value) == (
-            "give the repository's URL as https://<host>/<owner>/<name>, with no user,"
-            " password, port, query or fragment"
-        )
-
-    def test_refuses_an_empty_value(self) -> None:
-        with pytest.raises(
-            typer.BadParameter, match=r"^give a value, not an empty string$"
-        ):
-            repository_url("")
 
 
 class TestNameWithOwner:
