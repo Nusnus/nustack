@@ -146,13 +146,21 @@ class Git:
             self.run("diff", "--name-only", "--no-renames", "-z", str(commit), "--"),
             self.run("ls-files", "--others", "--exclude-standard", "-z"),
         )
-        paths = {
-            PurePosixPath(path)
-            for listing in listings
-            for path in listing.decode(errors="surrogateescape").split("\0")
-            if path
-        }
-        return tuple(sorted(paths))
+        return tuple(sorted({path for listing in listings for path in paths(listing)}))
+
+    # Each untracked path Git ignores, by a .gitignore, .git/info/exclude or the user's
+    # excludes file; a folder it ignores stands for everything in it:
+    # https://git-scm.com/docs/git-ls-files#Documentation/git-ls-files.txt---directory
+    def ignored(self) -> frozenset[PurePosixPath]:
+        listing = self.run(
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        )
+        return frozenset(paths(listing))
 
     def run(
         self,
@@ -213,3 +221,12 @@ class Git:
             f"git {command} exited {status}; fix the cause Git printed above, such as"
             " a missing clone or revision",
         )
+
+
+# A listing Git writes with -z, whatever bytes name each path.
+def paths(listing: bytes) -> tuple[PurePosixPath, ...]:
+    return tuple(
+        PurePosixPath(path)
+        for path in listing.decode(errors="surrogateescape").split("\0")
+        if path
+    )

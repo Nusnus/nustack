@@ -1,5 +1,6 @@
-"""nustack's sync, mutants and release commands, on real Git repositories and a fake gh.
+"""nustack's bundle, sync, mutants and release commands, on real Git and a fake gh.
 
+The bundle command checks and zips the plugin without the files Git ignores.
 sync-description, a command a person runs by hand, prints the body the sync command
 would publish, or a Problem. The sync command opens, updates or closes its pull request,
 the mutants command readies mutmut's folder from what changed since its full run, and
@@ -15,6 +16,7 @@ from datetime import UTC
 from datetime import datetime
 from datetime import tzinfo
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
@@ -38,6 +40,94 @@ from tests.fixtures.permissions import SKIP_AS_ROOT
 from tests.fixtures.repository import ModelRepository
 lazy from tests.fixtures.gh import FakeGh
 lazy from tests.fixtures.sync.repositories import Sync
+
+
+class TestBundleCommand:
+    """The check, and so the zip, leaves out each file Git ignores, and only those.
+
+    A file Git ignores, such as a .DS_Store Finder leaves, stays out of the check
+    and the zip, while the same file Git does not ignore stops both, and a clone Git
+    cannot list stops them naming the fix.
+    """
+
+    @pytest.fixture
+    def checkout(self, tmp_path: Path) -> GitRepository:
+        checkout = GitRepository(ModelRepository(tmp_path / "repository").save())
+        checkout.git("init", "-q", "-b", "main")
+        checkout.commit("base")
+        checkout.write("plugin/.DS_Store", "\0")
+        checkout.write("plugin/skills/.DS_Store", "\0")
+        return checkout
+
+    def test_zips_the_plugin_without_the_files_git_ignores(
+        self,
+        checkout: GitRepository,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        checkout.write(".git/info/exclude", ".DS_Store\n")
+        zip_folder = tmp_path / "dist"
+        with pytest.raises(SystemExit) as caught:
+            _ = app(
+                [
+                    "bundle",
+                    "--root",
+                    str(checkout.root),
+                    "--zip-folder",
+                    str(zip_folder),
+                ]
+            )
+        with ZipFile(zip_folder / "kit-1.2.3.zip") as archive:
+            names = archive.namelist()
+        assert (
+            caught.value.code,
+            capsys.readouterr(),
+            ".DS_Store" in names,
+            "skills/.DS_Store" in names,
+        ) == (0, (f"{zip_folder}/kit-1.2.3.zip\n", ""), False, False)
+
+    def test_refuses_the_files_git_does_not_ignore(
+        self,
+        checkout: GitRepository,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        zip_folder = tmp_path / "dist"
+        with pytest.raises(SystemExit) as caught:
+            _ = app(
+                [
+                    "bundle",
+                    "--root",
+                    str(checkout.root),
+                    "--zip-folder",
+                    str(zip_folder),
+                ]
+            )
+        assert (caught.value.code, capsys.readouterr().err, zip_folder.exists()) == (
+            1,
+            (
+                f"{checkout.root}/plugin/.DS_Store: is not Markdown; remove it or move"
+                " it out of the plugin\n"
+                f"{checkout.root}/plugin/skills/.DS_Store: is not Markdown; remove it"
+                " or move it out of the plugin\n"
+            ),
+            False,
+        )
+
+    def test_stops_where_git_cannot_list_the_files_it_ignores(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = ModelRepository(tmp_path / "repository").save()
+        (root / ".git").write_text("")
+        with pytest.raises(SystemExit) as caught:
+            _ = app(["bundle", "--root", str(root), "--zip-folder", str(tmp_path)])
+        assert (caught.value.code, capsys.readouterr().err) == (
+            1,
+            (
+                f"{root}: git ls-files exited 128; fix the cause Git printed above,"
+                " such as a missing clone or revision\n"
+            ),
+        )
 
 
 @pytest.mark.usefixtures("template")

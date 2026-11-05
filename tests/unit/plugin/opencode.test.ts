@@ -772,7 +772,8 @@ describe("plugin", () => {
     const cleanup = await plugin.setup({ ...registry.context, session, storage: new FakeStorage() })
     const hooks = [...session.hooks.keys()].sort()
     await cleanup()
-    const shipped = await readdir(SKILLS.path)
+    const entries = await readdir(SKILLS.path, { withFileTypes: true })
+    const shipped = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
     expect([
       [...registry.skills.keys()].sort(),
       hooks,

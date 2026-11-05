@@ -8,7 +8,9 @@ class TestRule:
 
     def test_lists_each_once_in_the_help(self) -> None:
         assert Rule.help() == (
-            "Hold the repository to these rules:\n"
+            "Hold the repository to these rules, where each folder the check reads"
+            " leaves out the untracked files Git ignores in it, which the check and"
+            " the zip skip:\n"
             "\n"
             "- the host manifests agree in every field, plugin/package.json holds"
             " their name and version, and pyproject.toml their version; each"

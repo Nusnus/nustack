@@ -72,6 +72,8 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - `nustack sync` and `nustack sync-description` stop with the fix when Git names a commit by other than its SHA-1, as in a SHA-256 repository, where they took the name as a SHA.
   - `nustack check` refuses a release workflow whose `%YAML 1.1` directive reads `on` as true with the fix, where it said to add `on`, and its warning of a YAML 1.1 float with no dot names the file.
   - `nustack publish` says to push a tag again only where GitHub finds no such tag, and passes on gh's other failures to read it as they are.
+  - `nustack check`, and each command that runs it or reads a vendored copy, such as `notes`, `bundle`, `bump` and `sync`, skips each untracked file Git ignores inside the folders the check reads, such as a `.DS_Store` Finder leaves in `plugin/` or a vendored copy, where it refused it, which failed `make check` and stalled `nustack bump`. The release zip leaves such a file out, and an untracked file Git does not ignore is still refused.
+  - `make check` passes on a machine whose user or system Git config ignores a file in `plugin/`, such as a `.DS_Store` Finder leaves: the integration tests run Git with only the repository's config and excludes, and the OpenCode loader's test expects only the skill folders in `plugin/skills/`.
 
 ## [0.0.2] - 2026-11-04
 

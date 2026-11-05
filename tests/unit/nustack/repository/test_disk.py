@@ -42,12 +42,43 @@ class TestDisk:
     A listing of a missing folder, or of a file in a folder's place, holds nothing,
     a folder it cannot open is listed as such, and a listing holds each path that is
     a regular file or links to one, leaving out caches.
+
+    Every scan and listing leaves out each path Git ignores, and nothing under a
+    folder it ignores; outside a Git repository, Git ignores nothing.
     """
 
     def test_reads_what_the_model_repository_holds(
         self, repository: ModelRepository
     ) -> None:
         assert Disk(repository.save()).snapshot() == repository.snapshot()
+
+    def test_reads_nothing_git_ignores(self, repository: ModelRepository) -> None:
+        root = repository.save()
+        for path in (
+            "plugin/.DS_Store",
+            ".agents/skills/vendored/.DS_Store",
+            "src/.DS_Store",
+            "tests/cache/a.py",
+            "vendored/old.json/a.json",
+        ):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_bytes(b"\0")
+        (root / "plugin/skills/cache").mkdir()
+        (root / "plugin/skills/cache/a").symlink_to(root / "README.md")
+        ignored = frozenset(
+            {
+                PurePosixPath("plugin/.DS_Store"),
+                PurePosixPath("plugin/skills/cache"),
+                PurePosixPath(".agents/skills/vendored/.DS_Store"),
+                PurePosixPath("src/.DS_Store"),
+                PurePosixPath("tests/cache"),
+                PurePosixPath("vendored/old.json"),
+            }
+        )
+        assert Disk(root, ignored).snapshot() == repository.snapshot()
+
+    def test_ignores_nothing_outside_a_git_repository(self, tmp_path: Path) -> None:
+        assert Disk.of(tmp_path) == Disk(tmp_path)
 
     def test_reads_no_record_through_a_symlinked_records_folder(
         self, repository: ModelRepository

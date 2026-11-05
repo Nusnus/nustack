@@ -1,9 +1,10 @@
 """Git answers from the repository it was given, whatever the caller's Git points at.
 
 It says whether one commit is an ancestor of another, whether the clone holds a
-commit, and which paths changed since one, passes input and options through, and a
-failed command, a command that outlasts its time limit, a missing repository or a
-head Git names by other than its SHA-1 stops with a Problem naming the fix.
+commit, which paths changed since one and which untracked paths it ignores, passes
+input and options through, and a failed command, a command that outlasts its time
+limit, a missing repository or a head Git names by other than its SHA-1 stops with a
+Problem naming the fix.
 """
 
 import os
@@ -23,17 +24,20 @@ lazy from tests.fixtures.sync.repositories import Sync
 class TestGit:
     """Answers from its own repository, and fails with a Problem naming the fix.
 
-    A listing of the variables Git calls local that outlasts its time limit stops,
-    and the caller's other variables reach Git. A head Git names by other than its
-    SHA-1 fails. Git tells an ancestor from a commit that is not one, and a revision
-    an ancestry check cannot read fails. Git tells a commit the clone holds from one
-    it lacks, failing outside a repository, reads a file at a commit, or none where the
+    A listing of the variables Git calls local that outlasts its time limit stops, and
+    the caller's other variables reach Git. A head Git names by other than its SHA-1
+    fails. Git tells an ancestor from a commit that is not one, and a revision an
+    ancestry check cannot read fails. Git tells a commit the clone holds from one it
+    lacks, failing outside a repository, reads a file at a commit, or none where the
     commit lacks it, failing outside a repository, and lists each path changed since a
-    commit, staged, unstaged, moved or untracked, whatever bytes name it, but
-    those it ignores. run gives Git no input by default, passes input and
-    variables, and fails naming the next step; status returns the exit status, also
-    giving no input by default. A missing repository, and a fetch, push, remote
-    listing, blob read or commit that outlasts its time limit, fails naming the fix.
+    commit, staged, unstaged, moved or untracked, whatever bytes name it, but those it
+    ignores. It lists each untracked path it ignores, by a .gitignore, .git/info/exclude
+    or the user's excludes file and whatever bytes name it, a folder it ignores as one
+    path, and no tracked path, however it matches. run gives Git no input by default,
+    passes input and variables, and fails naming the next step; status returns the exit
+    status, also giving no input by default. A missing repository, and a fetch, push,
+    remote listing, blob read or commit that outlasts its time limit, fails naming the
+    fix.
     """
 
     @pytest.mark.usefixtures("stalling")
@@ -221,6 +225,31 @@ class TestGit:
             PurePosixPath("renamed"),
             PurePosixPath("\udcff"),
         )
+
+    def test_lists_each_untracked_path_it_ignores_and_a_whole_folder_as_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repository = GitRepository.init(tmp_path / "repository")
+        repository.write(".gitignore", "*.tmp\ncache/\nforced\n")
+        repository.write("forced", "")
+        repository.git("add", "-f", "forced")
+        repository.commit("base")
+        repository.write(".git/info/exclude", ".DS_Store\n")
+        (tmp_path / "config/git").mkdir(parents=True)
+        (tmp_path / "config/git/ignore").write_text("*.swp\n")
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        repository.write("a/.DS_Store", "")
+        repository.write("a/b.swp", "")
+        repository.write("cache/b", "")
+        repository.write("cache/c/d", "")
+        repository.write("a/kept", "")
+        (repository.root / os.fsdecode(b"\xff.tmp")).write_text("")
+        assert Git(repository.root).ignored() == {
+            PurePosixPath("a/.DS_Store"),
+            PurePosixPath("a/b.swp"),
+            PurePosixPath("cache"),
+            PurePosixPath("\udcff.tmp"),
+        }
 
     def test_gives_run_no_input_by_default(self, sync: Sync) -> None:
         output = Git(sync.upstream.root).run("hash-object", "--stdin")

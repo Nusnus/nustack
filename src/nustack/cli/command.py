@@ -61,6 +61,7 @@ from nustack.sync.proposal import Proposal
 from nustack.sync.tree import CopyTree
 from nustack.tree import Missing
 from nustack.tree import NotAFolder
+from nustack.tree import Snapshot
 from nustack.tree import Symlink
 from nustack.tree import Unopened
 lazy from nustack.sha import Sha
@@ -396,7 +397,7 @@ def bump(
         Commitizen(root).bump(version)
     except CommitizenError as error:
         fail([error.problem])
-    bumped = Repository(Disk(root).snapshot()).plugin.manifest
+    bumped = Repository(snapshot(root)).plugin.manifest
     if bumped is None:
         fail(
             [
@@ -532,7 +533,7 @@ def read_record(root: Path, path: str) -> CopyRecord:
     )
     if isinstance(record, Problem):
         fail([record])
-    vendored = Repository(Disk(root).snapshot()).vendored
+    vendored = Repository(snapshot(root)).vendored
     if problems := vendored.record_problems(PurePosixPath(path)):
         fail(problems)
     return record
@@ -679,10 +680,17 @@ def checked_release(root: Path) -> Release:
             )
         case unexpected:
             assert_never(unexpected)
-    release = Repository(Disk(root).snapshot()).release()
+    release = Repository(snapshot(root)).release()
     if not isinstance(release, Release):
         fail(release)
     return release
+
+
+def snapshot(root: Path) -> Snapshot:
+    try:
+        return Disk.of(root).snapshot()
+    except GitError as error:
+        fail([error.problem])
 
 
 def write(path: Path, text: str) -> None:

@@ -4,9 +4,11 @@ The plugin folder, and each skill folder a vendored copy's record names, is scan
 without following a symlink; a symlink, or a folder the disk will not list, leaves
 only those entries, so no check sees part of the tree. Each file released beside
 the plugin, and each record, reads as its kind, and the harness's sources and tests
-as their paths beside each folder that would not list. A refusal
-keeps the disk's reason, and a path that a file, a shut folder or a symlink loop
-blocks names what blocks it.
+as their paths beside each folder that would not list. A refusal keeps the disk's
+reason, and a path that a file, a shut folder or a symlink loop blocks names what
+blocks it. In a Git repository, every scan and listing leaves out each untracked
+path Git ignores below the folder it starts from, and all that path holds, such as a
+.DS_Store Finder leaves, so the check, and the zip it lets through, skip it.
 """
 
 import errno
@@ -15,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 
+from nustack.git import Git
 from nustack.plugin.plugin import Plugin
 from nustack.record import CopyRecord
 from nustack.repository.repository import Repository
@@ -36,9 +39,22 @@ from nustack.tree import Unreadable
 
 @dataclass(frozen=True)
 class Disk:
-    """A repository on disk, read once into the values the checks take."""
+    """A repository on disk, read once into the values the checks take.
+
+    Each path in ignored, relative to the root, is left out with all it holds, unless
+    a scan or listing starts from it.
+    """
 
     root: Path
+    ignored: frozenset[PurePosixPath] = frozenset()
+
+    # Git ignores a path only in a repository, which holds .git at its top; Git's
+    # failure to list them raises GitError.
+    @classmethod
+    def of(cls, root: Path) -> Disk:
+        if not (root / ".git").exists():
+            return cls(root)
+        return cls(root, Git(root).ignored())
 
     def snapshot(self) -> Snapshot:
         sources, unlisted_sources = self.listing(Repository.SOURCES)
@@ -123,7 +139,9 @@ class Disk:
             folder = pending.pop()
             try:
                 children = [
-                    (listed, listed.lstat().st_mode) for listed in folder.iterdir()
+                    (listed, listed.lstat().st_mode)
+                    for listed in folder.iterdir()
+                    if self.inside(self.root, listed) not in self.ignored
                 ]
             except OSError as error:
                 entries[self.inside(root, folder)] = Unopened.of(error)
@@ -232,11 +250,17 @@ class Disk:
                 )
 
         for parent, folders, names in (self.root / folder).walk(on_error=refuse):
-            folders[:] = [name for name in folders if name != "__pycache__"]
+            folders[:] = [
+                name
+                for name in folders
+                if name != "__pycache__"
+                and self.inside(self.root, parent / name) not in self.ignored
+            ]
             files += [
-                self.inside(self.root, parent / name)
+                path
                 for name in names
-                if (parent / name).is_file()
+                if (path := self.inside(self.root, parent / name)) not in self.ignored
+                and (parent / name).is_file()
             ]
         return tuple(sorted(files)), unlisted
 
@@ -244,8 +268,9 @@ class Disk:
     # no regular file too, which the check then reads and reports.
     def globbed(self, folder: PurePosixPath) -> tuple[PurePosixPath, ...]:
         return tuple(
-            self.inside(self.root, path)
+            inside
             for path in (self.root / folder).glob(f"*{CopyRecord.SUFFIX}")
+            if (inside := self.inside(self.root, path)) not in self.ignored
         )
 
     @staticmethod

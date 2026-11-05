@@ -94,7 +94,7 @@ class Rule(StrEnum):
     @classmethod
     def help(cls) -> str:
         return (
-            "Hold the repository to these rules:\n\n"
-            + ";\n".join(f"- {rule}" for rule in cls)
-            + "."
+            "Hold the repository to these rules, where each folder the check reads "
+            "leaves out the untracked files Git ignores in it, which the check and "
+            "the zip skip:\n\n" + ";\n".join(f"- {rule}" for rule in cls) + "."
         )
