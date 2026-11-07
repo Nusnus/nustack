@@ -107,7 +107,7 @@ class TestSchema:
         model_config = ConfigDict(extra="forbid")
 
         class Inner(BaseModel):
-            """A nested model."""
+            """A plain, a dashed and a dotted key, so a place shows which it quotes."""
 
             model_config = ConfigDict(extra="forbid")
 
