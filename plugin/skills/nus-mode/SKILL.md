@@ -66,7 +66,7 @@ Before you apply or cite a principle, read its `SKILL.md` in full as a file, so 
 - [design](../principle-design/SKILL.md): you write or change code, from one branch to how parts work together.
 - [layout](../principle-layout/SKILL.md): you add, move, split or change any folder or file, or decide where anything lives.
 - [dependencies](../principle-dependencies/SKILL.md): you write or change code, add or use anything third-party, such as a library, a tool or a CI action, or choose the runtime versions a project targets.
-- [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, retries or falls back, writes state a crash or timeout can leave half-done, or does work that may repeat, such as a job or message handler.
+- [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, writes state a crash or timeout can leave half-done, does work that may repeat, such as a job or message handler, guards against or handles a failure, or does work that grows with its input, data or traffic.
 - [long term](../principle-long-term/SKILL.md): you write or change anything, experiments included.
 - [deterministic tests](../principle-deterministic-tests/SKILL.md): you write or change code, or a test flakes.
 - [self-explanatory code](../principle-self-explanatory-code/SKILL.md): you write or change code or any prose, comments and docs included.
