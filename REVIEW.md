@@ -18,7 +18,7 @@ What Devin Review holds every pull request to, beyond what `make check` enforces
 - **Each rule a pull request adds to or changes in `nustack check` has a test** that breaks a copy of the repository in exactly the way the rule forbids and asserts the resulting `Problem`. Coverage does not replace that test.
 - **A check reports every input its rule forbids as a `Problem`, and keeps going.** Look for what the parsing lets through: an empty value, a duplicate, an unknown key, a wrong type or YAML shape, a file that is not UTF-8, a path outside the folder it belongs to. It stops only after reporting a symlink under `plugin/` or a folder there it cannot open, since later checks would read through the symlink or see only part of the plugin.
 - **A change that widens what a model that parses outside data or a check accepts says why**, where AGENTS.md says a break's reason belongs.
-- **Code and tests keep the order [long term](plugin/skills/principle-long-term/SKILL.md) gives code,** which no tool checks.
+- **Code and tests keep the order [layout](plugin/skills/principle-layout/SKILL.md) gives code,** which no tool checks.
 - **Tool configuration does what it says.** Check each setting in every tool's configuration and in `.github/`, hook stages included, against the documentation of the pinned version.
 - **Each imported package is a direct dependency:** the harness's in `pyproject.toml`, the loader's and its tests' in `package.json`.
 

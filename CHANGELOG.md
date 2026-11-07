@@ -11,7 +11,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 ### Added
 
 - `principle-responses` shapes how a reply, status update, question or report reads, so a person takes it in at a glance: the answer first, short sentences and paragraphs, a table only to compare values, one format for each kind of answer, a link for each thing named, and bold only for what the person must see. nus-mode reads it whenever the agent writes to a person.
-- `long term` spends each mutation run where it can find something: none for a change it cannot reach, only what a pull request's changes reach, and every mutant from an empty cache after each merge to the default branch and before each release. `language-python` says what mutmut's cache keeps through a change, and how a run that keeps a full run's verdicts makes up for it.
+- `deterministic tests` spends each mutation run where it can find something: none for a change it cannot reach, only what a pull request's changes reach, and every mutant from an empty cache after each merge to the default branch and before each release. `language-python` says what mutmut's cache keeps through a change, and how a run that keeps a full run's verdicts makes up for it.
 - nus-mode files a nustack bug when you ask, with the fields and `bug` label of nustack's [bug form](https://github.com/Nusnus/nustack/issues/new?template=bug.yml), and offers to file one when it departs from a rule for a reason that would hold in any project like yours.
 - The `new-project` playbook creates the project's remote repository where it has none, and configures its settings where it is on GitHub, such as branch protection on `main`.
 - The `align` playbook reshapes existing code, from a snippet to a whole project, to nus-mode's bar within its project's standards, if any, so later work in nus-mode meets no friction with them.
@@ -39,6 +39,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - nus-mode's cheap-ETA exception moves from its rule for times into its rule to choose quality over session cost, and keeps only the ETA's analysis cheap, never the reading of the live pace.
 - nus-mode estimates from observed pace: it reads how fast each job, agent and subagent the work waits on is moving now, tries each other way it has when one fails, and states the basis with the ETA, the observed pace or the past runs it fell back on and why.
 - `language-python` links each of its rules for tests to the principle it gives the Python form of.
+- `long term` keeps only what builds work to last, done once: performance from the first version, the full bar on temporary code, each fix at its cause and for every instance of its flaw, every file touched finished, each exemption from a check narrow, and only what stays true in the repository; it no longer asks to keep old callers working. Its rules on file and code order move to `layout`, on what to build on to `dependencies`, on wording to `self-explanatory code`, and on tests to `deterministic tests`; nus-mode loads each of those principles wherever its new rules apply.
 - nus-mode's cold read pictures a reader new to the project reading the work.
 - The plugin's description, which each host and the marketplaces show, names the Obsidian skills beside the mode.
 - For nustack's maintainers:
