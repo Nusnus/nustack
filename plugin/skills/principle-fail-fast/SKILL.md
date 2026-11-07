@@ -1,6 +1,6 @@
 ---
 name: principle-fail-fast
-description: "Code that stops where a problem starts, with an error that says how to recover."
+description: "Code that fails where a wrong state is first detected, with an error that says how to recover, and holds an expected absence in its type."
 disable-model-invocation: true
 triggers:
   - user
@@ -8,10 +8,10 @@ triggers:
 
 # Fail fast
 
-A wrong state caught where it starts is cheap to fix. Carried onward, it surfaces later and elsewhere, as a symptom that hides its cause.
+Fail where a wrong state is first detected, with an error that says how to recover.
 
-- **Stop where the problem is detected.** An unexpected state fails there, at once, with an error that points at its cause.
-- **Check each assumption once, where it can first fail.** Past that point, code trusts what its types, [boundary](../principle-boundaries/SKILL.md) parsing and earlier checks guarantee.
-- **Recover only from failures the design expects.** A retry, fallback or catch-all handles a planned case, such as serving a cached copy while a dependency is down, and the code shows which case and why. Every other error travels up to whoever can act on it. [Resilience](../principle-resilience/SKILL.md) says how a retry or a reduced mode recovers.
-- **Use a default only when the caller gave nothing.** A value the caller gave that does not resolve, such as an unknown name or path, fails loudly and is never replaced by the default.
-- **Whoever meets the error, person or agent, can recover from its message alone.** Fail with a domain-specific error whose message says what was wrong, the bad value unless it is secret, and the next step: `timeout must be at least 1 second, got -3; set it to the seconds to wait, such as 30`.
+- **Check each assumption once, where it can first fail,** and trust it past that point.
+- **Recover only from failures the design expects.** Every other failure, an unknown member of a closed set included, travels up to whoever can act on it.
+- **Use a default only where the caller gave nothing.** A given value that does not resolve, such as a misspelled setting, fails.
+- **Fail with a domain error** whose message names what was wrong and, unless it is secret, the bad value.
+- **Hold an expected absence, such as a lookup with no match, in its type,** as an optional value or an empty collection, for the caller to handle.

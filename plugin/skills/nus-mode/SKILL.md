@@ -60,7 +60,7 @@ Before you apply or cite a principle, read its `SKILL.md` in full as a file, so 
 
 - [naming](../principle-naming/SKILL.md): you name anything, or change what a named thing does.
 - [DRY](../principle-dry/SKILL.md): you write a value, a rule, a format or a decision, or add a codepath, type, setting, helper or parser.
-- [fail fast](../principle-fail-fast/SKILL.md): you write code that checks a value or state, falls back to a default, or raises or handles an error.
+- [fail fast](../principle-fail-fast/SKILL.md): you write code that checks a value or state, falls back to a default, or raises or handles an error, or a value may be absent.
 - [boundaries](../principle-boundaries/SKILL.md): data enters from outside the system.
 - [types](../principle-types/SKILL.md): you design a type, a signature, a set of allowed values or a value that never changes, or write code that branches on a set of values.
 - [design](../principle-design/SKILL.md): you write or change code, from one branch to how parts work together.
