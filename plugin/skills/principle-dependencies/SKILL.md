@@ -1,6 +1,6 @@
 ---
 name: principle-dependencies
-description: "Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure."
+description: "Dependencies that point one way, onto the language's own tools and stable public APIs, one home for each library, the runtimes a project targets, floating ranges with a pinned lockfile, and deciding logic kept pure."
 disable-model-invocation: true
 triggers:
   - user
@@ -8,12 +8,11 @@ triggers:
 
 # Dependencies
 
-Parts that depend one way can be read, tested and replaced one at a time. Cycles and scattered third-party calls let a change anywhere break anything.
+Depend one way.
 
-- **Dependencies point one way.** Each part depends only on the parts it builds on, never on one that builds on it, so the dependency graph has no cycles.
-- **Give each third-party library one home.** One module, named for the library's role, such as storage or the command line, uses the library, and the rest of the code goes through that module and its own types and errors, never the library's, so upgrading or replacing the library touches one place. A framework the code extends or runs in, such as a test framework, and a library whose base classes the code's own types extend are the exception: each module that builds on one uses it directly.
-- **Target the newest runtime, or every maintained one.** An application targets the newest stable release of its language's runtime; a library supports and tests on every maintained release.
-- **Float the declared range; pin the lockfile.** Where a lockfile records what installs, a dependency is declared with no upper bound and a floor at its newest release that supports every runtime version and platform the project targets, and the lockfile pins the exact version each of the project's own installs uses. A dependency whose ecosystem has no lockfile and installs exactly the version declared, such as a commit hook or a CI action, pins that version, and an update tool proposes each newer one. Any other dependency, and a requirement on the build tool or the package manager itself, takes the bounds its ecosystem or tool documents.
-- **Keep deciding logic pure.** Code that decides takes the time, state and input it needs as arguments, and thin modules at the edges do the I/O, so each decision is tested without I/O. Where a tool can enforce it, a check keeps I/O out of pure modules.
-- **Use the language's own mechanisms.** Use what the language, its standard library and its standard tools provide instead of writing your own; they keep working as the language moves on.
-- **Build on stable public APIs and documented behaviour:** they survive upgrades.
+- **Give each third-party library one home:** a module named for its role, such as storage or the command line, through which the rest of the code reaches it, in the project's own types and errors. A framework the code runs in, such as a test framework, and a library whose classes the project's types extend are used directly wherever the code builds on them.
+- **Target the newest runtime, or every maintained one:** an application, the newest stable release; a library, every maintained release, tested on each.
+- **Float the declared range; pin the lockfile.** Where a lockfile records what installs, a dependency has no upper bound and a floor at its newest release that supports every runtime and platform the project targets, and the lockfile pins the exact version. A dependency that installs exactly the version declared, such as a commit hook or a CI action, pins it, and an update tool proposes each newer one. Anything else, the build tool and the package manager included, takes the bounds its documentation gives.
+- **Keep deciding logic pure.** Code that decides takes the time, state and input it needs as arguments, thin modules at the edges do the I/O, and a check keeps I/O out of the pure modules where a tool can.
+- **Use what the language and its standard tools provide before writing your own.**
+- **Build on stable public APIs and documented behaviour.**

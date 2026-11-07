@@ -96,7 +96,7 @@ nus-mode reads its principle and language skills itself.
 | [principle-types](plugin/skills/principle-types/SKILL.md) | Types that hold the contract, so an invalid value cannot exist. |
 | [principle-design](plugin/skills/principle-design/SKILL.md) | A design that starts from proven patterns and SOLID objects, short because it fits the problem. |
 | [principle-layout](plugin/skills/principle-layout/SKILL.md) | A folder and file layout that shows the design. |
-| [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure. |
+| [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, onto the language's own tools and stable public APIs, one home for each library, the runtimes a project targets, floating ranges with a pinned lockfile, and deciding logic kept pure. |
 | [principle-resilience](plugin/skills/principle-resilience/SKILL.md) | Code that comes through failure and load by its design: each failure absorbed by its structure or left to fail, each limit known and accepted. |
 | [principle-long-term](plugin/skills/principle-long-term/SKILL.md) | Changes built to last, so they are done once. |
 | [principle-deterministic-tests](plugin/skills/principle-deterministic-tests/SKILL.md) | Tests that each fail when, and only when, the behaviour they guard breaks. |
