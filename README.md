@@ -99,7 +99,7 @@ nus-mode reads its principle and language skills itself.
 | [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, one home for each library, the runtimes a project targets, a pinned lockfile, and deciding logic kept pure. |
 | [principle-resilience](plugin/skills/principle-resilience/SKILL.md) | Code that comes through failure and load by its design: each failure absorbed by its structure or left to fail, each limit known and accepted. |
 | [principle-long-term](plugin/skills/principle-long-term/SKILL.md) | Changes built to last, so they are done once. |
-| [principle-deterministic-tests](plugin/skills/principle-deterministic-tests/SKILL.md) | Tests whose outcome depends only on their inputs, the same on every run and under any load. |
+| [principle-deterministic-tests](plugin/skills/principle-deterministic-tests/SKILL.md) | Tests that each fail when, and only when, the behaviour they guard breaks. |
 | [principle-self-explanatory-code](plugin/skills/principle-self-explanatory-code/SKILL.md) | Code that explains itself, and docs for what it cannot say. |
 | [principle-pr-descriptions](plugin/skills/principle-pr-descriptions/SKILL.md) | PR descriptions a reviewer takes in at a glance. |
 | [principle-responses](plugin/skills/principle-responses/SKILL.md) | Replies, status updates, questions and reports a person takes in at a glance. |
