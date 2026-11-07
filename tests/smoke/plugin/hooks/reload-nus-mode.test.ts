@@ -110,8 +110,8 @@ describe("reload-nus-mode.sh in Claude Code", () => {
   describe("the release zip's vendored skills", () => {
     test("offers the model each vendored skill", async () => {
       await ask(null, FakeModel.UNLOADED)
-      const sent = model.sentWith(FakeModel.UNLOADED)
-      expect(VENDORED_SKILLS.filter((name) => !sent.includes(`nustack:${name}`))).toEqual([])
+      const turn = model.turnWith(FakeModel.UNLOADED)
+      expect(VENDORED_SKILLS.filter((name) => !turn.includes(`nustack:${name}`))).toEqual([])
     })
   })
 
@@ -119,11 +119,11 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     const session = await ask(null, FakeModel.LOAD)
     await ask(session, "/compact")
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.LOAD),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
   })
 
@@ -131,11 +131,11 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     const session = await ask(null, FakeModel.LOAD)
     await ask(session, FakeModel.FILL)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.LOAD),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
   })
 
@@ -144,11 +144,11 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     const session = await ask(null, first)
     await ask(session, "/compact")
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(first),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(first),
     ]).toEqual([false, false, false])
   })
 
@@ -157,11 +157,11 @@ describe("reload-nus-mode.sh in Claude Code", () => {
     const session = await ask(null, first)
     await ask(session, "/compact")
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(first),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(first),
     ]).toEqual([false, false, false])
   })
 })

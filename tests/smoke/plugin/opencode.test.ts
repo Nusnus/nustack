@@ -159,19 +159,19 @@ describe("plugin/opencode.ts in OpenCode", () => {
 
   test("offers the model each vendored skill", async () => {
     await ask(null, FakeModel.UNLOADED)
-    const sent = model.sentWith(FakeModel.UNLOADED)
-    expect(VENDORED_SKILLS.filter((name) => !sent.includes(`<name>${name}</name>`))).toEqual([])
+    const turn = model.turnWith(FakeModel.UNLOADED)
+    expect(VENDORED_SKILLS.filter((name) => !turn.includes(`<name>${name}</name>`))).toEqual([])
   })
 
   test("sends nus-mode again after a summary the user asks for", async () => {
     const session = await ask(null, FakeModel.LOAD)
     await compact(session)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.LOAD),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
   })
 
@@ -190,11 +190,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     await ask(session, FakeModel.PROOFREAD)
     await compact(session)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.UNLOADED),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.UNLOADED),
     ]).toEqual([true, true, false])
   })
 
@@ -202,11 +202,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     const session = await ask(null, FakeModel.LOAD)
     await ask(session, FakeModel.FILL)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.LOAD),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.LOAD),
     ]).toEqual([true, true, false])
   })
 
@@ -221,11 +221,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
       if (automatic) await ask(session, FakeModel.FILL)
       else await compact(session)
       await ask(session, FakeModel.AFTER)
-      const sent = model.sentWith(FakeModel.AFTER)
+      const turn = model.turnWith(FakeModel.AFTER)
       expect([
-        sent.includes(bundle.escapedBody),
-        sent.includes(bundle.base),
-        sent.includes(FakeModel.PROOFREAD),
+        turn.includes(bundle.escapedBody),
+        turn.includes(bundle.base),
+        turn.includes(FakeModel.PROOFREAD),
       ]).toEqual([false, false, false])
     },
   )
@@ -238,11 +238,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     await ask(session, FakeModel.UNLOADED)
     await compact(session)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.PROOFREAD),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.PROOFREAD),
     ]).toEqual([false, false, false])
   })
 
@@ -250,11 +250,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     const session = await ask(null, FakeModel.LOAD_SAMPLE)
     await compact(session)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(FakeModel.LOAD_SAMPLE),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(FakeModel.LOAD_SAMPLE),
     ]).toEqual([false, false, false])
   })
 
@@ -263,11 +263,11 @@ describe("plugin/opencode.ts in OpenCode", () => {
     const session = await ask(null, first)
     await compact(session)
     await ask(session, FakeModel.AFTER)
-    const sent = model.sentWith(FakeModel.AFTER)
+    const turn = model.turnWith(FakeModel.AFTER)
     expect([
-      sent.includes(bundle.escapedBody),
-      sent.includes(bundle.base),
-      sent.includes(first),
+      turn.includes(bundle.escapedBody),
+      turn.includes(bundle.base),
+      turn.includes(first),
     ]).toEqual([false, false, false])
   })
 })

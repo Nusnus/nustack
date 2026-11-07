@@ -1,25 +1,32 @@
 /**
- * The fake Messages API answers Claude Code's /api/hello check, and each request recorded in tests/fixtures/messages
- * beside its `<name>.reply`, with the reply the real API sent it, and the prompt that fills the context window with the
- * real reply to a full window. It answers OK to OpenCode's title request, to Claude Code's request to load sample-mode
- * and to a request whose last user message holds the result of loading a skill. It keeps every Messages API request it
- * answers and finds the last one holding a prompt, and refuses a request with no user message, as the real API does, a
- * body that is not a Messages API request, naming the field that does not fit, or a path it does not serve, with the
- * Messages API's error body.
+ * The fake Messages API answers Claude Code's /api/hello check and each request recorded in tests/fixtures/messages
+ * beside its `<name>.reply` with the reply the real API sent it, and the prompt that fills the context window with the
+ * real reply to a full window. It answers OK to OpenCode's title request, to Claude Code's request to load sample-mode,
+ * to a request whose last user message holds a skill load's result, to Claude Code's turn whose user message holds a
+ * summary before its prompt, and to a request with an empty system message. It keeps every Messages API request it
+ * answers and finds a session's turn: the last request that offers a skill tool and holds a given prompt in its last
+ * user message's last block. It refuses a body that is not JSON, a request with no user message, as the real API does,
+ * a last user message whose content is neither text nor a list whose last item is an object, any other field it reads
+ * whose shape does not fit, and a path it does not serve, each with the Messages API's error body.
  */
 import { afterAll, describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { FakeModel, type Host, PromptNotSentError } from "../../fixtures/model.ts"
+import { FakeModel, type Host, TurnNotFoundError } from "../../fixtures/model.ts"
 import { thrown } from "../../fixtures/thrown.ts"
 
 /**
- * FakeModel keeps each Messages API request it answers and finds the last one holding a prompt, and finding a prompt no
- * request held fails. Each recorded request beside its `<name>.reply` draws the real API's reply to it. Two requests
- * cut to what the fake reads draw OK: OpenCode's title request, which quotes the load prompt but offers no skill tool,
- * and Claude Code's request after its skill tool loaded the mode, whose last user message holds no load prompt. Claude
- * Code's request that offers its skill tool and asks for sample-mode draws OK too, since only OpenCode's smoke tests
- * load it. The reply to a full context window goes only to the prompt that fills it. A body that breaks the shape the
+ * FakeModel keeps each Messages API request it answers and finds a session's turn: the last request that offers a skill
+ * tool and holds a given prompt in its last user message's last block, even after a summary in an earlier block, past a
+ * later title request, which offers no skill tool, and a later summary request, which holds that prompt only in an
+ * earlier block; finding a prompt no such request held fails. Each recorded request beside its `<name>.reply` draws the
+ * real API's reply to it, and so does a summary request whose ask ends a list of blocks. These draw OK: OpenCode's
+ * title request, which quotes the load prompt but offers no skill tool; Claude Code's request after its skill tool
+ * loaded the mode, whose last user message holds no load prompt; Claude Code's request to load sample-mode, since only
+ * OpenCode's smoke tests load it; Claude Code's first turn after a summary, whose user message holds the summary, which
+ * quotes the summary request's ask, a load prompt or the prompt that fills the context window, before its prompt; and a
+ * request with an empty system message, as Claude Code sends after /compact in the session that loads nustack's
+ * nus-mode. The reply to a full context window goes only to the prompt that fills it. A body that breaks the shape the
  * fake reads, in each field it reads, is refused with that field's path.
  */
 describe("FakeModel", () => {
@@ -36,12 +43,22 @@ describe("FakeModel", () => {
     return (await fetch(`${models[host].url}/v1/messages`, { method: "POST", body })).text()
   }
 
+  function realReply(name: string): Promise<string> {
+    return readFile(join(FakeModel.MESSAGES, `${name}.reply`), "utf8")
+  }
+
   test.each([
     [
-      "a request with no user message",
-      "/v1/messages",
+      "a path it does not serve",
+      "/v1/models",
       { messages: [] },
-      "the request holds no user message, which the Messages API requires",
+      "the fake model serves only /v1/messages, not /v1/models; send the request to /v1/messages",
+    ],
+    [
+      "a body that is not JSON",
+      "/v1/messages",
+      "not JSON",
+      "the request body is not JSON; send it as a JSON object",
     ],
     [
       "a body that is not an object",
@@ -86,6 +103,35 @@ describe("FakeModel", () => {
       "messages[0].content is missing; give the message its content",
     ],
     [
+      "a request with no user message",
+      "/v1/messages",
+      { messages: [] },
+      "the request holds no user message, which the Messages API requires; give it a user message",
+    ],
+    [
+      "a last user message whose content is a number",
+      "/v1/messages",
+      { messages: [{ role: "user", content: 1 }] },
+      "messages[0].content must be text or a list, got a number; send it as a JSON string or array",
+    ],
+    [
+      "a last user message whose content is an empty list",
+      "/v1/messages",
+      {
+        messages: [
+          { role: "user", content: "Hi." },
+          { role: "user", content: [] },
+        ],
+      },
+      "messages[1].content is an empty list; give the last user message at least one content block",
+    ],
+    [
+      "a last user message whose last block is not an object",
+      "/v1/messages",
+      { messages: [{ role: "user", content: [{ type: "text", text: "Hi." }, 1] }] },
+      "messages[0].content[1] must be an object, got a number; send it as a JSON object",
+    ],
+    [
       "tools that are not a list",
       "/v1/messages",
       { messages: [{ role: "user", content: "Hi." }], tools: {} },
@@ -103,16 +149,10 @@ describe("FakeModel", () => {
       { messages: [{ role: "user", content: "Hi." }], tools: [{ name: "skill" }, {}] },
       "tools[1].name must be text, got nothing; send it as a JSON string",
     ],
-    [
-      "a path it does not serve",
-      "/v1/models",
-      { messages: [] },
-      "the fake model serves only /v1/messages, not /v1/models",
-    ],
   ])("refuses %s with the Messages API's error body", async (_case, path, body, message) => {
     const reply = await fetch(`${models.opencode.url}${path}`, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: typeof body === "string" ? body : JSON.stringify(body),
     })
     expect([reply.status, await reply.json()]).toEqual([
       400,
@@ -120,23 +160,85 @@ describe("FakeModel", () => {
     ])
   })
 
-  test("keeps each Messages API request and finds the last one holding a prompt", async () => {
-    const first = JSON.stringify({ messages: [{ role: "user", content: "Kept." }], n: 1 })
-    const last = JSON.stringify({ messages: [{ role: "user", content: "Kept." }], n: 2 })
+  test("keeps each Messages API request and finds the last one that offers a skill tool and holds a prompt", async () => {
+    const tools = [{ name: "Skill" }]
+    const first = JSON.stringify({ messages: [{ role: "user", content: "Kept." }], tools, n: 1 })
+    const last = JSON.stringify({ messages: [{ role: "user", content: "Kept." }], tools, n: 2 })
+    const title = JSON.stringify({ messages: [{ role: "user", content: '"Kept."' }] })
     await post("claude-code", first)
     await post("claude-code", last)
-    expect(models["claude-code"].sentWith("Kept.")).toBe(last)
+    await post("claude-code", title)
+    expect(models["claude-code"].turnWith("Kept.")).toBe(last)
   })
 
-  test("fails to find a prompt that no request held", async () => {
-    expect(await thrown(() => models.opencode.sentWith("Never sent."))).toEqual(
-      new PromptNotSentError('no request held the prompt "Never sent."'),
-    )
+  test("finds Claude Code's turn whose user message holds a summary before its prompt", async () => {
+    const turn = JSON.stringify({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Summary, asked for as ${FakeModel.SUMMARY_ASKS["claude-code"]}.`,
+            },
+            { type: "text", text: "Resumed." },
+          ],
+        },
+      ],
+      tools: [{ name: "Skill" }],
+    })
+    await post("claude-code", turn)
+    expect(models["claude-code"].turnWith("Resumed.")).toBe(turn)
+  })
+
+  test("finds a turn past a later summary request that offers a skill tool and holds its prompt", async () => {
+    const tools = [{ name: "Skill" }]
+    const turn = JSON.stringify({ messages: [{ role: "user", content: "Summarized." }], tools })
+    const summary = JSON.stringify({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Summarized." },
+            { type: "text", text: FakeModel.SUMMARY_ASKS["claude-code"] },
+          ],
+        },
+      ],
+      tools,
+    })
+    await post("claude-code", turn)
+    await post("claude-code", summary)
+    expect(models["claude-code"].turnWith("Summarized.")).toBe(turn)
+  })
+
+  test.each([
+    [
+      "no request held",
+      "Never sent.",
+      JSON.stringify({
+        messages: [{ role: "user", content: "Another turn." }],
+        tools: [{ name: "skill" }],
+      }),
+      new TurnNotFoundError(
+        'no request that offers a skill tool held the prompt "Never sent." in its last user message\'s last block; send it in a turn before finding that turn',
+      ),
+    ],
+    [
+      "only a request without a skill tool held",
+      "Only titled.",
+      JSON.stringify({ messages: [{ role: "user", content: "Only titled." }] }),
+      new TurnNotFoundError(
+        'no request that offers a skill tool held the prompt "Only titled." in its last user message\'s last block; send it in a turn before finding that turn',
+      ),
+    ],
+  ])("fails to find a turn whose prompt %s", async (_case, prompt, body, error) => {
+    await post("opencode", body)
+    expect(await thrown(() => models.opencode.turnWith(prompt))).toEqual(error)
   })
 
   test("answers Claude Code's /api/hello check with the real API's reply", async () => {
     const reply = await fetch(`${models["claude-code"].url}/api/hello`)
-    expect(await reply.text()).toBe(FakeModel.recorded("hello"))
+    expect(await reply.text()).toBe(await realReply("hello"))
   })
 
   test.each<[string, Host]>([
@@ -148,7 +250,68 @@ describe("FakeModel", () => {
     ["opencode/sample-skill", "opencode"],
   ])("answers the recorded %s request with the real API's reply", async (name, host) => {
     const request = await readFile(join(FakeModel.MESSAGES, `${name}.request.json`), "utf8")
-    expect(await post(host, request)).toBe(FakeModel.recorded(name))
+    expect(await post(host, request)).toBe(await realReply(name))
+  })
+
+  test("answers Claude Code's summary request whose ask ends a list of blocks with the real API's reply", async () => {
+    // Shaped as the smoke tests' Claude Code sends its summary request on /compact after a skill loaded: the skill
+    // load's result and the skill's text come before the block that asks for the summary.
+    const request = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_1", content: "Launching skill: nus-mode" },
+            { type: "text", text: "Base directory for this skill: nus-mode" },
+            { type: "text", text: `Reply with ${FakeModel.SUMMARY_ASKS["claude-code"]}.` },
+          ],
+        },
+      ],
+    }
+    expect(await post("claude-code", JSON.stringify(request))).toBe(
+      await realReply("claude-code/summary"),
+    )
+  })
+
+  test.each([
+    ["the summary request's ask", FakeModel.SUMMARY_ASKS["claude-code"]],
+    ["the load prompt", FakeModel.LOAD],
+    ["the prompt that fills the context window", FakeModel.FILL],
+  ])(
+    "answers OK to Claude Code's turn whose summary quotes %s before its prompt",
+    async (_case, quoted) => {
+      // Shaped as the smoke tests' Claude Code can send its first turn after a summary: the turn's own user message
+      // opens with a system reminder, then holds the summary and ends with the prompt.
+      const request = {
+        tools: [{ name: "Skill" }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "<system-reminder>A reminder.</system-reminder>" },
+              { type: "text", text: `Summary, quoting ${quoted}` },
+              { type: "text", text: FakeModel.AFTER },
+            ],
+          },
+        ],
+      }
+      expect(await post("claude-code", JSON.stringify(request))).toBe(await realReply("text"))
+    },
+  )
+
+  test("answers OK to Claude Code's request that holds a system message whose content is an empty list", async () => {
+    // Shaped as the smoke tests' Claude Code sends its turn after /compact in the session that loads nustack's
+    // nus-mode: an empty system message follows the first user message, and a system message ends the request.
+    const request = {
+      messages: [
+        { role: "user", content: "Hi." },
+        { role: "system", content: [] },
+        { role: "assistant", content: "OK" },
+        { role: "user", content: FakeModel.AFTER },
+        { role: "system", content: [] },
+      ],
+    }
+    expect(await post("claude-code", JSON.stringify(request))).toBe(await realReply("text"))
   })
 
   test("answers OK to Claude Code's request that offers its skill tool and asks to load sample-mode", async () => {
@@ -156,7 +319,7 @@ describe("FakeModel", () => {
       tools: [{ name: "Skill" }],
       messages: [{ role: "user", content: FakeModel.LOAD_SAMPLE }],
     }
-    expect(await post("claude-code", JSON.stringify(request))).toBe(FakeModel.recorded("text"))
+    expect(await post("claude-code", JSON.stringify(request))).toBe(await realReply("text"))
   })
 
   test("answers OK to OpenCode's title request, which quotes the load prompt but offers no skill tool", async () => {
@@ -164,7 +327,7 @@ describe("FakeModel", () => {
       join(FakeModel.MESSAGES, "opencode", "title.request.json"),
       "utf8",
     )
-    expect(await post("opencode", request)).toBe(FakeModel.recorded("text"))
+    expect(await post("opencode", request)).toBe(await realReply("text"))
   })
 
   test("answers OK to Claude Code's request after its skill tool loaded the mode", async () => {
@@ -176,7 +339,7 @@ describe("FakeModel", () => {
       join(FakeModel.MESSAGES, "claude-code", "skill-result.request.json"),
       "utf8",
     )
-    expect(await post("claude-code", request)).toBe(FakeModel.recorded("text"))
+    expect(await post("claude-code", request)).toBe(await realReply("text"))
   })
 
   test("answers the prompt that fills the context window with the real reply to a full window", async () => {
@@ -185,7 +348,7 @@ describe("FakeModel", () => {
       JSON.stringify({ messages: [{ role: "user", content: FakeModel.FILL }] }),
     )
     expect([reply, reply.includes('"input_tokens":199006')]).toEqual([
-      FakeModel.recorded("full"),
+      await realReply("full"),
       true,
     ])
   })
