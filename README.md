@@ -92,7 +92,7 @@ nus-mode reads its principle and language skills itself.
 | [principle-naming](plugin/skills/principle-naming/SKILL.md) | Names that say what a thing is in the domain. |
 | [principle-dry](plugin/skills/principle-dry/SKILL.md) | One home for every piece of knowledge. |
 | [principle-fail-fast](plugin/skills/principle-fail-fast/SKILL.md) | Code that stops where a problem starts, with an error that says how to recover. |
-| [principle-boundaries](plugin/skills/principle-boundaries/SKILL.md) | Outside data parsed once, where it enters, and an expected absence held as data. |
+| [principle-boundaries](plugin/skills/principle-boundaries/SKILL.md) | Outside data parsed once, where it enters, strictly into the project's domain types. |
 | [principle-types](plugin/skills/principle-types/SKILL.md) | Types that hold the contract, so an invalid value cannot exist. |
 | [principle-design](plugin/skills/principle-design/SKILL.md) | A design that starts from proven patterns and SOLID objects, short because it fits the problem. |
 | [principle-layout](plugin/skills/principle-layout/SKILL.md) | A folder and file layout that shows the design. |

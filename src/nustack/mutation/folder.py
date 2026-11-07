@@ -22,6 +22,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
+from pydantic import StrictInt
 from pydantic import TypeAdapter
 from pydantic import ValidationError
 
@@ -43,7 +44,7 @@ class Verdicts(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    exit_code_by_key: frozendict[str, int | None]
+    exit_code_by_key: frozendict[str, StrictInt | None]
 
 
 @dataclass(frozen=True)
@@ -84,10 +85,15 @@ class MutantsFolder:
             )
         except FileNotFoundError:
             return f"{stats_path} is missing, so every mutant runs"
-        except ValidationError:
+        except ValidationError as error:
+            if any(detail["type"] == "json_invalid" for detail in error.errors()):
+                return (
+                    f"{self.path} holds a file mutmut did not write whole, so every"
+                    " mutant runs"
+                )
             return (
-                f"{self.path} holds a file mutmut did not write whole, so every mutant"
-                " runs"
+                f"{self.path} holds a file in a shape mutmut does not write, so every"
+                " mutant runs"
             )
         if stats.git_commit is None:
             return f"{stats_path} names no commit, so every mutant runs"

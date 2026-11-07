@@ -107,6 +107,19 @@ class TestMutantsFolder:
         stats.write_text(json.dumps(dict(self.STATS) | {"git_commit": commit}))
         assert folder.baseline() == f"{stats} {reason}"
 
+    @pytest.mark.parametrize("verdict", ["0", True])
+    def test_names_a_verdict_that_is_no_exit_code(
+        self, folder: MutantsFolder, verdict: object
+    ) -> None:
+        meta = folder.path / "src/pkg/b.py.meta"
+        meta.write_text(
+            json.dumps({"exit_code_by_key": {"pkg.b.x_h__mutmut_1": verdict}})
+        )
+        assert folder.baseline() == (
+            f"{folder.path} holds a file in a shape mutmut does not write, so every"
+            " mutant runs"
+        )
+
     def test_clears_the_folder(self, folder: MutantsFolder) -> None:
         folder.clear()
         folder.clear()

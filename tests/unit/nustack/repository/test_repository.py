@@ -880,6 +880,37 @@ class TestRepositoryVersions:
             ),
         ]
 
+    @pytest.mark.parametrize(
+        ("table", "key", "message"),
+        [
+            (
+                "[tool.nustack]",
+                "mutaton = 1",
+                (
+                    "is invalid: tool.nustack.an unknown key: rename it or remove it;"
+                    " nustack allows only mutation here"
+                ),
+            ),
+            (
+                "[tool.nustack.mutation]",
+                "read = []",
+                (
+                    "is invalid: tool.nustack.mutation.an unknown key: rename it or"
+                    " remove it; nustack allows only reads here"
+                ),
+            ),
+        ],
+    )
+    def test_reports_an_unknown_key_in_nustacks_own_tables(
+        self, repository: ModelRepository, table: str, key: str, message: str
+    ) -> None:
+        repository.edit(
+            "pyproject.toml", "[tool.ruff]\n", f"{table}\n{key}\n\n[tool.ruff]\n"
+        )
+        assert repository.problems() == [
+            Problem(repository.where("pyproject.toml"), message)
+        ]
+
     def test_reports_a_harness_version_that_is_no_release_version(
         self, repository: ModelRepository
     ) -> None:

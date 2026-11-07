@@ -51,17 +51,23 @@ class Mutmut(BaseModel):
 
 
 class Mutation(BaseModel):
-    """The `[tool.nustack.mutation]` table: what mutmut's tests read beyond code."""
+    """The `[tool.nustack.mutation]` table: what mutmut's tests read beyond code.
 
-    model_config = ConfigDict(frozen=True)
+    nustack owns the table, so the model holds all of it and refuses any other key.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     reads: tuple[str, ...] = ()
 
 
 class Nustack(BaseModel):
-    """The `[tool.nustack]` table, down to its mutation settings."""
+    """The `[tool.nustack]` table: its mutation settings.
 
-    model_config = ConfigDict(frozen=True)
+    nustack owns the table, so the model holds all of it and refuses any other key.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     mutation: Mutation = Mutation()
 

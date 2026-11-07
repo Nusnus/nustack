@@ -78,6 +78,20 @@ class TestPyproject:
                 "tool.commitizen.version_files: make it a list",
             ),
             (
+                b'[project]\nversion = "1.2.3"\n[tool.nustack]\nmutaton = 1\n',
+                (
+                    "tool.nustack.an unknown key: rename it or remove it;"
+                    " nustack allows only mutation here"
+                ),
+            ),
+            (
+                b'[project]\nversion = "1.2.3"\n[tool.nustack.mutation]\nread = []\n',
+                (
+                    "tool.nustack.mutation.an unknown key: rename it or remove it;"
+                    " nustack allows only reads here"
+                ),
+            ),
+            (
                 b"[project]\nsecret = canary\n",
                 "it is not valid TOML on line 2; fix it",
             ),

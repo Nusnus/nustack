@@ -35,7 +35,10 @@ class InvalidMetadataError(ValueError):
 
 
 class Metadata(BaseModel):
-    """JSON metadata a host reads, which allows no unknown field and never changes."""
+    """JSON metadata a host reads, which allows no unknown field and never changes.
+
+    nustack writes these files itself, so an unknown field in one is its own typo.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
