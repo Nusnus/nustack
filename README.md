@@ -81,7 +81,7 @@ Claude Code reads AGENTS.md itself; add `@AGENTS.md` to CLAUDE.md only where the
 
 ## Skills
 
-nus-mode reads its principle and language skills itself.
+nus-mode reads its principle skills, which together form the Zen of Nusnus, and its language skills itself.
 
 <details>
 <summary>All skills</summary>
