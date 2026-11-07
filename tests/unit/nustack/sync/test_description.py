@@ -30,10 +30,11 @@ from tests.fixtures.sync.description import Passage
 class TestSyncDescription:
     """A reviewer gets each fact approval needs, and nothing upstream can inject.
 
-    A base whose record names no commit upstream's head holds states no range, one
-    whose record names the copied commit says the copy drifted, and a change to
-    frontmatter alone rates as medium risk. A body that differs
-    only in its run link is not posted again.
+    A base whose record names no commit upstream's head holds says its upstream
+    commits are unknown, never none; one whose record names the copied commit says
+    the copy drifted and counts the record only where a hand edit left it naming
+    other blobs; and a change to frontmatter alone rates as medium risk. A body that
+    differs only in its run link is not posted again.
     """
 
     LINKS = SyncLinks("https://run", "https://checks")
@@ -82,9 +83,29 @@ class TestSyncDescription:
     ) -> None:
         record = CopyRecord(**(self.RECORD.model_dump() | {"folder": folder}))
         description = SyncDescription(
-            self.LINKS, record, History(self.TIP, None, ()), (), ()
+            "vendored/copy.json",
+            self.LINKS,
+            record,
+            History(self.TIP, None, ()),
+            (),
+            (),
         )
         assert (description.purpose, description.scope) == (purpose, scope)
+
+    def test_names_a_copy_of_several_skills_by_count_and_its_folder_in_words(
+        self,
+    ) -> None:
+        fields = {"folder": "plugin/skills", "skills": ("a", "b")}
+        record = CopyRecord(**(self.RECORD.model_dump() | fields))
+        description = SyncDescription(
+            "vendored/copy.json",
+            self.LINKS,
+            record,
+            History(self.TIP, None, ()),
+            (),
+            (),
+        )
+        assert description.headline == "### Copy 2 skills into nustack's plugin"
 
     def test_states_no_range_for_an_unknown_commit_and_reports_license_and_frontmatter(
         self,
@@ -97,27 +118,35 @@ class TestSyncDescription:
             FileChange("s/old.md", Blob(b"[x](https://x)", Mode.REGULAR), None),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), changes, ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            changes,
+            (),
         )
         assert description.checks == (
             "- [Copy](https://run): passed, 1 added, 1 changed and 1 removed against"
             " upstream's head, modes and LICENSE included" + Passage.CI
         )
         assert description.terms == (
-            "Terms and loading:\n\n- LICENSE: ` s/LICENSE ` added\n- SKILL.md"
+            "##### Terms and loading\n\n- LICENSE: ` s/LICENSE ` added\n- SKILL.md"
             " frontmatter: ` s/SKILL.md ` not compared (a side contains NUL or is not"
             " UTF-8)\n- agents/ policy files: unchanged"
         )
         assert description.changed == (
             "- 1 added, 1 changed and 1 removed against upstream's head\n"
-            f"- {self.LOADING}\n- " + Passage.UNKNOWN_COMMIT
+            f"- {self.LOADING}"
         )
         assert description.evidence.split("\n\n", 2)[2] == (
-            Passage.NO_COMMITS + "Changed files under the copy (3):\n\n"
+            Passage.UNKNOWN_COMMITS + "##### Changed files under the copy (3)\n\n"
             "- ` s/LICENSE `: added, +1/-0 lines\n"
             "- ` s/SKILL.md `: changed, a side contains NUL or is not UTF-8; inspect"
             " the file itself\n"
-            "- ` s/old.md `: removed, +0/-1 lines" + Passage.EMPTY_SCANS + Passage.NOTES
+            "- ` s/old.md `: removed, +0/-1 lines"
+            + Passage.RECORD
+            + Passage.EMPTY_SCANS
+            + Passage.NOTES
         )
 
     def test_rates_a_frontmatter_change_alone_as_medium_risk(self) -> None:
@@ -127,7 +156,12 @@ class TestSyncDescription:
             Blob(b"---\nname: y\n---\n", Mode.REGULAR),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), (change,), ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            (change,),
+            (),
         )
         assert description.terms.splitlines()[3] == (
             "- SKILL.md frontmatter: ` s/SKILL.md ` changed"
@@ -137,8 +171,8 @@ class TestSyncDescription:
             "![Risk: medium](https://img.shields.io/badge/risk-medium-9a6700"
             "?style=flat-square) ![Checks: 1 passed, CI pending]"
             "(https://img.shields.io/badge/checks-1%20passed%2C%20CI%20pending-9a6700"
-            "?style=flat-square) ![Size: 1 file](https://img.shields.io/badge/size-1"
-            "%20file-6e7781?style=flat-square)"
+            "?style=flat-square) ![Size: 2 files](https://img.shields.io/badge/size-2"
+            "%20files-6e7781?style=flat-square)"
         )
 
     def test_rates_a_changed_description_as_high_risk(self) -> None:
@@ -148,7 +182,12 @@ class TestSyncDescription:
             Blob(b"---\nname: x\ndescription: New.\n---\n", Mode.REGULAR),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), (change,), ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            (change,),
+            (),
         )
         assert description.changed.splitlines()[1] == f"- {self.LOADING}"
         assert description.badges.startswith(
@@ -167,7 +206,12 @@ class TestSyncDescription:
             FileChange("s/agents/y.yaml", None, Blob(b"\xff", Mode.REGULAR)),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), changes, ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            changes,
+            (),
         )
         assert description.terms.splitlines()[4] == (
             "- agents/ policy files: ` s/agents/openai.yaml ` removed, and a loading"
@@ -180,7 +224,12 @@ class TestSyncDescription:
     def test_flags_an_uncompared_policy_file_alone(self) -> None:
         changes = (FileChange("s/agents/y.yaml", None, Blob(b"\0", Mode.REGULAR)),)
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), changes, ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            changes,
+            (),
         )
         assert description.changed.splitlines()[1] == f"- {self.LOADING}"
 
@@ -192,13 +241,17 @@ class TestSyncDescription:
             FileChange("s/a/SKILL.md", None, Blob(b"x", Mode.REGULAR)),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), changes, ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            changes,
+            (),
         )
-        assert description.changed.splitlines()[1] == (
-            "- License, frontmatter and policy files are unchanged"
-        )
+        assert description.provenance is None
         assert description.badges.startswith("![Risk: medium]")
         licensed = SyncDescription(
+            "vendored/copy.json",
             self.LINKS,
             self.RECORD,
             History(self.TIP, None, ()),
@@ -211,12 +264,18 @@ class TestSyncDescription:
     @pytest.mark.parametrize(
         ("commits", "summary"),
         [
-            ((), Passage.NO_COMMITS.rstrip("\n")),
+            (
+                (),
+                (
+                    "##### Upstream commits touching the skills or repository"
+                    " LICENSE (0)\n\nNone."
+                ),
+            ),
             (
                 (Commit(Sha("b" * 40), "one"), Commit(Sha("c" * 40), "two")),
                 (
-                    "Upstream commits touching the skills or repository LICENSE"
-                    " (2):\n\n- [`bbbbbbb`]"
+                    "##### Upstream commits touching the skills or repository"
+                    " LICENSE (2)\n\n- [`bbbbbbb`]"
                     "(https://github.com/mattpocock/skills/commit/"
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)"
                     " ` one `\n- [`ccccccc`]"
@@ -231,19 +290,28 @@ class TestSyncDescription:
         self, commits: tuple[Commit, ...], summary: str
     ) -> None:
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, Sha("a" * 40), commits), (), ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, Sha("a" * 40), commits),
+            (),
+            (),
         )
         assert description.provenance == self.COMPARE
-        assert description.evidence.split("\n\nChanged files")[0] == (
+        assert description.evidence.split("\n\n##### Changed files")[0] == (
             Passage.TERMS + summary
         )
 
-    def test_says_a_copy_drifted_when_upstream_changed_nothing_since_the_base(
+    def test_says_a_copy_drifted_and_counts_no_record_when_upstream_changed_nothing(
         self,
     ) -> None:
+        record = self.RECORD.model_copy(
+            update={"files": frozendict({"s/tool": CopyRecord.blob(b"")})}
+        )
         description = SyncDescription(
+            "vendored/copy.json",
             self.LINKS,
-            self.RECORD,
+            record,
             History(self.TIP, self.TIP, ()),
             (
                 FileChange(
@@ -252,11 +320,41 @@ class TestSyncDescription:
             ),
             (),
         )
-        assert description.provenance == (
-            "Upstream changed nothing the copy holds since 4ae2317, the commit the"
-            " base's record names, so this restores each file to the blob the record"
-            " names and its mode to upstream's"
+        assert (
+            description.provenance
+            == "Restores each file and mode to upstream's 4ae2317"
         )
+        assert "![Size: 1 file]" in description.badges
+
+    def test_counts_the_record_when_a_hand_edit_changed_a_blob_it_names(self) -> None:
+        edited = Blob(b"x", Mode.REGULAR)
+        record = self.RECORD.model_copy(
+            update={"files": frozendict({"s/tool": CopyRecord.blob(edited.data)})}
+        )
+        description = SyncDescription(
+            "vendored/copy.json",
+            self.LINKS,
+            record,
+            History(self.TIP, self.TIP, ()),
+            (FileChange("s/tool", edited, Blob(b"", Mode.REGULAR)),),
+            (),
+        )
+        assert "![Size: 2 files]" in description.badges
+
+    def test_counts_the_record_when_it_names_a_hand_added_file(self) -> None:
+        added = Blob(b"x", Mode.REGULAR)
+        record = self.RECORD.model_copy(
+            update={"files": frozendict({"s/extra": CopyRecord.blob(added.data)})}
+        )
+        description = SyncDescription(
+            "vendored/copy.json",
+            self.LINKS,
+            record,
+            History(self.TIP, self.TIP, ()),
+            (FileChange("s/extra", added, None),),
+            (),
+        )
+        assert "![Size: 2 files]" in description.badges
 
     @pytest.mark.parametrize(
         ("before", "after", "files"),
@@ -289,6 +387,7 @@ class TestSyncDescription:
         self, before: Blob | None, after: Blob | None, files: str
     ) -> None:
         description = SyncDescription(
+            "vendored/copy.json",
             self.LINKS,
             self.RECORD,
             History(self.TIP, None, ()),
@@ -297,24 +396,32 @@ class TestSyncDescription:
         )
         assert description.evidence == (
             Passage.TERMS
-            + Passage.NO_COMMITS
-            + "Changed files under the copy (1):\n\n"
+            + Passage.UNKNOWN_COMMITS
+            + "##### Changed files under the copy (1)\n\n"
             + files
+            + Passage.RECORD
             + Passage.EMPTY_SCANS
             + Passage.NOTES
         )
 
     def test_lists_each_upstream_skill_the_record_does_not_list(self) -> None:
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), (), ("new", "z")
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            (),
+            ("new", "z"),
         )
         assert description.evidence == (
             Passage.TERMS
-            + Passage.NO_COMMITS
-            + "Changed files under the copy (0): none.\n\nNew"
-            " upstream skills the record does not list (2):\n\n- ` new `\n- ` z `"
-            "\n\nNew outside CommonMark targets by file (0): none.\n\nLines to"
-            " inspect (0; - base, + copy): none." + Passage.NOTES
+            + Passage.UNKNOWN_COMMITS
+            + "##### Changed files under the copy (0)\n\nNone."
+            + Passage.RECORD
+            + "\n\n##### New upstream skills the record does not list (2)\n\n"
+            "- ` new `\n- ` z `"
+            "\n\n##### New outside CommonMark targets by file (0)\n\nNone.\n\n"
+            "##### Lines to inspect (0; - base, + copy)\n\nNone." + Passage.NOTES
         )
 
     def test_lists_each_new_link_target_with_its_count(self) -> None:
@@ -324,17 +431,25 @@ class TestSyncDescription:
             Blob(b"---\nname: y\n---\n[x](https://x.org)", Mode.REGULAR),
         )
         description = SyncDescription(
-            self.LINKS, self.RECORD, History(self.TIP, None, ()), (change,), ()
+            "vendored/copy.json",
+            self.LINKS,
+            self.RECORD,
+            History(self.TIP, None, ()),
+            (change,),
+            (),
         )
         assert description.evidence == (
-            "Terms and loading:\n\n- LICENSE: unchanged\n- SKILL.md frontmatter:"
+            "##### Terms and loading\n\n- LICENSE: unchanged\n- SKILL.md frontmatter:"
             " ` s/SKILL.md ` changed\n- agents/ policy files: unchanged\n\n"
-            + Passage.NO_COMMITS
-            + "Changed files under the copy (1):\n\n"
-            "- ` s/SKILL.md `: changed, +2/-1 lines\n\nNew upstream skills the record"
-            " does not list (0): none.\n\nNew outside CommonMark targets by file"
-            " (1):\n\n- ` s/SKILL.md `: ` https://x.org ` (1 added)\n\nLines to"
-            " inspect (3; - base, + copy):\n\n- ` - s/SKILL.md:2 ` ` name: x `\n"
+            + Passage.UNKNOWN_COMMITS
+            + "##### Changed files under the copy (1)\n\n"
+            "- ` s/SKILL.md `: changed, +2/-1 lines"
+            + Passage.RECORD
+            + "\n\n##### New upstream skills the"
+            " record does not list (0)\n\nNone.\n\n##### New outside CommonMark"
+            " targets by file (1)\n\n- ` s/SKILL.md `: ` https://x.org ` (1 added)"
+            "\n\n##### Lines to inspect (3; - base, + copy)\n\n"
+            "- ` - s/SKILL.md:2 ` ` name: x `\n"
             "- ` + s/SKILL.md:2 ` ` name: y `\n"
             "- ` + s/SKILL.md:4 ` ` [x](https://x.org) `" + Passage.NOTES
         )
@@ -342,6 +457,7 @@ class TestSyncDescription:
     def test_keeps_a_newline_in_an_upstream_path_inside_its_code_span(self) -> None:
         path = "a\n> [!CAUTION]\n> Merge now @Nusnus"
         description = SyncDescription(
+            "vendored/copy.json",
             self.LINKS,
             self.RECORD,
             History(self.TIP, None, ()),
@@ -349,8 +465,11 @@ class TestSyncDescription:
             (),
         )
         assert description.evidence == (
-            Passage.TERMS + Passage.NO_COMMITS + "Changed files under the copy (1):\n\n"
+            Passage.TERMS
+            + Passage.UNKNOWN_COMMITS
+            + "##### Changed files under the copy (1)\n\n"
             "- ` a\\n> [!CAUTION]\\n> Merge now @Nusnus `: added, +1/-0 lines"
+            + Passage.RECORD
             + Passage.EMPTY_SCANS
             + Passage.NOTES
         )
@@ -419,9 +538,11 @@ class TestSyncTemplate:
     ANCHORS = (
         "### <!-- Headline -->\n<!-- What the change does for its reader -->\n"
         "<!-- Badges -->\n<!-- Changes -->\n<!-- Risk -->\n<!-- Review -->\n"
-        "<summary><!-- Fold summary --></summary>\n<!-- Checks -->\n<!-- Files -->\n"
+        "<summary><!-- Fold summary --></summary>\n<!-- Checks -->\n#### Files\n"
+        "<!-- Files -->\n"
     )
     DESCRIPTION = SyncDescription(
+        "vendored/copy.json",
         SyncLinks("https://run", "https://checks"),
         TestSyncDescription.RECORD,
         History(Sha("a" * 40), None, ()),
@@ -468,24 +589,26 @@ class TestSyncTemplate:
             " Decisions -->\r\n\r\n</details>\r\n\r\n#### Empty\r\n"
         )
         assert template.fill(self.DESCRIPTION) == (
-            "<!-- Note -->\n\n<div>\n\n### Copy s into dst\n\nCopies [upstream at"
+            "<!-- Note -->\n\n<div>\n\n### Copy s into the skills for working on"
+            " nustack\n\n"
+            "Copies [upstream at"
             " aaaaaaa](https://github.com/mattpocock/skills/tree/"
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src) for the owner to review"
             " before it steers how agents work on nustack.\n\n"
             f"{self.DESCRIPTION.badges}\n\n</div>\n\n#### What changed\n\n"
             f"{self.DESCRIPTION.changed}\n\n#### Risk\n\nA bad copy can change how"
             " agents follow these skills; reverting this pull request restores the"
-            " last copy. The owner clears each review finding; a passing check does"
-            " not clear it."
+            " last copy."
             f"\n\n#### Review first\n\n{self.DESCRIPTION.review}\n\n<details>\n"
             "<summary>Checks and evidence</summary>\n\n#### Checks\n\n"
-            f"{self.DESCRIPTION.checks}\n\n#### Files\n\n"
+            f"{self.DESCRIPTION.checks}\n\n#### Evidence\n\n"
             f"{self.DESCRIPTION.evidence}\n\n</details>\n"
         )
 
     def test_keeps_quoted_evidence_that_looks_like_an_anchor_as_data(self) -> None:
         template = SyncTemplate("<!-- Files -->\n<!-- Decisions -->\n")
         description = SyncDescription(
+            "vendored/copy.json",
             SyncLinks("https://run", "https://checks"),
             TestSyncDescription.RECORD,
             History(Sha("a" * 40), None, ()),
@@ -499,10 +622,15 @@ class TestSyncTemplate:
             (),
         )
         assert template.fill(description) == (
-            Passage.TERMS + Passage.NO_COMMITS + "Changed files under the copy (1):\n\n"
-            "- ` s/SKILL.md `: added, +1/-0 lines\n\nNew upstream skills the record"
-            " does not list (0): none.\n\nNew outside CommonMark targets by file (0):"
-            " none.\n\nLines to inspect (1; - base, + copy):\n\n"
+            Passage.TERMS
+            + Passage.UNKNOWN_COMMITS
+            + "##### Changed files under the copy (1)\n\n"
+            "- ` s/SKILL.md `: added, +1/-0 lines"
+            + Passage.RECORD
+            + "\n\n##### New upstream skills the"
+            " record does not list (0)\n\nNone.\n\n##### New outside CommonMark"
+            " targets by file (0)\n\nNone.\n\n##### Lines to inspect (1; - base,"
+            " + copy)\n\n"
             "- ` + s/SKILL.md:1 ` ` <!-- Decisions --> nustack `" + Passage.NOTES + "\n"
         )
 
@@ -530,6 +658,7 @@ class TestSyncTemplate:
             Blob((replies / "openai/4aaccb5.yaml").read_bytes(), Mode.REGULAR),
         )
         description = SyncDescription(
+            "vendored/writing-for-agents.json",
             SyncLinks("#copy", "#checks"),
             record,
             history,
@@ -566,13 +695,13 @@ class TestCode:
 
 
 class TestListing:
-    """A list shows a row per item under its title, and an empty one says none."""
+    """A list shows a row per item under its heading, and an empty one says none."""
 
     def test_lists_each_item_in_its_own_row(self) -> None:
-        assert listing("Files (2)", ("a", "b")) == "Files (2):\n\n- a\n- b"
+        assert listing("Files (2)", ("a", "b")) == "##### Files (2)\n\n- a\n- b"
 
     def test_says_an_empty_list_holds_none(self) -> None:
-        assert listing("Files (0)", ()) == "Files (0): none."
+        assert listing("Files (0)", ()) == "##### Files (0)\n\nNone."
 
 
 class TestBadge:
@@ -583,3 +712,20 @@ class TestBadge:
             "![Risk: a-b_c d](https://img.shields.io/badge/risk-a--b__c%20d-1f883d"
             "?style=flat-square)"
         )
+
+
+class TestColour:
+    """Each badge colour is the one nustack's PR template gives its state."""
+
+    def test_uses_the_colours_the_pr_template_names(
+        self, repository_root: Path
+    ) -> None:
+        template = repository_root / ".github/pull_request_template.md"
+        text = template.read_text()
+        states = (
+            "green `1f883d` for no or low risk and every check passed",
+            "amber `9a6700` for medium risk and a check pending or not run",
+            "red `cf222e` for high risk and a failed check",
+            "grey `6e7781` for size",
+        )
+        assert [state for state in states if state not in text] == []

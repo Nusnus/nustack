@@ -782,7 +782,8 @@ class TestSyncDescription:
         repository.write(
             ".github/pull_request_template.md",
             "### <!-- Headline -->\n\n<!-- Badges -->\n\n<!-- Changes -->\n\n"
-            "<!-- Risk -->\n\n<!-- Review -->\n\n<!-- Checks -->\n\n<!-- Files -->\n",
+            "<!-- Risk -->\n\n<!-- Review -->\n\n<!-- Checks -->\n\n#### Files\n\n"
+            "<!-- Files -->\n",
         )
         root = repository.save()
         assert stopped.report(root) == (

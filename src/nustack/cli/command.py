@@ -238,6 +238,7 @@ def sync_description(
             template,
             checkout_git=checkout_git,
             upstream_git=upstream_git,
+            record_path=record,
             record=copy_record,
             history=history,
             new_skills=new_skills,
@@ -281,6 +282,7 @@ def sync(  # noqa: PLR0913 -- Typer reads each option from a parameter of its ow
                 template,
                 checkout_git=checkout_git,
                 upstream_git=upstream_git,
+                record_path=record,
                 record=copy_record,
                 history=history,
                 new_skills=new_skills,
@@ -561,12 +563,15 @@ def described(  # noqa: PLR0913 -- the sync's links, template, clones, copy, ski
     *,
     checkout_git: CopyGit,
     upstream_git: CopyGit,
+    record_path: str,
     record: CopyRecord,
     history: History,
     new_skills: tuple[str, ...],
 ) -> str:
     changes = copy_changes(checkout_git, upstream_git, record, history)
-    description = SyncDescription(links, record, history, changes, new_skills)
+    description = SyncDescription(
+        record_path, links, record, history, changes, new_skills
+    )
     body = template.fill(description)
     if problems := template.size_problems(body, checkout_git.root / record.folder):
         fail(problems)

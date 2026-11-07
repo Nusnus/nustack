@@ -21,7 +21,7 @@ overrides:
     config:
       MD041: false
       # The template centers its header and folds its detail with the HTML
-      # GitHub renders in a description, as principle-pr-descriptions asks.
+      # GitHub renders in a description.
       MD033:
         allowed_elements:
           - details

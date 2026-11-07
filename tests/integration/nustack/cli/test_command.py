@@ -347,7 +347,7 @@ class TestSyncDescriptionCommand:
             "",
             (
                 f"{sync.checkout.root}/.agents/skills: the sync description of this"
-                " copy is 325735 bytes, over the 65536 GitHub accepts; quote less in"
+                " copy is 325652 bytes, over the 65536 GitHub accepts; quote less in"
                 " SyncDescription, or sync a smaller upstream change\n"
             ),
         )

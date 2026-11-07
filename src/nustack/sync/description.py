@@ -70,6 +70,7 @@ class SyncDescription:
     NON_TEXT: ClassVar[str] = "a side contains NUL or is not UTF-8"
     NOT_COMPARED: ClassVar[str] = f"not compared ({NON_TEXT})"
     COPY_CHECK: ClassVar[str] = "- [Copy]({run}):"
+    record_path: str
     links: SyncLinks
     record: CopyRecord
     history: History
@@ -92,7 +93,14 @@ class SyncDescription:
 
     @property
     def headline(self) -> str:
-        return f"### Copy {', '.join(self.record.skills)} into {self.record.folder}"
+        home = (
+            "nustack's plugin"
+            if self.record.in_plugin
+            else "the skills for working on nustack"
+        )
+        skills = self.record.skills
+        copied = skills[0] if len(skills) == 1 else f"{len(skills)} skills"
+        return f"### Copy {copied} into {home}"
 
     @property
     def summary(self) -> str:
@@ -120,8 +128,29 @@ class SyncDescription:
         )
 
     @property
+    def record_changes(self) -> bool:
+        return self.history.baseline != self.history.copied or any(
+            self.record.files.get(change.path)
+            != (None if change.after is None else CopyRecord.blob(change.after.data))
+            for change in self.changes
+        )
+
+    @property
+    def rewritten_record(self) -> tuple[str, ...]:
+        return (
+            (
+                (
+                    f"{code(self.record_path)}: its commit and blobs, rewritten to"
+                    " upstream's"
+                ),
+            )
+            if self.record_changes
+            else ()
+        )
+
+    @property
     def badges(self) -> str:
-        files = len(self.changes)
+        files = len(self.changes) + len(self.rewritten_record)
         risk = ("high", Colour.RED) if self.loading else ("medium", Colour.AMBER)
         badges = (
             Badge("risk", *risk),
@@ -144,13 +173,16 @@ class SyncDescription:
                 " names each"
             )
         else:
-            terms = "License, frontmatter and policy files are unchanged"
-        return (
-            f"- {counts['added']} added, {counts['changed']} changed and"
-            f" {counts['removed']} removed against upstream's head\n"
-            f"- {terms}\n"
-            f"- {self.provenance}"
+            terms = None
+        bullets = (
+            (
+                f"{counts['added']} added, {counts['changed']} changed and"
+                f" {counts['removed']} removed against upstream's head"
+            ),
+            terms,
+            self.provenance,
         )
+        return "\n".join(f"- {bullet}" for bullet in bullets if bullet)
 
     def terms_status(self, change: FileChange) -> str:
         if change.in_skill == Skill.FILE:
@@ -165,6 +197,9 @@ class SyncDescription:
             f"- Whether to accept this copy, which {self.purpose}\n"
             f"- The whole diff, for {self.scope}, claims of authority or wider"
             " loading, which no check can decide\n"
+            # Departs from the part on what to read first in
+            # ../../../plugin/skills/principle-pr-descriptions/SKILL.md: AGENTS.md
+            # has whoever accepts a sync add its changelog entry before the merge.
             "- Before the merge, whoever accepts the copy adds its changelog entry"
             " under Unreleased"
         )
@@ -217,23 +252,34 @@ class SyncDescription:
                 assert_never(unexpected)
 
     @cached_property
-    def provenance(self) -> str:
-        if self.history.baseline is None:
-            return (
-                "The base's record names no commit that upstream's head holds, so"
-                " the commit range is unknown"
-            )
+    def provenance(self) -> str | None:
         baseline, copied = self.history.baseline, self.history.copied
+        if baseline is None:
+            return None
         if baseline == copied:
-            return (
-                f"Upstream changed nothing the copy holds since {baseline.short},"
-                " the commit the base's record names, so this restores each file"
-                " to the blob the record names and its mode to upstream's"
-            )
+            return f"Restores each file and mode to upstream's {baseline.short}"
         compare = f"{self.record.upstream}/compare/{baseline}...{copied}"
         return (
             f"[Compare upstream from {baseline.short}, the commit the base's record"
             f" names, to {copied.short}]({compare})"
+        )
+
+    @cached_property
+    def commits(self) -> str:
+        title = f"Upstream commits touching the skills or repository {CopyTree.LICENSE}"
+        if self.history.baseline is None:
+            return listing(
+                title,
+                ("Unknown: the base's record names no commit upstream's head holds",),
+            )
+        upstream_url = self.record.upstream
+        return listing(
+            f"{title} ({len(self.history.commits)})",
+            (
+                f"[`{commit.sha.short}`]({upstream_url}/commit/{commit.sha}) "
+                f"{code(commit.subject)}"
+                for commit in self.history.commits
+            ),
         )
 
     @cached_property
@@ -258,20 +304,34 @@ class SyncDescription:
                 f"{code(f'{edit.side} {change.path}:{edit.number}')} {code(edit.text)}"
                 for edit in change.marked_lines
             )
-        upstream_url = self.record.upstream
+        # Departs from the fold's files in reading order in
+        # ../../../plugin/skills/principle-pr-descriptions/SKILL.md and the fold look in
+        # ../../../.github/pull_request_template.md. The template's Files part is headed
+        # Evidence, as the fold's summary names it, since it holds more than files. It
+        # lists every file the size badge counts, the copy's in path order and then the
+        # record when the sync rewrites it, each path in a code span. Beside them it
+        # holds the terms, upstream commits, new upstream skills, links and lines the
+        # scans found, and what those scans miss, quoting each commit subject and line
+        # whole however long. REVIEW.md has a sync's review start from its files, links
+        # and quoted lines, and none of the copy is nustack's to read first; the terms,
+        # commits and new skills say what changed in kind and why, and the scan notes
+        # what those lists miss, so each sits beside the lists; and a cut path, subject
+        # or line could hide what an untrusted text directs.
         return "\n\n".join(
             (
                 self.terms,
-                listing(
-                    "Upstream commits touching the skills or repository"
-                    f" {CopyTree.LICENSE} ({len(self.history.commits)})",
-                    (
-                        f"[`{commit.sha.short}`]({upstream_url}/commit/{commit.sha}) "
-                        f"{code(commit.subject)}"
-                        for commit in self.history.commits
-                    ),
-                ),
+                self.commits,
                 listing(f"Changed files under the copy ({len(files)})", files),
+                *(
+                    (
+                        listing(
+                            f"The copy's record ({len(self.rewritten_record)})",
+                            self.rewritten_record,
+                        ),
+                    )
+                    if self.rewritten_record
+                    else ()
+                ),
                 listing(
                     f"New upstream skills the record does not list"
                     f" ({len(self.new_skills)})",
@@ -285,15 +345,20 @@ class SyncDescription:
                     "How the scans read",
                     (
                         (
-                            "Links: net new destinations per file that the CommonMark"
-                            " parser recognizes as links or images; check raw HTML,"
-                            " bare URLs and email addresses, and rejected URI schemes"
-                            " in the diff"
+                            "Links: net new link and image targets per file, as"
+                            " CommonMark parses them"
                         ),
                         (
-                            f"Lines: edits in {Skill.FILE} frontmatter and"
-                            f" {FileChange.POLICIES}, plus added lines naming rules,"
-                            " invocation fields, selected commands or HTTP(S) URLs"
+                            "Links miss raw HTML, bare URLs, email addresses and"
+                            " rejected URI schemes, which only the diff shows"
+                        ),
+                        (
+                            f"Lines: every edit in {Skill.FILE} frontmatter and"
+                            f" {FileChange.POLICIES}"
+                        ),
+                        (
+                            "Lines: added lines naming rules, invocation fields,"
+                            " selected commands or HTTP(S) URLs"
                         ),
                         "Both scans skip binary comparisons",
                     ),
@@ -346,6 +411,7 @@ class SyncTemplate:
     REVIEW: ClassVar[str] = "<!-- Review -->"
     FOLD: ClassVar[str] = "<summary><!-- Fold summary --></summary>"
     CHECKS: ClassVar[str] = "<!-- Checks -->"
+    FILES_HEADING: ClassVar[str] = "#### Files"
     FILES: ClassVar[str] = "<!-- Files -->"
     ANCHORS: ClassVar[tuple[str, ...]] = (
         HEADLINE,
@@ -356,6 +422,7 @@ class SyncTemplate:
         REVIEW,
         FOLD,
         CHECKS,
+        FILES_HEADING,
         FILES,
     )
     UNUSED: ClassVar[tuple[str, ...]] = (
@@ -364,6 +431,10 @@ class SyncTemplate:
         "<!-- Decisions -->",
     )
     HEADING: ClassVar[str] = "#### "
+    # The template opens on a comment that guides whoever writes a description;
+    # the sync's description drops it.
+    GUIDE: ClassVar[str] = "<!--\n"
+    GUIDE_END: ClassVar[str] = "-->\n"
     # GitHub's docs name no limit, yet creating a pull request with a body over
     # 65,536 characters fails with "Body is too long (maximum is 65536
     # characters)", as https://github.com/gerchowl/flock/issues/2810 records.
@@ -373,7 +444,10 @@ class SyncTemplate:
 
     @cached_property
     def lines(self) -> tuple[str, ...]:
-        return tuple(self.text.replace("\r\n", "\n").split("\n"))
+        text = self.text.replace("\r\n", "\n")
+        if text.startswith(self.GUIDE):
+            text = text.partition(self.GUIDE_END)[2]
+        return tuple(text.split("\n"))
 
     @cached_property
     def shape(self) -> tuple[str, ...]:
@@ -426,11 +500,11 @@ class SyncTemplate:
             self.BADGES: description.badges,
             self.CHANGES: description.changed,
             self.RISK: "A bad copy can change how agents follow these skills; reverting"
-            " this pull request restores the last copy. The owner clears each"
-            " review finding; a passing check does not clear it.",
+            " this pull request restores the last copy.",
             self.REVIEW: description.review,
             self.FOLD: "<summary>Checks and evidence</summary>",
             self.CHECKS: description.checks,
+            self.FILES_HEADING: "#### Evidence",
             self.FILES: description.evidence,
         }
         return "\n".join(fills.get(line, line) for line in self.shape).strip() + "\n"
@@ -464,6 +538,4 @@ def code(value: str) -> str:
 
 def listing(title: str, items: Iterable[str]) -> str:
     rows = "\n".join(f"- {item}" for item in items)
-    if not rows:
-        return f"{title}: none."
-    return f"{title}:\n\n{rows}"
+    return f"##### {title}\n\n{rows or 'None.'}"
