@@ -94,7 +94,7 @@ nus-mode reads its principle and language skills itself.
 | [principle-fail-fast](plugin/skills/principle-fail-fast/SKILL.md) | Code that fails where a wrong state is first detected, with an error that says how to recover, and holds an expected absence in its type. |
 | [principle-boundaries](plugin/skills/principle-boundaries/SKILL.md) | Outside data parsed once, where it enters, strictly into the project's domain types. |
 | [principle-types](plugin/skills/principle-types/SKILL.md) | Types that hold the contract, so an invalid value cannot exist. |
-| [principle-design](plugin/skills/principle-design/SKILL.md) | A design that starts from proven patterns and SOLID objects, short because it fits the problem. |
+| [principle-design](plugin/skills/principle-design/SKILL.md) | A design built from proven patterns and SOLID objects that put behaviour with the data it serves, short because it fits the problem. |
 | [principle-layout](plugin/skills/principle-layout/SKILL.md) | A folder and file layout that shows the design, and one order inside every file. |
 | [principle-dependencies](plugin/skills/principle-dependencies/SKILL.md) | Dependencies that point one way, onto the language's own tools and stable public APIs, one home for each library, the runtimes a project targets, floating ranges with a pinned lockfile, and deciding logic kept pure. |
 | [principle-resilience](plugin/skills/principle-resilience/SKILL.md) | Code that comes through failure and load by its design: each failure absorbed by its structure or left to fail, each limit known and accepted. |

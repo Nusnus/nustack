@@ -63,7 +63,7 @@ Before you apply or cite a principle, read its `SKILL.md` in full as a file, so 
 - [fail fast](../principle-fail-fast/SKILL.md): you write code that checks a value or state, falls back to a default, or raises or handles an error, or a value may be absent.
 - [boundaries](../principle-boundaries/SKILL.md): data enters from outside the system.
 - [types](../principle-types/SKILL.md): you design a type, a signature, a set of allowed values or a value that never changes, or write code that branches on a set of values.
-- [design](../principle-design/SKILL.md): you write or change code, from one branch to how parts work together.
+- [design](../principle-design/SKILL.md): you write or change code, from one branch to how parts work together, or decide where a function or value lives.
 - [layout](../principle-layout/SKILL.md): you add, move, split or change any folder or file, or decide where anything lives.
 - [dependencies](../principle-dependencies/SKILL.md): you write or change code, add or use anything third-party, such as a library, a tool or a CI action, or choose the runtime versions a project targets.
 - [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, writes state a crash or timeout can leave half-done, does work that may repeat, such as a job or message handler, guards against or handles a failure, or does work that grows with its input, data or traffic.
