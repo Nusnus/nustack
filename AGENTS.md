@@ -25,8 +25,10 @@ Word skill text, this file, REVIEW.md and the issue form by Matt Pocock's [writi
 
 ## Writing skill text
 
+- Write for the strongest agent on every harness, in words that stay true when a stronger one ships: name no agent harness, model, harness-specific path or date.
+- Write each principle as the [Zen of Python](https://peps.python.org/pep-0020/) writes an aphorism, true in any project: the owner's value in a line or two, plus only where the owner's taste departs from the strongest agent's pick.
+- Add a word, or ask for one in review, only where the strongest agent would act wrongly without it; cut the rest.
 - State the target behaviour. A prohibition earns its place only as a guardrail with no positive phrasing, paired with its target. This file holds that rule itself, since each sync can change the copy of writing-for-agents.
-- Write for every host: name no agent host, model, host-specific path or date.
 - Frontmatter holds `name` and `description`. A principle or language skill also holds `disable-model-invocation: true` and `triggers: [user]`, which between them hide it from the model on every host, so nus-mode reads it as a file. nus-mode leaves both at their defaults, so the user can invoke it and the model can load it when a project's `AGENTS.md` asks. A vendored skill keeps upstream's frontmatter, and with it upstream's visibility. Each field and list entry keeps to one line, and no value holds `---`, since some hosts then drop every field.
 - Keep each authored `SKILL.md` under the line limit `nustack check` enforces, and nus-mode's body under the character cap it enforces too, which leaves the Claude Code hook room to put the body back after a summary.
 - nus-mode's **Choose quality over session cost** bullet, its ETA exception included, and its **Give times in the user's time zone** bullet hold the owner's words verbatim: they change only when the owner asks, and review raises no finding on their wording. A change that needs room under the limit takes it from other lines.

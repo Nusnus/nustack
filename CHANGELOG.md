@@ -30,6 +30,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - `nustack bump`, from a working tree with no changes, sets a release's version, the next patch or the one given, titles `CHANGELOG.md`'s `[Unreleased]` section with it and the day, below a new empty one, and sets the changelog's links, so `make check` passes right after it.
   - `nustack push-tag`, from a full clone whose working tree has no changes, checks out the commit on `origin/main` that set the release's version, the newest on its first-parent line, so a later merge stays untagged; it checks the release tag there as `nustack release-tag` does, then pushes the tag on that commit to `origin`, leaving no local tag that a rerun after a failed push would trip on.
   - `AGENTS.md` has each pull request add its own entry under `CHANGELOG.md`'s `[Unreleased]`; the PR template asks for it, and `REVIEW.md` has review check it.
+  - `AGENTS.md` has skill text written, and reviewed, for the strongest agent as timeless Zen: each principle holds the owner's value, true in any project, plus only where the owner's taste departs from that agent's pick.
 
 ### Changed
 
