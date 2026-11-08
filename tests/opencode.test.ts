@@ -1,3 +1,7 @@
+/**
+ * The OpenCode plugin's promises: it registers every skill folder, hides the principle and language skills from
+ * the model, and puts nus-mode back once a summary drops it, only in a session that loaded it.
+ */
 import { expect, test } from "bun:test"
 import { readdir } from "node:fs/promises"
 import plugin from "../plugin/opencode.ts"

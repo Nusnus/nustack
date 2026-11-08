@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copies each vendored skill from its upstream at the commit vendor.json records.
+# Copies each vendored skill from its upstream at the commit vendor.json records, with any README.md row for it.
 # Upstream licenses the repository, not each skill, so each copy holds upstream's root LICENSE beside it.
 # --check fails when a copy or its LICENSE differs from upstream; --update [<name>] first moves each record,
 # or the one named, to upstream's latest commit.
@@ -54,6 +54,16 @@ for copy in $(jq -r 'keys[]' vendor.json); do
       rm -rf "${folder:?}/$skill"
       cp -R "$work/$copy/$source/$skill" "$folder/$skill"
       cp "$work/$copy/LICENSE" "$folder/$skill/LICENSE"
+      # README.md's skills table copies the description of each skill under plugin/skills.
+      # Reads the description as YAML, as scripts/check.ts does, so quotes and escapes resolve the same way.
+      description=$(bun -e '
+        const [, frontmatter] = (await Bun.file(Bun.argv[1]).text()).match(/^---\r?\n([\s\S]*?)\r?\n---/)
+        console.log(Bun.YAML.parse(frontmatter).description)
+      ' "$folder/$skill/SKILL.md")
+      row="| [$skill](plugin/skills/$skill/SKILL.md) |"
+      # Passes both through the environment, since awk -v would read each backslash as an escape.
+      ROW=$row DESCRIPTION=$description awk 'index($0, ENVIRON["ROW"] " ") == 1 { $0 = ENVIRON["ROW"] " " ENVIRON["DESCRIPTION"] " |" } { print }' README.md > "$work/README.md"
+      mv "$work/README.md" README.md
     fi
   done
 done

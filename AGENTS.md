@@ -13,7 +13,7 @@ Word every agent file, meaning each skill, this file, REVIEW.md, CLAUDE.md and t
 - A principle is stated in its own `SKILL.md` alone; every other file links it. A language skill holds what the principles leave to one language. A playbook holds one task as numbered steps, each ending on a done condition an agent can check.
 - `.agents/skills/` holds the skills for working on nustack, such as the release skill. `.claude/skills` is a symlink to it, since Claude Code reads a project's skills only from there, and `CLAUDE.md` imports this file.
 - `scripts/` holds the short scripts that check, vendor and release nustack, and `tests/` the test of `plugin/opencode.ts`. That test sits at `tests/opencode.test.ts` rather than mirroring its path, since a `tests/plugin/` package would hold one module, which [layout](plugin/skills/principle-layout/SKILL.md) rules out.
-- `vendor.json` records each vendored copy: its upstream, the skills it copies and the commit they came from. Change a copy only through the pull request the vendor workflow opens, or upstream. A new record also joins the vendor workflow's matrix.
+- `vendor.json` records each vendored copy: its upstream, the skills it copies and the commit they came from. Change a copy only through the pull request the vendor workflow opens, or upstream.
 
 ## Writing skill text
 

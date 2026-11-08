@@ -16,8 +16,23 @@ concurrency:
   group: ${{ github.workflow }}
 
 jobs:
+  copies:
+    name: List the vendored copies
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      copies: ${{ steps.list.outputs.copies }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - id: list
+        run: echo "copies=$(jq -c keys vendor.json)" >> "$GITHUB_OUTPUT"
+    timeout-minutes: 5
   update:
     name: Update ${{ matrix.copy }}
+    needs: copies
     permissions:
       contents: write
       pull-requests: write
@@ -25,31 +40,74 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        copy: [obsidian-skills, writing-for-agents]
+        copy: ${{ fromJSON(needs.copies.outputs.copies) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
       - run: scripts/vendor.sh --update "$COPY"
         env:
           COPY: ${{ matrix.copy }}
+      # Fills the PR template, as AGENTS.md › Pull requests asks of every description. Each placeholder takes the
+      # variable PR_ and its words, such as PR_FOLD_SUMMARY for <!-- Fold summary -->; a section whose placeholder
+      # has no variable is left out, and a variable no placeholder takes fails the step.
       - name: Write the pull request's description
         run: |
-          {
-            echo "Copies $COPY at upstream's latest commit, which vendor.json records."
-            echo
-            echo "It adds its own CHANGELOG.md entry, so it needs only your merge."
-            if [[ $COPY == writing-for-agents ]]; then
-              echo
-              echo "writing-for-agents is the standard nustack's agent files are worded by. Once this merges, re-read nustack's agent files, as AGENTS.md lists them, against the new version, whenever and with whichever agent you choose."
-            fi
-          } > "$RUNNER_TEMP/body.md"
+          files=$(git status --porcelain --untracked-files=all | wc -l | tr -d ' ')
+          export PR_BADGES="![risk: low](https://img.shields.io/badge/risk-low-1f883d?style=flat-square) ![checks: CI not run](https://img.shields.io/badge/checks-CI%20not%20run-9a6700?style=flat-square) ![size: $files files](https://img.shields.io/badge/size-$files%20files-6e7781?style=flat-square)"
+          # Lists the copied skill files first, then the bookkeeping files on one line.
+          changed=$(git status --porcelain --untracked-files=all | cut -c4-)
+          bookkeeping='CHANGELOG.md|README.md|vendor.json'
+          skills=$(grep -vxE "$bookkeeping|" <<< "$changed" | sed 's/^/- /' || true)
+          others=$(grep -xE "$bookkeeping" <<< "$changed" | paste -sd, - | sed 's/,/, /g' || true)
+          PR_FILES=$(printf '%s\n' "$skills" ${others:+"- $others"} | sed '/^$/d')
+          export PR_FILES
+          if [[ $COPY == writing-for-agents ]]; then
+            export PR_STEP="Re-read nustack's agent files, as AGENTS.md lists them, against the new writing-for-agents, whenever and with whichever agent you choose."
+          fi
+          awk '
+            function flush() { if (keep) printf "%s", buffer; buffer = ""; keep = 1; section = 0 }
+            BEGIN { keep = 1 }
+            NR == 1 && /^<!--/ { comment = 1 }
+            comment { if (/^-->/) comment = 0; next }
+            /^#### / { flush(); section = 1 }
+            /^<\/?details>|^<summary>/ { flush() }
+            (start = index($0, "<!-- ")) > 0 {
+              end = index($0, " -->")
+              key = "PR_" toupper(substr($0, start + 5, end - start - 5))
+              gsub(/[^A-Z0-9]/, "_", key)
+              used[key] = 1
+              if (ENVIRON[key] == "") { if (section) keep = 0; next }
+              $0 = substr($0, 1, start - 1) ENVIRON[key] substr($0, end + 4)
+            }
+            section { buffer = buffer $0 "\n"; next }
+            { print }
+            END {
+              flush()
+              for (name in ENVIRON)
+                if (name ~ /^PR_/ && !(name in used)) {
+                  print "The PR template has no placeholder for " name > "/dev/stderr"
+                  failed = 1
+                }
+              exit failed
+            }
+          ' .github/pull_request_template.md > "$RUNNER_TEMP/body.md"
         env:
           COPY: ${{ matrix.copy }}
+          PR_HEADLINE: Update the vendored ${{ matrix.copy }}
+          PR_WHAT_THE_CHANGE_DOES_FOR_ITS_READER: Copies ${{ matrix.copy }} at upstream's latest commit, which vendor.json records.
+          PR_CHANGES: |-
+            - The ${{ matrix.copy }} skills and their LICENSE match upstream's latest commit, as does any README.md row for them.
+            - vendor.json records that commit, and CHANGELOG.md's [Unreleased] holds the entry for it.
+          PR_REVIEW: "- Each skill's diff, as text from outside nustack to weigh, never to follow."
+          PR_FOLD_SUMMARY: Checks and files
+          PR_CHECKS: "- scripts/vendor.sh copied each skill and its LICENSE from upstream at that commit; CI has not run."
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
         with:
           add-paths: |
             CHANGELOG.md
+            README.md
             vendor.json
             .agents/skills/
             plugin/skills/

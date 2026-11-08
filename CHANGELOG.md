@@ -45,8 +45,9 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - The plugin's description, which each host and the marketplaces show, names the Obsidian skills beside the mode.
 - For nustack's maintainers:
   - The repository keeps the skills, one manifest per host, the OpenCode loader and four short scripts: `scripts/check.ts`, `scripts/vendor.sh`, `scripts/hosts.sh` and `scripts/release.ts`. `bun run check` runs every check in seconds, on macOS as on Linux, and `bun run hosts` installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill.
-  - A release is a pull request: the `release` skill sets the version, titles the changelog section and opens it with a lead, and once it merges, the release workflow tags `v<version>` and publishes the section as the release page, once, as a pre-release before v0.1.0. A dry run takes the same steps and stops before anything leaves the machine.
-  - `vendor.json` records each vendored copy's upstream, skills and commit, `bun run check` fails when a copy differs from upstream at that commit, and a weekly workflow opens a pull request, with its own changelog entry, when upstream moves. writing-for-agents' pull request reminds the owner to re-read nustack's agent files against the new version.
+  - A release is a pull request: the `release` skill sets the version, titles the changelog section and opens it with a lead, and once it merges, the release workflow tags `v<version>` and publishes the section as the release page, once, as a pre-release before v0.1.0. A dry run takes the same steps and stops before anything leaves the machine. A bump that stopped partway finishes on a rerun.
+  - `vendor.json` records each vendored copy's upstream, skills and commit, `bun run check` fails when a copy differs from upstream at that commit, and a weekly workflow opens a pull request, with its own changelog entry, when upstream moves. writing-for-agents' pull request reminds the owner to re-read nustack's agent files against the new version. The workflow reads its copies from `vendor.json`, fills the PR template's sections in its description and copies each vendored skill's description into any README row for it.
+  - `bun run check` fails when a frontmatter field spans lines, a README skills-table row differs from its skill's description, the marketplaces' plugin description or owner from the manifests', the two marketplaces' own descriptions from each other, the vendored folders `.markdownlint-cli2.yaml` and `.gitattributes` list from `vendor.json`'s, or the blueprint's Bun from `package.json`'s, and runs the tests in random order under a seed it prints.
   - `AGENTS.md` asks the owner's OK before adding a script, check, workflow, test or dependency, and puts a lesson from a failed run into a skill's wording first. `REVIEW.md` holds only what review checks beyond `AGENTS.md` and `bun run check`.
 
 ### Removed
@@ -57,7 +58,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ### Fixed
 
-- The OpenCode loader names the full path of nus-mode's SKILL.md when the mode is missing, where it named `skills/nus-mode/SKILL.md`.
+- The OpenCode loader names the full path of each SKILL.md it cannot read, nus-mode's included, and stops on one that names no skill or description, each time saying to reinstall the plugin.
 
 ## [0.0.2] - 2026-11-04
 

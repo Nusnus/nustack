@@ -11,22 +11,6 @@ const SKILLS = join(import.meta.dirname, "skills")
 const MODE = "nus-mode"
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
-async function load(id: string): Promise<Skill.Info> {
-  const path = join(SKILLS, id, "SKILL.md")
-  const text = await Bun.file(path).text()
-  const match = FRONTMATTER.exec(text)
-  if (match === null) throw new Error(`${path} has no frontmatter; reinstall the nustack plugin`)
-  const fields = YAML.parse(match[1] ?? "") as Record<string, unknown>
-  return {
-    id: id as Skill.ID,
-    name: String(fields.name) as Skill.Name,
-    description: String(fields.description),
-    autoinvoke: fields["disable-model-invocation"] !== true,
-    path: path as Skill.Info["path"],
-    content: text.slice(match[0].length),
-  }
-}
-
 export default {
   id: "nustack",
   async setup(context) {
@@ -36,7 +20,7 @@ export default {
     )
     const mode = skills.find((skill) => skill.id === MODE)
     if (mode === undefined)
-      throw new Error(`${join(SKILLS, MODE)} is missing; reinstall the nustack plugin`)
+      throw new Error(`${join(SKILLS, MODE, "SKILL.md")} is missing; reinstall the nustack plugin`)
     const body = mode.content.trim()
     const escaped = JSON.stringify(body).slice(1, -1)
     const reload = `${body}\n\nBase directory for this skill: ${dirname(mode.path)}`
@@ -65,3 +49,31 @@ export default {
     return async () => void (await Promise.all(registrations.map((each) => each.dispose())))
   },
 } satisfies Plugin.Plugin
+
+async function load(id: string): Promise<Skill.Info> {
+  const path = join(SKILLS, id, "SKILL.md")
+  const file = Bun.file(path)
+  if (!(await file.exists())) throw new Error(`${path} is missing; reinstall the nustack plugin`)
+  const text = await file.text()
+  const match = FRONTMATTER.exec(text)
+  if (match?.[1] === undefined)
+    throw new Error(`${path} has no frontmatter; reinstall the nustack plugin`)
+  let fields: Record<string, unknown>
+  try {
+    fields = Object(YAML.parse(match[1]))
+  } catch (error) {
+    throw new Error(
+      `${path} holds frontmatter that is not YAML (${error}); reinstall the nustack plugin`,
+    )
+  }
+  if (typeof fields.name !== "string" || typeof fields.description !== "string")
+    throw new Error(`${path} names no skill or description; reinstall the nustack plugin`)
+  return {
+    id: id as Skill.ID,
+    name: fields.name as Skill.Name,
+    description: fields.description,
+    autoinvoke: fields["disable-model-invocation"] !== true,
+    path: path as Skill.Info["path"],
+    content: text.slice(match[0].length),
+  }
+}

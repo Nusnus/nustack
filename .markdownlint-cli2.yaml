@@ -3,10 +3,6 @@ config:
   # Each paragraph and list entry keeps to one line, so a diff shows the
   # sentence that changed instead of a rewrapped block.
   MD013: false
-  # Each CHANGELOG.md release repeats the section headings Keep a Changelog
-  # names, such as Added: https://keepachangelog.com/en/1.1.0/
-  MD024:
-    siblings_only: true
   MD060:
     style: compact
 # The first-line title rule skips only the files that cannot open on a title:
@@ -28,6 +24,14 @@ overrides:
           - div
           - sub
           - summary
+    combine: merge
+  # Each CHANGELOG.md release repeats the section headings Keep a Changelog
+  # names, such as Added: https://keepachangelog.com/en/1.1.0/
+  - filter:
+      - CHANGELOG.md
+    config:
+      MD024:
+        siblings_only: true
     combine: merge
   # README.md's front page centres its title, tagline and links, folds its
   # skills tables and shows the wordmark for the reader's theme, which only

@@ -15,7 +15,6 @@ What a reviewer, person or agent, holds each pull request to beyond `bun run che
 
 - **Every host reads the same plugin.** A change to one host's files keeps every host loading every skill, each hidden or shown as AGENTS.md › Writing skill text says, and README.md's install steps match each host's documentation.
 - **Each principle, language skill and playbook serves the goal in nus-mode's `SKILL.md`.**
-- **README.md's skills tables give each plugin skill one row,** holding its `SKILL.md`'s description.
 
 ## Vendored copies
 

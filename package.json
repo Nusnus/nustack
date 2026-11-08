@@ -2,7 +2,7 @@
   "name": "nustack-dev-tools",
   "type": "module",
   "scripts": {
-    "check": "bun scripts/check.ts && bunx tsc && bunx biome ci && bunx markdownlint-cli2 && bun test && scripts/vendor.sh --check",
+    "check": "bun scripts/check.ts && bunx tsc && bunx biome ci && bunx markdownlint-cli2 && bun test --randomize && scripts/vendor.sh --check",
     "hosts": "scripts/hosts.sh"
   },
   "devDependencies": {
