@@ -3,9 +3,10 @@
  * folder is missing or holds no single zip, unzip cannot unpack it or it holds no nus-mode, and passes through any
  * other error reading the zip folder or nus-mode.
  */
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { rethrowUnlessMissing } from "../../scripts/tree.ts"
 import { finished } from "./process.ts"
 
 /** A release zip folder the smoke tests cannot unpack nus-mode from. */
@@ -34,7 +35,7 @@ export class Bundle {
   // `make bundle` leaves the one zip in the zip folder; the unpacked folder goes in `parent`.
   static async unpacked(zipFolder = Bundle.ZIP_FOLDER, parent = tmpdir()): Promise<Bundle> {
     const names = await readdir(zipFolder).catch((error: unknown) => {
-      if (!missing(error)) throw error
+      rethrowUnlessMissing(error)
       throw new BundleError(`${zipFolder} does not exist; run make clean and make bundle`)
     })
     const [zip, ...others] = names.filter((name) => name.endsWith(".zip"))
@@ -42,7 +43,9 @@ export class Bundle {
       throw new BundleError(
         `${zipFolder} holds ${others.length + (zip === undefined ? 0 : 1)} zips; run make clean and make bundle`,
       )
-    const root = await mkdtemp(join(parent, "nustack-bundle-"))
+    // A host names the folder by its real path, which on macOS leads through /private, since /var, which holds
+    // tmpdir(), is a symlink.
+    const root = await realpath(await mkdtemp(join(parent, "nustack-bundle-")))
     try {
       const unzip = await finished(
         Bun.spawn(["unzip", "-q", join(zipFolder, zip), "-d", root], { stderr: "pipe" }),
@@ -54,7 +57,7 @@ export class Bundle {
       }
       const skill = await readFile(join(root, "skills", "nus-mode", "SKILL.md"), "utf8").catch(
         (error: unknown) => {
-          if (!missing(error)) throw error
+          rethrowUnlessMissing(error)
           throw new BundleError(
             `${zip} holds no skills/nus-mode/SKILL.md; run make clean and make bundle`,
           )
@@ -71,8 +74,4 @@ export class Bundle {
   async remove(): Promise<void> {
     await rm(this.root, { recursive: true })
   }
-}
-
-function missing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT"
 }

@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "release",
+    "edit",
+    "record-fixture-1794075633",
+    "--draft=true",
+    "--title",
+    "nustack 0.0.3",
+    "--notes-file",
+    "/tmp/rd/rec/notes.md",
+    "--prerelease=true"
+  ],
+  "stdout": "https://github.com/Nusnus-Private/nustack/releases/tag/untagged-596f0e0e5e47686b521d\n",
+  "stderr": "",
+  "code": 0
+}

@@ -120,7 +120,7 @@ Steph Ango's [obsidian-skills](https://github.com/kepano/obsidian-skills) ship u
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack and [where each part lives](AGENTS.md#where-things-live). Then, with [uv](https://docs.astral.sh/uv/getting-started/installation/) and [Bun](https://bun.sh/docs/installation) installed, set up and run every check:
+Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack and [where each part lives](AGENTS.md#where-things-live). Then, with [uv](https://docs.astral.sh/uv/getting-started/installation/), [Bun](https://bun.sh/docs/installation) and [Git](https://git-scm.com/downloads) 2.40 or later installed, set up and run every check:
 
 ```bash
 make install

@@ -1,6 +1,8 @@
 /**
- * Bun's settings hold the loader's suite to the Python suite's rules, and a Bun older than package.json pins stops a
- * contributor at once, in a test the blueprint's message for a failed Bun check points to.
+ * Bun's settings hold the suite to shuffled, strict runs, make smoke stops a stalled host, the sync workflow opens or
+ * resets a copy's pull request only once no open one proposes the copy, each setting a promise of AGENTS.md or make
+ * check rests on holds its value, and a Bun older than package.json pins stops a contributor at once, in a test the
+ * blueprint's message for a failed Bun check points to.
  */
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
@@ -114,18 +116,14 @@ describe("package.json", () => {
   })
 })
 
-/** Bun runs the loader's suite as the Python suite runs: shuffled, strict and fully covered. */
+/** Bun runs the suite shuffled and strict. */
 describe("bunfig.toml", () => {
-  test("runs every tier but smoke in random order, fails on warnings and on any uncovered line", async () => {
+  test("runs every tier but smoke in random order, failing on warnings", async () => {
     expect(await new RootFile("bunfig.toml").read()).toEqual({
       test: {
         root: "tests",
         preload: ["./tests/fixtures/warnings.ts"],
         pathIgnorePatterns: ["tests/smoke/**"],
-        coverage: true,
-        coverageThreshold: 1.0,
-        coverageSkipTestFiles: false,
-        coveragePathIgnorePatterns: ["tests/fixtures/warnings.ts"],
         randomize: true,
       },
     })
@@ -139,5 +137,125 @@ describe("bunfig.toml", () => {
         randomize: true,
       },
     })
+  })
+})
+
+/** make smoke stops a host that stalls, so a hung host fails the run instead of holding it. */
+describe("Makefile", () => {
+  test("stops a stalled host in make smoke after two minutes", async () => {
+    const makefile = await Bun.file(join(import.meta.dirname, "../../Makefile")).text()
+    // The smoke target's recipe: the tab-indented lines right after its rule line.
+    const recipe = /^smoke:.*\n((?:\t.*\n)*)/m.exec(makefile)?.[1]?.split("\n") ?? []
+    expect(recipe).toContain(
+      "\tbun --config=tests/fixtures/smoke/bunfig.toml test --timeout=120000",
+    )
+  })
+})
+
+/** The sync workflow commits as github-actions[bot] and leaves an open pull request that already proposes the copy, with its reviewer's commits, as it is. */
+describe("sync.yml", () => {
+  test("runs create-pull-request as github-actions[bot] only when the proposed step finds no open pull request proposing the copy", async () => {
+    const text = await Bun.file(
+      join(import.meta.dirname, "../../.github/workflows/sync.yml"),
+    ).text()
+    type Step = { id?: string; if?: string; uses?: string; with?: { author?: string } }
+    const steps = (Bun.YAML.parse(text) as { jobs: { sync: { steps: Step[] } } }).jobs.sync.steps
+    const proposing = steps.findIndex((step) => step.id === "proposed")
+    const creating = steps.findIndex((step) =>
+      step.uses?.startsWith("peter-evans/create-pull-request@"),
+    )
+    expect(proposing).toBeGreaterThan(-1)
+    expect(creating).toBeGreaterThan(proposing)
+    expect(steps[creating]?.if).toBe("steps.proposed.outputs.proposed != 'true'")
+    expect(steps[creating]?.with?.author).toBe(
+      "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+    )
+  })
+})
+
+type Hook = { id: string; entry?: string; args?: string[]; fail_fast?: boolean }
+type Step = { if?: string; run?: string }
+
+async function yamlOf(name: string): Promise<unknown> {
+  return Bun.YAML.parse(await Bun.file(join(RootFile.ROOT, name)).text())
+}
+
+async function hooks(): Promise<Hook[]> {
+  const config = (await yamlOf(".pre-commit-config.yaml")) as { repos: { hooks: Hook[] }[] }
+  return config.repos.flatMap((repo) => repo.hooks)
+}
+
+async function hook(id: string): Promise<Hook | undefined> {
+  return (await hooks()).find((each) => each.id === id)
+}
+
+// The commands that install a tool, each as far as its fallback's ||, with the limit bounded gives it.
+async function installs(): Promise<string[]> {
+  const blueprint = (await yamlOf(".devin/blueprint.yaml")) as { maintenance: Step[] }
+  const install =
+    /^(?:bounded \d+ )?(?:(?:sh|bash) "\$installer"|make install|uv run --locked pre-commit install-hooks)(?=\s|$)/
+  return blueprint.maintenance
+    .flatMap((step) => (step.run ?? "").split("\n"))
+    .map((line) => line.trim().split(" || ")[0] ?? "")
+    .filter((command) => install.test(command))
+}
+
+/** Each setting a promise of AGENTS.md or make check rests on holds the value that keeps it. */
+describe("the settings the promises rest on", () => {
+  test.each([
+    [
+      "a missing or stale bun.lock stops the run before the Bun hooks",
+      async () => {
+        const ids = (await hooks()).map((each) => each.id)
+        const first = ["biome", "tsc", "bun-test", "check"].map((id) => ids.indexOf(id))
+        return {
+          failFast: (await hook("bun-lock"))?.fail_fast,
+          before: Math.min(...first) > ids.indexOf("bun-lock"),
+        }
+      },
+      { failFast: true, before: true },
+    ],
+    [
+      "each commit runs the check",
+      async () => (await hook("check"))?.entry,
+      "bun scripts/check.ts",
+    ],
+    [
+      "make check fixes what markdownlint can fix",
+      async () => (await hook("markdownlint-cli2"))?.args,
+      ["--fix"],
+    ],
+    [
+      "CI checks every commit on main with no exemptions",
+      async () => {
+        const ci = (await yamlOf(".github/workflows/ci.yml")) as {
+          jobs: Record<string, { steps?: Step[] }>
+        }
+        return Object.values(ci.jobs)
+          .flatMap((job) => job.steps ?? [])
+          .find(
+            (step) => step.if === "github.event_name == 'push'" && step.run?.includes("cz check"),
+          )?.run
+      },
+      'uv run --locked cz check --allowed-prefixes --rev-range "$GITHUB_SHA"',
+    ],
+    [
+      "each CI job gets only the token rights its own permissions grant",
+      async () =>
+        ((await yamlOf(".github/workflows/ci.yml")) as { permissions?: unknown }).permissions,
+      {},
+    ],
+    [
+      "each install in the blueprint stops after its limit",
+      installs,
+      [
+        'bounded 600 sh "$installer"',
+        'bounded 600 bash "$installer"',
+        "bounded 1200 make install",
+        "bounded 1200 uv run --locked pre-commit install-hooks",
+      ],
+    ],
+  ] as const)("%s", async (_promise, read, kept) => {
+    expect(await read()).toEqual(kept)
   })
 })

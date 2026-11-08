@@ -3,7 +3,7 @@ name: Sync vendored copies
 # For each record in vendored/, proposes the newest version of the skills it
 # names on its upstream's default branch, unchanged, as a pull request that
 # replaces the copy and updates the record, so review reads it from here.
-# nustack check holds each copy to the blobs its record names, never to
+# make check holds each copy to the blobs its record names, never to
 # upstream's newest version, since upstream's newest version always wins and
 # a check against it would fail every unrelated pull request from upstream's
 # change until this sync merged. The owner merges each sync after review, since
@@ -44,6 +44,7 @@ jobs:
       contents: read
     runs-on: ubuntu-26.04
     outputs:
+      base: ${{ steps.base.outputs.name }}
       copies: ${{ steps.list.outputs.copies }}
       ref: ${{ steps.head.outputs.commit }}
     steps:
@@ -67,13 +68,15 @@ jobs:
       - id: head
         name: Name the commit the records come from
         run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+      - name: Install the scripts' packages from bun.lock
+        run: bun install --frozen-lockfile
       # The matrix takes its records from a JSON list:
       # https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#fromjson
       - id: list
         name: List each record in vendored/ with its copy's branch
         run: |
-          copies=$(uv run --locked nustack records)
+          copies=$(bun scripts/sync.ts list)
           echo "copies=$copies" >> "$GITHUB_OUTPUT"
     timeout-minutes: 5
 
@@ -84,41 +87,60 @@ jobs:
       pull-requests: write
     needs: records
     runs-on: ubuntu-26.04
-    env:
-      BRANCH: ${{ matrix.copy.branch }}
-      RECORD: ${{ matrix.copy.record }}
-      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      # fetch-depth 0 fetches every branch, the copy's own among them, so proposed can compare it
+      # (https://github.com/actions/checkout#usage).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.records.outputs.ref }}
+          fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      # nustack upstream holds the record alone to the check's rules for records,
-      # so a copy that drifted from its record still reaches the sync, which
-      # restores it. nustack sync reads upstream's trees and fetches each blob it
-      # copies, so the clone needs no old blobs
-      # (https://git-scm.com/docs/git-clone#Documentation/git-clone.txt---filterltfilter-specgt).
-      - name: Clone upstream's default branch
-        run: |
-          upstream=$(uv run --locked nustack upstream --record "$RECORD")
-          git clone --filter=blob:none --single-branch --no-checkout \
-            -- "$upstream.git" "$RUNNER_TEMP/upstream"
-      - name: Copy the skills and propose them in a pull request
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+      - name: Install the scripts' packages from bun.lock
+        run: bun install --frozen-lockfile
+      - name: Copy the skills from upstream's default branch
+        run: bun scripts/sync.ts sync "$RECORD" "$RUNNER_TEMP/body.md"
+        env:
+          RECORD: ${{ matrix.copy.record }}
+      # The action resets the copy's branch to its own commit whenever the two differ, which would drop the commits a
+      # reviewer added, such as the changelog entry, so it runs only once no open pull request from the branch proposes
+      # this copy on the base's head
+      # (https://github.com/peter-evans/create-pull-request/blob/v8.1.1/src/create-or-update-branch.ts). Such a pull
+      # request takes the sync's description where it differs beyond the run link. gh takes its host and tokens as the
+      # records job's base step says.
+      - id: proposed
+        name: Check whether an open pull request from the copy's branch already proposes this copy on the base's head, and refresh its description
         run: |
           export GH_HOST=${GITHUB_SERVER_URL#https://}
-          # Opening the pull request needs the repository setting that lets
-          # GitHub Actions create pull requests:
-          # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
-          uv run --locked nustack sync \
-            --run "$RUN" \
-            --checks "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions?query=branch:$BRANCH" \
-            --clone "$RUNNER_TEMP/upstream" --record "$RECORD" \
-            --name-with-owner "$GITHUB_REPOSITORY" \
-            --remote-url "https://x-access-token:${GH_TOKEN}@${GH_HOST}/${GITHUB_REPOSITORY}.git"
+          bun scripts/sync.ts proposed "$RECORD" "$BRANCH" "$BASE" "$RUNNER_TEMP/body.md"
         env:
+          BASE: ${{ needs.records.outputs.base }}
+          BRANCH: ${{ matrix.copy.branch }}
           GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          RECORD: ${{ matrix.copy.record }}
+      # Opening the pull request needs the repository setting that lets GitHub
+      # Actions create pull requests:
+      # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests
+      # It opens or updates the copy's pull request, and deletes its branch once
+      # the copy matches upstream (https://github.com/peter-evans/create-pull-request).
+      - if: steps.proposed.outputs.proposed != 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
+        with:
+          add-paths: |
+            vendored/
+            .agents/skills/
+            plugin/skills/
+          commit-message: ${{ matrix.copy.title }}
+          # The author defaults to github.actor, which on a schedule is whoever last edited the cron.
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          branch: ${{ matrix.copy.branch }}
+          delete-branch: true
+          # The checkout is a detached commit, so the action needs the branch to propose into.
+          base: ${{ needs.records.outputs.base }}
+          title: ${{ matrix.copy.title }}
+          body-path: ${{ runner.temp }}/body.md
     timeout-minutes: 5
     # Each copy proposes its own pull request, on purpose: the owner reviews and
     # merges each upstream on its own, and one failing leaves the others to run.

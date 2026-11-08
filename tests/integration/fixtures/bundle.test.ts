@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
-import { mkdir, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { Bundle, BundleError } from "../../fixtures/bundle.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
@@ -21,26 +21,33 @@ describe("Bundle", () => {
 })
 
 /**
- * The one zip a folder holds gives nus-mode's body and folder line as JSON escapes them, and leaves nothing unpacked
- * once removed. A missing folder, a folder holding no zip or two, a zip unzip cannot unpack or one without nus-mode
- * fails naming the fix and leaves no folder, and any other error reading the folder or nus-mode passes through.
+ * The one zip a folder holds unpacks under a root named by its real path, though its parent leads through a symlink,
+ * gives nus-mode's body and folder line as JSON escapes them, and leaves nothing unpacked once removed. A missing
+ * folder, a folder holding no zip or two, a zip unzip cannot unpack or one without nus-mode fails naming the fix and
+ * leaves no folder, and any other error reading the folder or nus-mode passes through.
  */
 describe("Bundle.unpacked", () => {
   const folders = new TemporaryFolders()
 
   afterEach(() => folders.clear())
 
-  test("reads nus-mode's body from the zip, escaped as JSON escapes it, and removes what it unpacked", async () => {
+  // A folder holding one zip, of skills/nus-mode/SKILL.md with the given text.
+  async function zipOf(skill: string): Promise<string> {
     const zipFolder = await folders.make()
     const source = await folders.make()
     await mkdir(join(source, "skills", "nus-mode"), { recursive: true })
-    await writeFile(
-      join(source, "skills", "nus-mode", "SKILL.md"),
-      '---\nname: nus-mode\n---\n# nus-mode\n\nSay "hi".\n',
-    )
+    await writeFile(join(source, "skills", "nus-mode", "SKILL.md"), skill)
     const zip = Bun.spawn(["zip", "-qr", join(zipFolder, "nustack.zip"), "skills"], { cwd: source })
     expect(await zip.exited).toBe(0)
-    const parent = await folders.make()
+    return zipFolder
+  }
+
+  test("reads nus-mode's body from the zip, escaped as JSON escapes it, and removes what it unpacked", async () => {
+    const zipFolder = await zipOf('---\nname: nus-mode\n---\n# nus-mode\n\nSay "hi".\n')
+    // The parent leads through a symlink, as macOS's /var does, so the root must name the folder it leads to.
+    const real = await folders.make()
+    const parent = join(await folders.make(), "link")
+    await symlink(real, parent)
     const bundle = await Bundle.unpacked(zipFolder, parent)
     const existed = existsSync(bundle.root)
     await bundle.remove()
@@ -52,13 +59,20 @@ describe("Bundle.unpacked", () => {
       existed,
       existsSync(bundle.root),
     ]).toEqual([
-      parent,
+      await realpath(real),
       '# nus-mode\n\nSay "hi".',
       '# nus-mode\\n\\nSay \\"hi\\".',
       `Base directory for this skill: ${bundle.root}/skills/nus-mode`,
       true,
       false,
     ])
+  })
+
+  test("reads a body holding a --- line whole", async () => {
+    const skill = "---\nname: nus-mode\n---\n# nus-mode\n\n---\n\nMore.\n"
+    const bundle = await Bundle.unpacked(await zipOf(skill), await folders.make())
+    await bundle.remove()
+    expect(bundle.body).toBe("# nus-mode\n\n---\n\nMore.")
   })
 
   test.each([

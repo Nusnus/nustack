@@ -1,308 +1,36 @@
-[build-system]
-build-backend = "uv_build"
-# uv init writes these bounds:
-# https://docs.astral.sh/uv/concepts/build-backend/#using-the-uv-build-backend
-requires = [ "uv-build>=0.13.6,<0.14" ]
-
+# uv pins nustack's Python tools; nustack holds no Python code. cz bump sets the
+# version here and in uv.lock, through the uv provider, and in each manifest.
 [project]
 name = "nustack"
 version = "0.0.2"
-description = "The harness that checks and bundles the nustack plugin."
-license = "MIT"
-authors = [ { name = "Tomer Nosrati" } ]
 requires-python = ">=3.15"
-dependencies = [
-  "markdown-it-py>=4.2",
-  "mdit-py-plugins>=0.6.1",
-  "pydantic>=2.14.2",
-  "pydantic-core>=2.50.2",
-  "ruamel-yaml>=0.19.1",
-  "typer>=0.27.3",
-]
-scripts.nustack = "nustack.cli.command:app"
 
 [dependency-groups]
 dev = [
   "actionlint-py>=1.7.12.25",
   "commitizen>=4.19.3",
-  "import-linter>=2.15",
-  "mutmut>=3.8.1",
   "pre-commit>=4.7",
-  "pyproject-fmt>=2.30.3",
-  "pytest>=9.2",
-  "pytest-cov>=7.1",
-  "pytest-randomly>=5",
-  "pytest-timeout>=2.4",
-  "rich>=15",
-  "ruff>=0.17.3",
   # actionlint checks workflow scripts with ShellCheck only when it is
-  # installed:
+  # installed, and the shellcheck hook runs it:
   # https://github.com/rhysd/actionlint/blob/v1.7.12/docs/checks.md#check-shellcheck-integ
   "shellcheck-py>=0.11.0.1",
-  "ty>=0.0.95",
   "zizmor>=1.31.1",
 ]
 
-[tool.uv]
-# The newest uv that Dependabot's own uv meets, not the oldest that locks
-# this project:
-# https://github.com/dependabot/dependabot-core/blob/v0.403.0/uv/helpers/requirements.txt
-required-version = ">=0.13.5"
-
-[tool.ruff]
-# The sync proposes each skill folder a record in vendored/ names byte for byte
-# from upstream, so the hooks that rewrite text skip them.
-extend-exclude = [
-  ".agents/skills/writing-for-agents",
-  "plugin/skills/defuddle",
-  "plugin/skills/json-canvas",
-  "plugin/skills/knap",
-  "plugin/skills/obsidian-bases",
-  "plugin/skills/obsidian-cli",
-  "plugin/skills/obsidian-markdown",
-]
-lint.select = [ "ALL" ]
-# Each rule's page says why: https://docs.astral.sh/ruff/rules/
-lint.ignore = [
-  # The formatter adds trailing commas its own way:
-  # https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
-  "COM812",
-  # The repository's LICENSE holds the copyright, not each file.
-  "CPY001",
-  # Docstrings belong to modules and classes:
-  # plugin/skills/principle-self-explanatory-code/SKILL.md
-  "D102",
-  "D103",
-  "D105",
-  "D107",
-]
-# The command's output is what it prints.
-lint.per-file-ignores."src/nustack/cli/command.py" = [ "T201" ]
-# pytest loads each conftest.py by path, so it needs no package:
-# https://docs.pytest.org/en/stable/explanation/pythonpath.html
-lint.per-file-ignores."tests/**/conftest.py" = [ "INP001" ]
-# Tests are no package, since pytest imports them in importlib mode, and pytest
-# reads plain asserts: https://docs.pytest.org/en/stable/how-to/assert.html
-lint.per-file-ignores."tests/**/test_*.py" = [ "INP001", "S101" ]
-# pytest's pythonpath imports the shared helpers as the namespace package
-# tests.fixtures:
-# https://docs.pytest.org/en/stable/reference/reference.html#confval-pythonpath
-lint.per-file-ignores."tests/fixtures/**/*.py" = [ "INP001" ]
-lint.flake8-tidy-imports.ban-relative-imports = "all"
-# nustack reaches the network only by running Git or gh, and import-linter cannot
-# forbid an outside package's I/O subpackage alone, so http.client and
-# urllib.request are banned here, beside typing's cast:
-# https://docs.astral.sh/ruff/settings/#lint_flake8-tidy-imports_banned-api
-lint.flake8-tidy-imports.banned-api."http.client".msg = """\
-  nustack reaches the network only by running Git or gh, through nustack.git or nustack.github.\
-  """
-lint.flake8-tidy-imports.banned-api."typing.cast".msg = """\
-  Narrow the value with isinstance, match or a TypeIs function instead.\
-  """
-lint.flake8-tidy-imports.banned-api."typing_extensions.cast".msg = """\
-  Narrow the value with isinstance, match or a TypeIs function instead.\
-  """
-lint.flake8-tidy-imports.banned-api."urllib.request".msg = """\
-  nustack reaches the network only by running Git or gh, through nustack.git or nustack.github.\
-  """
-# pydantic reads its models' annotations at runtime, so their imports stay
-# outside TYPE_CHECKING:
-# https://docs.astral.sh/ruff/settings/#lint_flake8-type-checking_runtime-evaluated-base-classes
-lint.flake8-type-checking.runtime-evaluated-base-classes = [ "pydantic.BaseModel" ]
-lint.isort.force-single-line = true
-lint.pydocstyle.convention = "pep257"
-
-[tool.pyproject-fmt]
-generate_python_version_classifiers = false
-# Wrapped, a coverage pattern turns into a multi-line string with its regex split across lines:
-# https://pyproject-fmt.readthedocs.io/en/latest/configuration.html#string-wrapping
-skip_wrap_for_keys = [ "tool.coverage.report.exclude_lines" ]
-
-# https://docs.pytest.org/en/stable/reference/reference.html#configuration-options
-[tool.pytest]
-# pytester ships in pytest's builtin plugins but not its default ones. The root conftest
-# only registers the plugins every tier shares, and pytest refuses pytest_plugins in a
-# deeper conftest, so -p loads pytester for the settings tests:
-# https://github.com/pytest-dev/pytest/blob/9.2.0/src/_pytest/config/__init__.py#L347-L381
-# https://github.com/pytest-dev/pytest/blob/9.2.0/src/_pytest/config/__init__.py#L821-L835
-# https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/deprecations.rst?plain=1#L1460-L1469
-addopts = [ "--import-mode=importlib", "-ra", "-p", "pytester" ]
-filterwarnings = [ "error" ]
-markers = [
-  "caller_line: checks the file and line a warning names, which make mutate leaves out",
-]
-pythonpath = [ "." ]
-# strict turns on each strictness option, those that join it later included:
-# https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst?plain=1#L2437
-strict = true
-testpaths = [ "tests" ]
-# The slowest test takes a few seconds; a minute stops a hung one and names it.
-timeout = "60"
-
-# https://coverage.readthedocs.io/en/latest/config.html
-[tool.coverage]
-run.source = [ "nustack", "tests" ]
-run.branch = true
-report.fail_under = 100
-report.include_namespace_packages = true
-# Coverage's own patterns for `...` stubs and `if TYPE_CHECKING:`, plus `assert_never` arms:
-# https://github.com/coveragepy/coveragepy/blob/7.17.0/coverage/config.py#L153-L157
-# Where coverage's stub pattern has `\s*`, these have `[ \t]*`, so a `def` line can't match across lines; where it has
-# `.`, these read a quoted string whole, escapes included, and otherwise stop at `#`, so a comment ending in `: ...`
-# can't match. A triple-quoted string, or one holding `{`, stops a stub's line matching, since either can hold a lone
-# quote, as an f-string's `{}` can; `\x27` is `'`, which a TOML literal string can't hold. A line of only `...` counts
-# only after a one-line docstring, which may end in a comment, since a regex can't tell a docstring's closing `"""` from
-# a string's opening one. A split signature's last line counts only when it starts `) ->`, since a dictionary entry can
-# end `): ...` or `]: ...`. A split return annotation ending either way stays measured, so its stub can leave a branch
-# missing: name the annotation with a `type` alias, so it fits on the `) ->` line.
-# Ruff format joins any other bare stub to its `def` unless a comment or a multi-line docstring sits above it, and
-# coverage reports such a stub missing: put the comment after the `...`, and leave the `...` out under a multi-line
-# docstring. A regex can't tell code from a string spanning lines either, so a line starting in one that reads like a
-# stub, an `if TYPE_CHECKING:` or an `assert_never` arm excludes the statement holding it; review catches that.
-# Each setting replaces coverage's defaults, so neither `# pragma: no cover` nor `# pragma: no branch` excludes
-# anything:
-# https://coverage.readthedocs.io/en/latest/config.html#config-report-exclude-lines
-# https://coverage.readthedocs.io/en/latest/config.html#config-report-partial-branches
-report.exclude_lines = [
-  '^[ \t]*[rR]?(""".*"""|\x27{3}.*\x27{3})[ \t]*(#.*)?\n[ \t]*\.\.\.[ \t]*(#|$)',
-  '^\s*(async )?def ("(?!"")(\\[^{\n]|[^"\\\n{])*"|\x27(?!\x27\x27)(\\[^{\n]|[^\x27\\\n{])*\x27|[^#\n"\x27])*?:[ \t]*\.\.\.[ \t]*(#|$)',
-  '^\s*\)[ \t]*->("(?!"")(\\[^{\n]|[^"\\\n{])*"|\x27(?!\x27\x27)(\\[^{\n]|[^\x27\\\n{])*\x27|[^#\n"\x27])*?:[ \t]*\.\.\.[ \t]*(#|$)',
-  '^\s*if (typing\.)?TYPE_CHECKING:',
-  'case \w+:\n\s*assert_never\(',
-]
-report.partial_branches = []
-report.show_missing = true
-
 # https://commitizen-tools.github.io/commitizen/config/bump/
 [tool.commitizen]
-version_provider = "uv"
-# nustack check holds this list to the files whose version it compares, beside
-# pyproject.toml, which the uv provider sets along with uv.lock.
+# The release workflow publishes from a v<version> tag.
+tag_format = "v$version"
 version_files = [
   "plugin/.claude-plugin/plugin.json:version",
   "plugin/.cursor-plugin/plugin.json:version",
   "plugin/.devin-plugin/plugin.json:version",
   "plugin/package.json:version",
 ]
-# The release workflow publishes from a v<version> tag.
-tag_format = "v$version"
+version_provider = "uv"
 
-[tool.importlinter]
-root_packages = [ "nustack" ]
-include_external_packages = true
-
-# https://import-linter.readthedocs.io/en/stable/contract_types.html#layers
-[[tool.importlinter.contracts]]
-name = "Each part of the harness builds only on the parts below it"
-type = "layers"
-# gh takes a release's tag as the release package's own type, so its publication
-# builds on nustack.github.gh and its tag lies below.
-layers = [
-  "nustack.cli",
-  "nustack.mutation | nustack.release.publication | nustack.repository | nustack.sync",
-  "nustack.record",
-  "nustack.plugin",
-  "nustack.markdown",
-  "nustack.commitizen | nustack.git | nustack.github.gh",
-  "nustack.github.name | nustack.release.tag",
-  "nustack.sha | nustack.version",
-  "nustack.process_group | nustack.rule | nustack.tree | nustack.validation | nustack.yaml_reader",
-  "nustack.problem",
-]
-
-# https://import-linter.readthedocs.io/en/stable/contract_types.html#forbidden-modules
-[[tool.importlinter.contracts]]
-name = "The modules that decide do no I/O; the disk, the bundle, Git, gh and what acts through them do it"
-type = "forbidden"
-source_modules = [
-  "nustack.github.name",
-  "nustack.markdown",
-  "nustack.mutation.scope",
-  "nustack.plugin.manifest",
-  "nustack.plugin.plugin",
-  "nustack.plugin.skill",
-  "nustack.problem",
-  "nustack.record",
-  "nustack.release.tag",
-  "nustack.repository.changelog",
-  "nustack.repository.config",
-  "nustack.repository.gitattributes",
-  "nustack.repository.notes",
-  "nustack.repository.page",
-  "nustack.repository.pyproject",
-  "nustack.repository.release_workflow",
-  "nustack.repository.repository",
-  "nustack.repository.suite",
-  "nustack.repository.vendored",
-  "nustack.rule",
-  "nustack.sha",
-  "nustack.sync.action",
-  "nustack.sync.change",
-  "nustack.sync.description",
-  "nustack.sync.history",
-  "nustack.sync.tree",
-  "nustack.tree",
-  "nustack.validation",
-  "nustack.version",
-  "nustack.yaml_reader",
-]
-# Review keeps out builtins such as open, and Path's I/O methods, such as read_text,
-# since no import names them.
-forbidden_modules = [
-  "glob",
-  "io",
-  "nustack.cli",
-  "nustack.commitizen",
-  "nustack.git",
-  "nustack.github.gh",
-  "nustack.mutation.folder",
-  "nustack.plugin.bundle",
-  "nustack.process_group",
-  "nustack.release.publication",
-  "nustack.repository.disk",
-  "nustack.sync.git",
-  "nustack.sync.proposal",
-  "os",
-  "shutil",
-  "socket",
-  "subprocess",
-  "tempfile",
-  "zipfile",
-]
-
-# https://mutmut.readthedocs.io/en/latest/
-[tool.mutmut]
-source_paths = [ "src/nustack" ]
-# The tests of the harness's code run inside mutmut's copy of the repository,
-# which also needs the files they read: .github for the pull request template the
-# sync tests read, plugin for the validation test that reads the OpenCode loader,
-# and Makefile for tests/unit/test_settings.py. The selection below leaves out
-# tests/integration/test_settings.py and tests/integration/fixtures/: they run none
-# of the harness's code, so no mutant can fail them, and they start processes, which
-# slow each mutmut run of the whole selection. It keeps tests/unit, whose tests run
-# in-process, but for the tests marked caller_line: mutmut's trampoline stands between
-# the reader and the caller whose line they check.
-pytest_add_cli_args_test_selection = [
-  "-m",
-  "not caller_line",
-  "tests/integration/nustack",
-  "tests/unit",
-]
-also_copy = [ ".github", "Makefile", "plugin" ]
-# ty proves each match exhaustive, so no input reaches its assert_never arm,
-# which coverage skips the same way.
-do_not_mutate_patterns = [ '^\s*assert_never\(unexpected\)$', '^\s*case unexpected:$' ]
-
-[tool.nustack]
-# nustack mutants plans a full mutmut run when one of these changes, and none when
-# only files outside them, the sources and the tests' Python change. They are the
-# files the selected tests read beyond those; tests/fixtures/reads.py fails the
-# test run when a test, a fixture, a conftest or a test module's import opens or
-# lists a repository file the plan does not count.
-mutation.reads = [
-  ".github/pull_request_template.md",
-  "Makefile",
-  "plugin/opencode.ts",
-  "tests/fixtures/github",
-  "tests/fixtures/sync",
-]
+[tool.uv]
+# The newest uv that Dependabot's own uv meets, not the oldest that locks
+# this project:
+# https://github.com/dependabot/dependabot-core/blob/v0.403.0/uv/helpers/requirements.txt
+required-version = ">=0.13.5"

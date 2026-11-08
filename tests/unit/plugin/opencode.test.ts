@@ -4,10 +4,11 @@
  * SKILL.md it cannot load, or the skills folder it cannot read; once every skill loads, a missing mode fails it with an
  * error naming the mode's SKILL.md. It puts the mode back in a session's context once a summarization drops it.
  */
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { chmod, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Skill } from "@opencode/plugin"
+import { YAML } from "bun"
 import plugin, {
   errorCode,
   errorMessage,
@@ -131,7 +132,7 @@ function shownBody(text: string, endMarker = "\n\nBase directory for this skill:
 }
 
 /**
- * A SKILL.md loads as `nustack check` reads it, or fails naming its file and the fix. Frontmatter reads CRLF as LF and
+ * A SKILL.md loads as `scripts/check.ts` reads it, or fails naming its file and the fix. Frontmatter reads CRLF as LF and
  * breaks at a stray CR while the body keeps both, and the frontmatter may close at the end of the file.
  */
 describe("SkillFile", () => {
@@ -273,6 +274,79 @@ describe("SkillFile", () => {
     )
   })
 
+  test("reads frontmatter nested 200 levels deep, the most it reads", () => {
+    const text = `---\nname: a\ndescription: A.\nmetadata: ${"[".repeat(199)}${"]".repeat(199)}\n---\n`
+    expect(new SkillFile(path, text).split()[0].get("name")).toBe("a")
+  })
+
+  test("reads frontmatter of 4096 characters, the most it reads", () => {
+    const text = `---\nname: a\ndescription: ${"A".repeat(4074)}\n---\n`
+    expect(new SkillFile(path, text).info("a").description).toHaveLength(4074)
+  })
+
+  test.each([["4097 characters", `name: a\ndescription: ${"A".repeat(4075)}\n`]])(
+    "refuses frontmatter of %s before Bun's YAML parser reads it, naming the fix",
+    async (_, frontmatter) => {
+      expect(await thrown(() => new SkillFile(path, `---\n${frontmatter}---\n`).info("a"))).toEqual(
+        new SkillError(
+          "/s/a-skill/SKILL.md has frontmatter longer than 4096 characters; shorten it, or reinstall the nustack plugin",
+        ),
+      )
+    },
+  )
+
+  test("reads frontmatter whose apostrophe comes before 201 flow lists, 2 levels deep", () => {
+    const lists = Array.from({ length: 201 }, (_, at) => `k${at}: [1]`).join("\n")
+    const text = `---\nname: x\ndescription: it's\n${lists}\n---\n`
+    expect(new SkillFile(path, text).info("x").description).toBe("it's")
+  })
+
+  test.each([
+    ["a bracket in a comment", "metadata: 1 # [[[\n", 1],
+    ["brackets in a block scalar", "metadata: |\n  [[[\n", "[[[\n"],
+    ["a '' escape before a bracket", "metadata: 'it''s ]'\n", "it's ]"],
+    ['a \\" escape before a bracket', 'metadata: "a \\" ]"\n', 'a " ]'],
+    ["brackets in a quoted value over two lines", 'metadata: "a [\n  ]]"\n', "a [ ]]"],
+  ])("reads frontmatter whose text holds %s, which nest nothing", (_, field, value) => {
+    const text = `---\nname: a\ndescription: A.\n${field}---\n`
+    expect(new SkillFile(path, text).split()[0].get("metadata")).toEqual(value)
+  })
+
+  test("reads a stack overflow in Bun's YAML parser as frontmatter nested too deep, naming the fix", async () => {
+    const parse = spyOn(YAML, "parse").mockImplementation(() => {
+      throw new RangeError("Maximum call stack size exceeded.")
+    })
+    try {
+      const file = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n")
+      expect(await thrown(() => file.info("a"))).toEqual(
+        new SkillError(
+          "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
+        ),
+      )
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  test.each([
+    new RangeError("Invalid array length"),
+    new Error("Maximum call stack size exceeded."),
+    new TypeError("bug"),
+  ])(
+    "lets an error of Bun's YAML parser other than a syntax error or a stack overflow through, such as %p",
+    async (bug) => {
+      const parse = spyOn(YAML, "parse").mockImplementation(() => {
+        throw bug
+      })
+      try {
+        const file = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n")
+        expect(await thrown(() => file.info("a"))).toBe(bug)
+      } finally {
+        parse.mockRestore()
+      }
+    },
+  )
+
   test.each([
     [
       "---\ndescription: A.\n---\n",
@@ -309,6 +383,18 @@ describe("SkillFile", () => {
     [
       '---\nname: a\ndescription: "\\x85"\n---\n',
       "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
+    ],
+    [
+      `---\nname: a\ndescription: A.\nmetadata: ${"[".repeat(200)}${"]".repeat(200)}\n---\n`,
+      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
+    ],
+    [
+      `---\nname: a\ndescription: A.\nmetadata: [[&x ${"[".repeat(198)}${"]".repeat(198)}]]\nother: *x\n---\n`,
+      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
+    ],
+    [
+      "---\nname: a\ndescription: A.\nmetadata: &x [*x]\n---\n",
+      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
     ],
   ])("refuses a field %j it cannot register, naming the fix", async (text, message) => {
     expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(new SkillError(message))

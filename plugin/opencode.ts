@@ -1,5 +1,5 @@
 /**
- * The OpenCode plugin: it reads each skill folder's SKILL.md as nustack check reads it and registers the skill with
+ * The OpenCode plugin: it reads each skill folder's SKILL.md as scripts/check.ts reads it and registers the skill with
  * OpenCode as its frontmatter asks, and puts the mode's text and folder back in a session's context once a
  * summarization drops them. A skills folder it cannot read, or any skill folder or SKILL.md it cannot load, fails the
  * load with one error naming each and its fix; once every skill loads, a missing mode fails it.
@@ -65,11 +65,18 @@ export class SkillFile {
   static readonly FRONTMATTER = /^---\r?\n([\s\S]*?)(?<=\n)---(?:\r?\n|$)/
   static readonly BARE_CR = /^---\r(?!\n)/
   static readonly OPENING = /^---(?:\r?\n|$)/
-  // A SKILL.md is UTF-8, as nustack check requires, and ignoreBOM keeps a byte order mark in the text, so split refuses
-  // it as nustack check does: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/ignoreBOM
+  // A SKILL.md is UTF-8, as scripts/check.ts requires, and ignoreBOM keeps a byte order mark in the text, so split refuses
+  // it as scripts/check.ts does: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/ignoreBOM
   static readonly UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
-  // Unicode's White_Space characters and the zero-width ones, as nustack check's
-  // Pattern.NON_BLANK counts them: https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
+  // Bun's YAML parser crashes the process, rather than throwing, on frontmatter nested 10813 levels deep as flow
+  // collections, or 7858 as block mappings, whose levels each take a deeper indent, under a 64 MB stack on macOS. Each
+  // level takes at least one character, so frontmatter this long reaches neither. Set when nustack's longest frontmatter
+  // held 500 characters, the cap refuses longer frontmatter however shallow it nests.
+  static readonly MOST_CHARACTERS = 4096
+  // The bound scripts/check.ts holds JSON, YAML and TOML to, counted on the value the parser builds.
+  static readonly MOST_LEVELS = 200
+  // Unicode's White_Space characters and the zero-width ones, as BLANK in scripts/metadata.ts counts them for
+  // scripts/check.ts: https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
   static readonly BLANK =
     /^[\t\n\v\f\r \x85\xa0\u1680\u2000-\u200d\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]*$/
   readonly path: string
@@ -87,6 +94,25 @@ export class SkillFile {
     } catch {
       throw SkillError.at(path, "is not valid UTF-8; save it as UTF-8")
     }
+  }
+
+  /**
+   * Whether a parsed value nests more than MOST_LEVELS arrays and objects deep, the outermost included, walked with a
+   * stack of its own as scripts/check.ts walks it through nestsTooDeep in scripts/tree.ts: a value an alias shares is
+   * walked again only when reached deeper than before, so each value is walked at most MOST_LEVELS times and a cycle
+   * counts as too deep.
+   */
+  static nestsTooDeep(value: unknown): boolean {
+    const deepest = new Map<object, number>()
+    const pending: [unknown, number][] = [[value, 1]]
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      const [item, level] = next
+      if (typeof item !== "object" || item === null || (deepest.get(item) ?? 0) >= level) continue
+      if (level > SkillFile.MOST_LEVELS) return true
+      deepest.set(item, level)
+      for (const child of Object.values(item)) pending.push([child, level + 1])
+    }
+    return false
   }
 
   info(id: string): Skill.Info {
@@ -117,8 +143,8 @@ export class SkillFile {
         "has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings",
       )
     }
-    // nustack check reads an empty block as no fields, where Bun's YAML parser reads it as null; a block of blank
-    // lines is not empty, and nustack check refuses its lines as no fields, as this does
+    // scripts/check.ts reads an empty block as no fields, where Bun's YAML parser reads it as null; a block of blank
+    // lines is not empty, and scripts/check.ts refuses its lines as no fields, as this does
     const fields = match[1] === "" ? {} : this.parse(match[1])
     if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
       throw this.error("has frontmatter that is not key: value lines; write it as key: value lines")
@@ -127,11 +153,28 @@ export class SkillFile {
   }
 
   parse(frontmatter: string): unknown {
+    if (frontmatter.length > SkillFile.MOST_CHARACTERS) {
+      throw this.error(
+        `has frontmatter longer than ${SkillFile.MOST_CHARACTERS} characters; shorten it`,
+      )
+    }
+    const tooDeep = `has frontmatter that nests values more than ${SkillFile.MOST_LEVELS} levels deep; flatten them`
+    let value: unknown
     try {
-      return YAML.parse(frontmatter)
-    } catch {
+      value = YAML.parse(frontmatter)
+    } catch (error) {
+      // Bun's parser throws a SyntaxError for text that is not YAML, and a RangeError once the frontmatter outruns the
+      // stack, whose size depends on the host.
+      if (
+        error instanceof RangeError &&
+        error.message.startsWith("Maximum call stack size exceeded")
+      )
+        throw this.error(tooDeep)
+      if (!(error instanceof SyntaxError)) throw error
       throw this.error("has frontmatter that is not valid YAML; fix it")
     }
+    if (SkillFile.nestsTooDeep(value)) throw this.error(tooDeep)
+    return value
   }
 
   field(frontmatter: ReadonlyMap<string, unknown>, key: string): string {

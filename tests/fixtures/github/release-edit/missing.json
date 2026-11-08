@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "release",
+    "edit",
+    "record-fixture-1794075916",
+    "--draft=false",
+    "--title",
+    "nustack 0.0.3",
+    "--notes-file",
+    "/tmp/rd/rec/notes.md",
+    "--prerelease=true"
+  ],
+  "stdout": "",
+  "stderr": "release not found\n",
+  "code": 1
+}

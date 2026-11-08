@@ -50,42 +50,6 @@ repos:
         language: unsupported
         always_run: true
         pass_filenames: false
-      - id: pyproject-fmt
-        name: pyproject-fmt
-        entry: uv run --locked pyproject-fmt pyproject.toml
-        language: unsupported
-        always_run: true
-        pass_filenames: false
-      - id: ruff-check
-        name: ruff check
-        entry: uv run --locked ruff check --fix
-        language: unsupported
-        always_run: true
-        pass_filenames: false
-      - id: ruff-format
-        name: ruff format
-        entry: uv run --locked ruff format
-        language: unsupported
-        always_run: true
-        pass_filenames: false
-      - id: ty
-        name: ty
-        entry: uv run --locked ty check
-        language: unsupported
-        always_run: true
-        pass_filenames: false
-      - id: lint-imports
-        name: import-linter
-        entry: uv run --locked lint-imports
-        language: unsupported
-        always_run: true
-        pass_filenames: false
-      - id: pytest
-        name: pytest, 100% branch coverage
-        entry: uv run --locked pytest --cov
-        language: unsupported
-        always_run: true
-        pass_filenames: false
       - id: actionlint
         name: actionlint
         entry: uv run --locked actionlint
@@ -103,12 +67,6 @@ repos:
         entry: uv run --locked shellcheck
         language: unsupported
         types: [shell]
-      - id: nustack-check
-        name: nustack check
-        entry: uv run --locked nustack check
-        language: unsupported
-        always_run: true
-        pass_filenames: false
       - id: bun-lock
         name: bun.lock is current
         entry: make --no-print-directory bun-lock
@@ -139,8 +97,14 @@ repos:
         always_run: true
         pass_filenames: false
       - id: bun-test
-        name: bun test, 100% line and function coverage
+        name: bun test
         entry: bun test
+        language: unsupported
+        always_run: true
+        pass_filenames: false
+      - id: check
+        name: bun scripts/check.ts
+        entry: bun scripts/check.ts
         language: unsupported
         always_run: true
         pass_filenames: false

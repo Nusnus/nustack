@@ -11,7 +11,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      loader:
+      tools:
         patterns: ["*"]
   - package-ecosystem: bun
     directory: /tests/fixtures/smoke
@@ -47,7 +47,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      harness:
+      tools:
         patterns: ["*"]
     # Without it, Dependabot leaves a floor a new release still meets, instead
     # of raising it, whenever it takes nustack for a library, which hangs on

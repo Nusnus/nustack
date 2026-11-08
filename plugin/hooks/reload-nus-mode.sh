@@ -40,7 +40,7 @@ skill="$folder/SKILL.md"
 [ -e "$skill" ] || broken_install "$skill does not exist; restore it"
 [ -f "$skill" ] || broken_install "$skill is no file; restore it as a file"
 [ -r "$skill" ] || broken_install "$skill cannot be read; make it readable"
-# nustack check accepts CRLF lines, so the hook reads them as LF. nustack check also holds SKILL.md to a frontmatter
+# scripts/check.ts accepts CRLF lines, so the hook reads them as LF. It also holds SKILL.md to a frontmatter
 # block that opens on its first line and closes, then a body that opens with the mode's title.
 text=$(tr -d '\r' <"$skill")
 [ "$(printf '%s\n' "$text" | head -n 1)" = --- ] || broken_install "$skill has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings"

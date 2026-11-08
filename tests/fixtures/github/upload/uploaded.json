@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "release",
+    "upload",
+    "record-fixture-1794075633",
+    "/tmp/rd/rec/nustack-0.0.3.zip",
+    "--clobber"
+  ],
+  "stdout": "",
+  "stderr": "",
+  "code": 0
+}

@@ -1,11 +1,9 @@
 name: CI
 
 # Checks each pull request and each push to main. Release calls it too, so a
-# tag publishes only after the same checks pass on it. A pull request marked
-# ready for review runs it again, since make mutate skips a draft.
+# tag publishes only after the same checks pass on it.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_call:
@@ -96,53 +94,9 @@ jobs:
           exit "$status"
     timeout-minutes: 15
 
-  # mutmut runs once the other checks pass on the head. On a pull request ready
-  # for review it keeps the verdicts of main's last full run that the changes
-  # cannot reach; on main and on a release tag it runs every mutant.
-  make-mutate:
-    name: make mutate
-    permissions:
-      contents: read
-    needs: [commit-messages, make-check, release-zip, smoke]
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-          # nustack mutants diffs from the commit of the full run it keeps.
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
-      # A pull request reads the caches of its base branch, and restore-keys
-      # takes the newest whose key starts with mutants-:
-      # https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache
-      - if: github.event_name == 'pull_request'
-        name: The verdicts of main's last full run
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            mutants/mutmut-stats.json
-            mutants/**/*.meta
-          key: mutants-${{ github.event.pull_request.base.sha }}
-          restore-keys: mutants-
-      - if: github.event_name == 'pull_request'
-        name: make mutate-changed
-        run: make mutate-changed
-      - if: github.event_name != 'pull_request'
-        name: make mutate
-        run: make mutate
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        name: Keep the verdicts for pull requests
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            mutants/mutmut-stats.json
-            mutants/**/*.meta
-          key: mutants-${{ github.sha }}
-    timeout-minutes: 30
-
   release-zip:
     name: Release zip
+    needs: make-check
     permissions:
       contents: read
     runs-on: ubuntu-26.04
@@ -150,11 +104,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      # The release publishes this job's zip and page, so it reads no cache another workflow could have written:
+      # https://docs.zizmor.sh/audits/#cache-poisoning
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          no-cache: true
+      - name: Install the scripts' packages from bun.lock
+        run: bun install --frozen-lockfile
       - name: Build the zip and the release page
         run: |
           make bundle
-          uv run --locked nustack notes > dist/notes.md
+          bun scripts/release.ts notes > dist/notes.md
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: release
@@ -171,7 +131,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
       - name: make smoke
         run: make smoke

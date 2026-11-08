@@ -1,4 +1,4 @@
-.PHONY: help bun uv zip bun-lock install check mutate mutate-changed bundle smoke clean
+.PHONY: help bun uv zip unzip bun-lock smoke-lock install check bundle smoke clean
 export UV_LOCKED := 1
 
 help: ## List the targets to run
@@ -10,8 +10,15 @@ bun:
 uv:
 	@command -v uv >/dev/null || { echo 'uv is missing; install it from https://docs.astral.sh/uv/getting-started/installation/, then rerun the command that stopped' >&2; exit 1; }
 
+# make check's tests zip a fixture (tests/integration/fixtures/bundle.test.ts).
 zip:
-	@command -v zip >/dev/null && command -v unzip >/dev/null || { echo 'zip or unzip is missing; install both with your system package manager, such as apt-get install zip unzip, then rerun the command that stopped' >&2; exit 1; }
+	@command -v zip >/dev/null || { echo 'zip is missing; install it with your system package manager, such as apt-get install zip, then rerun the command that stopped' >&2; exit 1; }
+
+# make check's tests list the release zip's entries
+# (tests/integration/scripts/release.test.ts) and unpack a fixture's zip, and
+# make smoke unpacks the release zip (tests/fixtures/bundle.ts).
+unzip:
+	@command -v unzip >/dev/null || { echo 'unzip is missing; install it with your system package manager, such as apt-get install unzip, then rerun the command that stopped' >&2; exit 1; }
 
 # $(call bun-install,<folder>/) installs from the bun.lock in that folder, or
 # the repository's when the folder is empty. bun install --frozen-lockfile
@@ -25,46 +32,32 @@ endef
 bun-lock: bun
 	$(call bun-install,)
 
-install: uv bun-lock ## Install the harness, its tools and the commit hooks
+# The hosts are large downloads, so only make smoke installs them, from their own
+# lock.
+smoke-lock: bun
+	$(call bun-install,tests/fixtures/smoke/)
+
+install: uv bun-lock ## Install the tools and the commit hooks
 	uv sync
 	uv run pre-commit install
 
 # CI passes PRE_COMMIT_FLAGS to pre-commit (.github/workflows/ci.yml); locally
 # it is empty.
-check: bun uv zip ## Run every pre-commit-stage hook over every file, fixing what the tools can fix
+check: bun uv zip unzip ## Run every pre-commit-stage hook over every file, fixing what the tools can fix
 	uv run pre-commit run --all-files $(PRE_COMMIT_FLAGS)
 
-# mutmut stops a mutant whose tests outlast its time limit, as pytest-timeout
-# fails a stalled test, so a timeout counts as caught. The results are read
-# whole first, so a failing mutmut results fails the target too.
-define mutmut-results
-@results=$$(uv run mutmut results) || exit 1; ! printf '%s' "$$results" | grep -v ': timeout$$' || { echo 'mutmut left the mutants above alive; give each a test that kills it, then rerun make $@' >&2; exit 1; }
-endef
+# scripts/release.ts bundle says how it builds the zip. It imports the Markdown parser, so it installs bun.lock first.
+bundle: bun-lock ## Build dist/nustack-<version>.zip from the committed plugin/
+	bun scripts/release.ts bundle
 
-mutate: uv ## Run mutmut over the harness from an empty mutants/, failing on each mutant the tests let live
-	rm -rf mutants
-	uv run mutmut run
-	$(mutmut-results)
-
-# nustack mutants keeps the verdicts of mutants/'s full run, empties those of
-# each function a changed test module covers, and prints skip when no file the
-# tests read changed, or full after clearing mutants/ when one other than the
-# sources and test modules did.
-mutate-changed: uv ## Rerun mutmut on what changed since mutants/'s full run, failing like mutate
-	@scope=$$(uv run nustack mutants) && { [ "$$scope" = skip ] || uv run mutmut run; }
-	$(mutmut-results)
-
-bundle: uv ## Build dist/nustack-<version>.zip for upload
-	uv run nustack bundle
-
-# The hosts are large downloads, so only make smoke installs them, from their
-# own lock.
-# A host's cold start and its turns take seconds, so a stalled host stops its
-# test after two minutes.
-smoke: bun zip bundle ## Run the release zip in Claude Code and OpenCode against a fake model
-	$(call bun-install,tests/fixtures/smoke/)
+# Claude Code's own validator (https://code.claude.com/docs/en/plugins/cli-reference)
+# first checks the release zip, unpacked, since the zip is what installs. It runs
+# here, not as a commit hook: it comes with Claude Code, which only make smoke
+# installs, and a commit builds no zip. A host's cold start and its turns take
+# seconds, so a stalled host stops its test after two minutes.
+smoke: unzip smoke-lock bundle ## Validate the release zip's plugin, then run the zip in Claude Code and OpenCode against a fake model
+	unpacked=$$(mktemp -d) && trap 'rm -rf "$$unpacked"' EXIT && unzip -q dist/nustack-*.zip -d "$$unpacked" && tests/fixtures/smoke/node_modules/.bin/claude plugin validate "$$unpacked" --strict
 	bun --config=tests/fixtures/smoke/bunfig.toml test --timeout=120000
 
-clean: ## Remove build and cache output
-	rm -rf dist mutants .import_linter_cache .pytest_cache .ruff_cache .coverage
-	find src tests -name __pycache__ -prune -exec rm -rf {} +
+clean: ## Remove build output
+	rm -rf dist

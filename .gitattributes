@@ -1,6 +1,6 @@
-# A CRLF checkout breaks plugin/hooks/reload-nus-mode.sh, and the release zip
-# ships plugin/ as checked out, so Git checks out every file there with LF line
-# endings: https://git-scm.com/docs/gitattributes#_eol
+# A CRLF checkout breaks plugin/hooks/reload-nus-mode.sh, so Git checks out
+# every file in plugin/ with LF line endings:
+# https://git-scm.com/docs/gitattributes#_eol
 plugin/** text eol=lf
 # Git keeps each vendored skill folder's bytes as upstream wrote them, so each
 # copy matches the blobs its record names. A later line wins, so these come last:
