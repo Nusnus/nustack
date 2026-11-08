@@ -13,7 +13,7 @@ A Python project's tools, and the form a principle takes where Python changes it
 ## Tools
 
 - **Astral's tools** do every job they cover, now or once they cover it, such as installing Python, managing the environment and dependencies, building, formatting, linting and type checking. Ruff's config keeps each import at the top of its module, absolute and on its own line.
-- **pytest** runs the tests, with **pytest-randomly**, **pytest-timeout** bounding each test, and **pytest-cov** measuring them with **coverage**. **mutmut** runs mutation testing, and **import-linter** enforces import contracts.
+- **pytest** runs the tests with **pytest-randomly**, and **pytest-timeout** bounds each test. **import-linter** enforces import contracts.
 - **Typer** builds command-line interfaces, **pydantic** parses outside data, and **pydantic-settings** reads settings.
 
 ## Code
@@ -31,6 +31,3 @@ A Python project's tools, and the form a principle takes where Python changes it
 - [Self-explanatory code](../principle-self-explanatory-code/SKILL.md): every test is a method of a `Test<Term>` class named for the domain term whose promises it checks.
 - [Layout](../principle-layout/SKILL.md): a test module holds only those classes, and a class's setup is an autouse fixture. A fixture sits in the class that uses it, or in the nearest `conftest.py` above its users within one tier. One that tiers share is a plugin module in the shared helpers folder, and registering those modules is all the root `conftest.py` does.
 - [Design](../principle-design/SKILL.md): a fixture that would return a closure returns a small object with methods instead.
-- [Deterministic tests](../principle-deterministic-tests/SKILL.md): mutmut leaves some code unmutated, such as code outside functions and most decorated functions, so break that code, such as a module constant or a property, by hand.
-- [Deterministic tests](../principle-deterministic-tests/SKILL.md): mutmut reruns only the mutants of a function whose source changed, keeping every other verdict in `mutants/` through a change to tests, to code outside functions, to callers or callees, or to any file its `on_dependency_change` setting does not rerun on, and takes a mutated copy newer than its source as current. A run that reuses that cache keeps only its `mutmut-stats.json` and `.meta` files, clears every survivor and the verdicts of each function a changed test module covers, and starts from an empty cache when any other file the tests read changes.
-- [Deterministic tests](../principle-deterministic-tests/SKILL.md): coverage's `exclude_lines` and `partial_branches` settings replace its defaults, so no pragma excludes a line or excuses a branch, and `exclude_lines` holds only `...` stubs, `if TYPE_CHECKING:` blocks and `assert_never` arms.
