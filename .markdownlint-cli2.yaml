@@ -39,3 +39,17 @@ overrides:
       MD033:
         allowed_elements: [a, br, details, h1, img, p, picture, source, summary]
     combine: merge
+globs:
+  - "**/*.md"
+# Vendored copies keep upstream's bytes; scripts/vendor.sh --check compares them.
+ignores:
+  - .agents/skills/writing-for-agents
+  - .claude/skills/writing-for-agents
+  - plugin/skills/defuddle
+  - plugin/skills/json-canvas
+  - plugin/skills/knap
+  - plugin/skills/obsidian-bases
+  - plugin/skills/obsidian-cli
+  - plugin/skills/obsidian-markdown
+# Skips what .gitignore ignores, such as node_modules.
+gitignore: true

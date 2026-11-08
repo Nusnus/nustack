@@ -1,117 +1,21 @@
-# The Devin environment for nustack. AGENTS.md › Environment says how it works
-# and how to change it.
-# The installs and the Bun check sit in maintenance, which runs on every build,
-# so each build checks the uv and Bun the shared machine holds then
-# (https://docs.devin.ai/onboard-devin/environment/blueprint-reference#maintenance).
+# The Devin environment for nustack: the same steps build a Linux and a macOS machine.
+# Other repositories share these machines, so each tool installs only where missing.
 maintenance:
-  - name: uv and Bun where the machine lacks them, and a Bun at least package.json's pin
+  - name: Bun and jq where missing, then the packages bun.lock pins
     run: |
-      # A failed command already stops a multiline step
-      # (https://docs.devin.ai/onboard-devin/environment/blueprint-reference);
-      # -u also stops it on an unset variable.
       set -u
-      # A tool in /usr/local/bin needs no $ENVRC entry on PATH, as Devin's blueprint
-      # reference says
-      # (https://docs.devin.ai/onboard-devin/environment/blueprint-reference#cross-step-environment-variables-$envrc),
-      # but a macOS machine can lack the folder, so the step makes it.
-      put_on_path() {
-        sudo mkdir -p /usr/local/bin
-        sudo ln -sf "$1" /usr/local/bin/
-      }
-      # Each installer downloads whole before it runs, so a dropped connection
-      # never runs half a script. curl retries a transient failure with backoff and
-      # no jitter, since one machine retrying alone forms no herd. A healthy
-      # download takes seconds and a healthy install under a minute, so each limit
-      # stops a stalled one long before the step's own.
-      # bounded <seconds> <command>... runs the command in a process group of its own and ends the
-      # whole group past the limit, so a child holding the output open ends with it. macOS ships no
-      # timeout command, so perl, which both systems ship, does it.
-      bounded() {
-        perl -e '
-          my $limit = shift;
-          my $pid = fork() // die "fork: $!";
-          if ($pid == 0) {
-            setpgrp(0, 0);
-            exec @ARGV or exit 127;
-          }
-          local $SIG{ALRM} = sub {
-            kill "TERM", -$pid;
-            for (1 .. 50) {
-              waitpid($pid, 1);
-              last unless kill 0, -$pid;
-              select undef, undef, undef, 0.1;
-            }
-            kill "KILL", -$pid;
-            exit 124;
-          };
-          alarm $limit;
-          waitpid($pid, 0);
-          exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
-        ' "$@"
-      }
-      installer=$(mktemp)
-      trap 'rm -f "$installer"' EXIT
-      if ! command -v uv >/dev/null; then
-        curl -LsSf --retry 3 --retry-max-time 300 --max-time 120 -o "$installer" https://astral.sh/uv/install.sh || { echo "could not download uv's installer from https://astral.sh/uv/install.sh; rerun the build" >&2; exit 1; }
-        bounded 600 sh "$installer" || { echo "uv's installer failed or ran past 10 minutes; rerun the build" >&2; exit 1; }
-        put_on_path "$HOME/.local/bin/uv"
-      fi
       if ! command -v bun >/dev/null; then
-        curl -LsSf --retry 3 --retry-max-time 300 --max-time 120 -o "$installer" https://bun.sh/install || { echo "could not download Bun's installer from https://bun.sh/install; rerun the build" >&2; exit 1; }
-        bounded 600 bash "$installer" || { echo "Bun's installer failed or ran past 10 minutes; rerun the build" >&2; exit 1; }
-        put_on_path "$HOME/.bun/bin/bun"
+        curl -fsSL --retry 3 https://bun.sh/install | bash -s bun-v1.4.4
+        sudo mkdir -p /usr/local/bin
+        sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/
       fi
-      if ! bun test ./tests/unit/settings.test.ts; then
-        echo "tests/unit/settings.test.ts failed as bun test reports above, with Bun $(bun --version) at $(command -v bun)." >&2
-        echo "Where bun test reports the Bun pin's test failed above, nustack needs Bun at least the version package.json pins: if another repository's blueprint installs that Bun, raise its pin to nustack's; otherwise install Bun from https://bun.sh/docs/installation. Fix any other failure it reports, then rerun the build." >&2
-        exit 1
+      if ! command -v jq >/dev/null; then
+        if command -v brew >/dev/null; then brew install jq; else sudo apt-get update && sudo apt-get install -y jq; fi
       fi
-  # A healthy install takes a few minutes, so each limit stops a stalled one long
-  # before the step's own.
-  - name: The tools, the commit hooks and their environments
-    run: |
-      # Each step runs in a shell of its own, so this one defines bounded again, as the first step
-      # defines and explains it.
-      bounded() {
-        perl -e '
-          my $limit = shift;
-          my $pid = fork() // die "fork: $!";
-          if ($pid == 0) {
-            setpgrp(0, 0);
-            exec @ARGV or exit 127;
-          }
-          local $SIG{ALRM} = sub {
-            kill "TERM", -$pid;
-            for (1 .. 50) {
-              waitpid($pid, 1);
-              last unless kill 0, -$pid;
-              select undef, undef, undef, 0.1;
-            }
-            kill "KILL", -$pid;
-            exit 124;
-          };
-          alarm $limit;
-          waitpid($pid, 0);
-          exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
-        ' "$@"
-      }
-      bounded 1200 make install || {
-        status=$?
-        if [ "$status" -eq 124 ]; then echo "make install ran past 20 minutes; rerun the build" >&2
-        else echo "make install failed as it reports above; fix what it names, then rerun the build" >&2; fi
-        exit 1
-      }
-      bounded 1200 uv run --locked pre-commit install-hooks || {
-        status=$?
-        if [ "$status" -eq 124 ]; then echo "pre-commit install-hooks ran past 20 minutes; rerun the build" >&2
-        else echo "pre-commit install-hooks failed as it reports above; fix what it names, then rerun the build" >&2; fi
-        exit 1
-      }
+      bun install --frozen-lockfile
 knowledge:
   - name: test
-    contents: make check, then make smoke; make lists what each runs
-  - name: build
-    contents: make bundle
-# Each label builds its own machine from the steps above, which run alike on both
-# (https://docs.devin.ai/onboard-devin/environment/blueprint-reference#runs-on).
+    contents: bun run check runs every check in seconds; bun run hosts installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill
+  - name: release
+    contents: follow .agents/skills/release/SKILL.md, for a release or a dry run
 runs-on: [default, macos]

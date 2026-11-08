@@ -8,7 +8,7 @@
 <p align="center">Trust a coding agent to work like a senior engineer while you're away.</p>
 
 <p align="center">
-  <a href="#1️⃣-install">Install</a> · <a href="#2️⃣-use">Use</a> · <a href="#skills">Skills</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="#contributing">Contributing</a>
+  <a href="#1️⃣-install">Install</a> · <a href="#2️⃣-turn-it-on-for-a-project">Use</a> · <a href="#skills">Skills</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="#contributing">Contributing</a>
 </p>
 
 <br>
@@ -40,13 +40,21 @@ opencode plugin add 'github:Nusnus/nustack#main::path:plugin'
 
 In [Devin](https://docs.devin.ai/product-guides/plugins), add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`.
 
-In [Cursor](https://cursor.com/docs/plugins#test-plugins-locally), copy this repository's `plugin` folder to `~/.cursor/plugins/local/nustack`, then run Developer: Reload Window. To update, replace the folder with a newer copy and reload. On Enterprise, an admin first turns on Allow Local Plugin Imports.
+In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise plan imports `Nusnus/nustack` as a team marketplace, with Auto Refresh on so each merge to `main` reaches the team. On other plans, copy this repository's `plugin` folder to `~/.cursor/plugins/local/nustack`, then run Developer: Reload Window; to update, replace the folder and reload.
 
-The other hosts' links say how to update. Without repository access, download `nustack-<version>.zip` from [Releases](https://github.com/Nusnus/nustack/releases), then upload it as a zip plugin in Devin or unzip it to `~/.cursor/plugins/local/nustack` in Cursor.
+Each host's link says how to update.
 
-### 2️⃣ Use
+### 2️⃣ Turn it on for a project
 
-Give the agent a task in nus-mode:
+Add this line to the project's AGENTS.md, and each session there works in nus-mode:
+
+```markdown
+Work in this repository in nus-mode: load the skill before you start.
+```
+
+Claude Code reads CLAUDE.md, so also add `@AGENTS.md` to the project's CLAUDE.md, [as its docs suggest](https://code.claude.com/docs/en/memory#agents-md). The [new-project playbook](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) does both.
+
+### 3️⃣ Or use it for one task
 
 ```text
 /nustack:nus-mode Start a CLI that tracks expenses.
@@ -61,16 +69,6 @@ Give the agent a task in nus-mode:
 | OpenCode | `@nus-mode <task>` |
 
 It asks you about each open decision until you tell it to [work on its own](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/SKILL.md#standing-rules).
-
-### 3️⃣ Turn it on for a project
-
-Add this line to the project's AGENTS.md, and each session there works in nus-mode:
-
-```markdown
-Work in this repository in nus-mode: load the skill before you start.
-```
-
-Claude Code reads AGENTS.md itself; add `@AGENTS.md` to CLAUDE.md only where the project has one or the session [can't read AGENTS.md](https://code.claude.com/docs/en/memory#agents-md). The [new-project playbook](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) does both.
 
 ## How it works
 
@@ -120,14 +118,14 @@ Steph Ango's [obsidian-skills](https://github.com/kepano/obsidian-skills) ship u
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack and [where each part lives](AGENTS.md#where-things-live). Then, with [uv](https://docs.astral.sh/uv/getting-started/installation/), [Bun](https://bun.sh/docs/installation) and [Git](https://git-scm.com/downloads) 2.40 or later installed, set up and run every check:
+Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack. Then, with [Bun](https://bun.sh/docs/installation), [Git](https://git-scm.com/downloads) and [jq](https://jqlang.org/download/) installed, run every check:
 
 ```bash
-make install
-make check
+bun install
+bun run check
 ```
 
-Run `make` alone to list the other targets. [REVIEW.md](REVIEW.md) lists what review checks, and the [release](.agents/skills/release/SKILL.md) skill cuts a release.
+`bun run hosts` installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill. [REVIEW.md](REVIEW.md) lists what review checks, and the [release](.agents/skills/release/SKILL.md) skill cuts a release or a dry run of one.
 
 ## Acknowledgements
 

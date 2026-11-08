@@ -1,0 +1,25 @@
+{
+  "obsidian-skills": {
+    "upstream": "https://github.com/kepano/obsidian-skills",
+    "source": "skills",
+    "folder": "plugin/skills",
+    "skills": [
+      "obsidian-markdown",
+      "obsidian-bases",
+      "json-canvas",
+      "obsidian-cli",
+      "defuddle",
+      "knap"
+    ],
+    "commit": "3ccff5338ea700537839b21900aa5358a0402c98"
+  },
+  "writing-for-agents": {
+    "upstream": "https://github.com/mattpocock/skills",
+    "source": "skills/productivity",
+    "folder": ".agents/skills",
+    "skills": [
+      "writing-for-agents"
+    ],
+    "commit": "1bb95954ef0d06ba4d64a9c267fb75f57c614a1f"
+  }
+}

@@ -1,5 +1,0 @@
-# A test repository's git, and the receive-pack a push into one starts, starts no detached maintenance that could outlive the test and race the removal of its folder.
-[maintenance]
-	auto = false
-[receive]
-	autogc = false

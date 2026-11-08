@@ -1,0 +1,62 @@
+name: Vendor
+
+# Opens one pull request per vendored copy whose upstream moved, replacing the copy and its record in vendor.json.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  update:
+    name: Update ${{ matrix.copy }}
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: [obsidian-skills, writing-for-agents]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - run: scripts/vendor.sh --update "$COPY"
+        env:
+          COPY: ${{ matrix.copy }}
+      - name: Write the pull request's description
+        run: |
+          {
+            echo "Copies $COPY at upstream's latest commit, which vendor.json records."
+            echo
+            echo "It adds its own CHANGELOG.md entry, so it needs only your merge."
+            if [[ $COPY == writing-for-agents ]]; then
+              echo
+              echo "writing-for-agents is the standard nustack's agent files are worded by. Once this merges, re-read nustack's agent files, as AGENTS.md lists them, against the new version, whenever and with whichever agent you choose."
+            fi
+          } > "$RUNNER_TEMP/body.md"
+        env:
+          COPY: ${{ matrix.copy }}
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
+        with:
+          add-paths: |
+            CHANGELOG.md
+            vendor.json
+            .agents/skills/
+            plugin/skills/
+          commit-message: "chore(vendor): update ${{ matrix.copy }}"
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          branch: vendor/${{ matrix.copy }}
+          delete-branch: true
+          title: "chore(vendor): update ${{ matrix.copy }}"
+          body-path: ${{ runner.temp }}/body.md
+    timeout-minutes: 5

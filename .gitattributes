@@ -4,7 +4,7 @@
 # bytes committed on every platform; each vendored folder below keeps upstream's.
 plugin/** text eol=lf
 # Git keeps each vendored skill folder's bytes as upstream wrote them, so each
-# copy matches the blobs its record names. A later line wins, so these come last:
+# copy matches upstream, which scripts/vendor.sh --check compares. A later line wins, so these come last:
 # https://git-scm.com/docs/gitattributes#_text
 .agents/skills/writing-for-agents/** -text
 plugin/skills/defuddle/** -text
