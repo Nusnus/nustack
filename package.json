@@ -2,7 +2,7 @@
   "name": "nustack-dev-tools",
   "type": "module",
   "scripts": {
-    "check": "bun scripts/check.ts && bunx tsc && bunx biome ci && bunx markdownlint-cli2 && bun test --randomize && scripts/vendor.sh --check",
+    "check": "bunx tsc && bunx biome ci --error-on-warnings && bunx markdownlint-cli2 && bun test --randomize && scripts/vendor.sh --check && bun scripts/check.ts",
     "hosts": "scripts/hosts.sh"
   },
   "devDependencies": {
@@ -10,8 +10,8 @@
     "@opencode/plugin": ">=2.2.5",
     "@types/bun": ">=1.4.4",
     "@types/json-schema": ">=7.0.15",
-    "typescript": ">=7.0.2",
-    "markdownlint-cli2": ">=0.20.0"
+    "markdownlint-cli2": ">=0.24.0",
+    "typescript": ">=7.0.2"
   },
   "private": true,
   "packageManager": "bun@1.4.4"

@@ -1,5 +1,4 @@
 # What the tools rebuild from tracked files
-dist/
 node_modules/
 
 # Each agent host's machine-local files

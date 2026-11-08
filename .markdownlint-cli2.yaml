@@ -8,12 +8,11 @@ config:
 # The first-line title rule skips only the files that cannot open on a title:
 # https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
 # The PR template opens on the comment and centered header a description starts
-# from, where an inline disable comment would land in every description, and
-# CLAUDE.md is a single import line: https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#overrides
+# from, where an inline disable comment would land in every description:
+# https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#markdownlint-cli2jsonc
 overrides:
   - filter:
       - .github/pull_request_template.md
-      - CLAUDE.md
     config:
       MD041: false
       # The template centers its header and folds its detail with the HTML
@@ -24,6 +23,12 @@ overrides:
           - div
           - sub
           - summary
+    combine: merge
+  # CLAUDE.md is a single import line.
+  - filter:
+      - CLAUDE.md
+    config:
+      MD041: false
     combine: merge
   # Each CHANGELOG.md release repeats the section headings Keep a Changelog
   # names, such as Added: https://keepachangelog.com/en/1.1.0/

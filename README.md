@@ -18,7 +18,7 @@ nustack is a plugin for Claude Code, Cursor, Devin and OpenCode. It gives your c
 1. follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does, to start a project, investigate a problem or align existing code;
 2. reads, in full, each principle the work touches;
 3. puts your project's own rules first;
-4. rereads the work as a newcomer would, and fixes each snag before it finishes.
+4. rereads the work as a newcomer would, and fixes each friction point before it finishes.
 
 ## Install
 
@@ -29,7 +29,7 @@ In [Claude Code](https://code.claude.com/docs/en/discover-plugins):
 /plugin install nustack@nustack
 ```
 
-In [OpenCode](https://opencode.ai/v2/docs/plugins/):
+In [OpenCode](https://opencode.ai/docs/plugins/):
 
 ```text
 opencode plugin add 'github:Nusnus/nustack#main::path:plugin'
@@ -37,7 +37,7 @@ opencode plugin add 'github:Nusnus/nustack#main::path:plugin'
 
 In [Devin](https://docs.devin.ai/product-guides/plugins), add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`.
 
-In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise plan imports `Nusnus/nustack` as a team marketplace, with Auto Refresh on so each merge to `main` reaches the team. On other plans, copy this repository's `plugin` folder to `~/.cursor/plugins/local/nustack`, then run Developer: Reload Window; to update, replace the folder and reload.
+In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise plan imports `https://github.com/Nusnus/nustack` as a team marketplace with Import from Repo; with the Cursor GitHub App installed, Enable Auto Refresh sends each merge to `main` to the team. To try nustack before that, or on other plans, copy this repository's `plugin` folder to `~/.cursor/plugins/local/nustack` and run Developer: Reload Window, where local plugin imports are allowed; to update, replace the folder and reload.
 
 Each host's link says how to update.
 
@@ -49,7 +49,7 @@ To have every session in a project work in nus-mode, add this line to the projec
 Work in this repository in nus-mode: load the skill before you start.
 ```
 
-Claude Code reads CLAUDE.md instead, so also add `@AGENTS.md` to the project's CLAUDE.md, [as its docs suggest](https://code.claude.com/docs/en/memory#agents-md). The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) does both.
+Claude Code reads AGENTS.md only where no CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it, so a project with one imports AGENTS.md into it by a path relative to that file, such as `@AGENTS.md` from the project's root, [as its docs say](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md). The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) writes AGENTS.md and a CLAUDE.md that imports it.
 
 To use nus-mode for one task, invoke it with the task:
 
@@ -62,10 +62,10 @@ To use nus-mode for one task, invoke it with the task:
 | Host | Invoke |
 | :-- | :-- |
 | Claude Code, Devin | `/nustack:nus-mode <task>` |
-| Cursor | Type `/`, pick nus-mode, then the task |
+| Cursor | Type `/`, pick nus-mode, then type the task; in the Agents Window or the CLI, press Option+Enter, Alt+Enter on Windows, instead of Enter to [keep it for the task](https://cursor.com/docs/agent/prompting#custom-modes) |
 | OpenCode | `@nus-mode <task>` |
 
-It asks you about each open decision until you tell it to [work on its own](plugin/skills/nus-mode/SKILL.md#standing-rules).
+It asks you about each open decision until you tell it to [work on its own](plugin/skills/nus-mode/SKILL.md#standing-rules); even then, unless you or the project's rules allow it, it asks before an action outside its own work and pull request that others see or it cannot undo, such as a merge.
 
 ## Skills
 

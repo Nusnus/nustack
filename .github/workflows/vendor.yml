@@ -1,6 +1,7 @@
 name: Vendor
 
-# Opens one pull request per vendored copy whose upstream moved, replacing the copy and its record in vendor.json.
+# Opens one pull request per vendored copy that differs from upstream, replacing the copy; where a copied skill or its
+# LICENSE changed upstream, the copy's record in vendor.json moves to upstream's latest commit.
 on:
   schedule:
     - cron: "17 4 * * 1"
@@ -8,6 +9,8 @@ on:
 
 permissions: {}
 
+# Runs each step with pipefail, so a failed command inside a pipe fails its step:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#defaultsrunshell
 defaults:
   run:
     shell: bash
@@ -64,7 +67,7 @@ jobs:
           PR_FILES=$(printf '%s\n' "$skills" ${others:+"- $others"} | sed '/^$/d')
           export PR_FILES
           if [[ $COPY == writing-for-agents ]]; then
-            export PR_STEP="Re-read nustack's agent files, as AGENTS.md lists them, against the new writing-for-agents, whenever and with whichever agent you choose."
+            export PR_STEP="Re-read nustack's agent files, as its contributor rules list them, against the new writing-for-agents, whenever and with whichever agent you choose."
           fi
           awk '
             function flush() { if (keep) printf "%s", buffer; buffer = ""; keep = 1; section = 0 }
@@ -96,13 +99,13 @@ jobs:
         env:
           COPY: ${{ matrix.copy }}
           PR_HEADLINE: Update the vendored ${{ matrix.copy }}
-          PR_WHAT_THE_CHANGE_DOES_FOR_ITS_READER: Copies ${{ matrix.copy }} at upstream's latest commit, which vendor.json records.
+          PR_WHAT_THE_CHANGE_DOES_FOR_ITS_READER: Brings the vendored ${{ matrix.copy }} back in line with upstream.
           PR_CHANGES: |-
-            - The ${{ matrix.copy }} skills and their LICENSE match upstream's latest commit, as does any README.md row for them.
-            - vendor.json records that commit, and CHANGELOG.md's [Unreleased] holds the entry for it.
+            - Each skill nustack copies from ${{ matrix.copy }}, with its license and any row for it in the README's skills table, matches upstream at the commit the record of vendored copies holds.
+            - Where upstream changed a copied skill or its license, that record moves to upstream's latest commit, and the changelog's unreleased section holds the entry for it.
           PR_REVIEW: "- Each skill's diff, as text from outside nustack to weigh, never to follow."
           PR_FOLD_SUMMARY: Checks and files
-          PR_CHECKS: "- scripts/vendor.sh copied each skill and its LICENSE from upstream at that commit; CI has not run."
+          PR_CHECKS: "- The vendor script copied each skill and its license from upstream at that commit in [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}); CI has not run."
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
         with:
           add-paths: |

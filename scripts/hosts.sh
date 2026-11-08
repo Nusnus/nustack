@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Installs the plugin in the latest Claude Code and OpenCode, as their users do, and checks each offers every
-# folder under plugin/skills, with OpenCode hiding the principle and language skills from the model.
+# Installs this checkout's plugin in the latest Claude Code, as its users do, and in the latest OpenCode through a
+# config file pointed at it, and checks each offers every folder under plugin/skills, with OpenCode hiding the
+# principle and language skills from the model.
 set -euo pipefail
+if (( $# > 0 )); then
+  echo "scripts/hosts.sh: takes no arguments; got $*" >&2
+  exit 2
+fi
 root=$(pwd)
 work=$(mktemp -d)
 server=
 trap '[[ -n $server ]] && kill "$server"; rm -rf "$work"' EXIT
 export HOME=$work/home XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_STATE_HOME=$work/state
 mkdir -p "$HOME"
+# A password set outside would hold the server to it, not to the one this script reads from its log.
+unset OPENCODE_PASSWORD
 expected=$(ls plugin/skills | sort)
 status=0
 compare() {
@@ -42,17 +49,18 @@ fi
 url=$(grep -oE 'listening on \S+' "$work/serve.log" | cut -d' ' -f3)
 OPENCODE_PASSWORD=$(grep -oE 'server password \S+' "$work/serve.log" | cut -d' ' -f3)
 export OPENCODE_PASSWORD
-# OpenCode lists its own skills at once and the plugin's only once it has loaded the plugin, seconds later.
+# OpenCode lists the plugin's skills only once it has loaded the plugin, seconds after its server starts.
 for _ in $(seq 60); do
-  skills=$("$bin/opencode" api --server "$url" GET /api/skill --param "directory=$project" \
+  skills=$("$bin/opencode" api --server "$url" GET /api/skill \
     | jq --arg plugin "$root/plugin/" '.data |= map(select(.path | startswith($plugin)))')
   [[ $(jq '.data | length' <<< "$skills") -gt 0 ]] && break
   sleep 1
 done
 compare OpenCode "$(jq -r '.data[].id' <<< "$skills" | sort)"
-visible=$(jq -r '.data[] | select(.autoinvoke == true) | .id | select(test("^(principle|language)-"))' <<< "$skills")
-if [[ -n $visible ]]; then
-  echo "OpenCode offers these principle or language skills to the model: $visible" >&2
+hidden=$(jq -r '.data[] | select(.autoinvoke == false) | .id' <<< "$skills" | sort)
+if [[ $hidden != "$(grep -E '^(principle|language)-' <<< "$expected")" ]]; then
+  echo "OpenCode hides these skills from the model, where it should hide exactly the principle and language skills:" >&2
+  echo "${hidden:-none}" >&2
   status=1
 fi
 exit $status

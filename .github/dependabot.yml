@@ -1,3 +1,6 @@
+# Each cooldown holds a new version back 7 days, past Dependabot's default 3
+# (https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-),
+# so a bad release has time to be withdrawn before it is proposed; security updates skip it.
 version: 2
 updates:
   - package-ecosystem: bun

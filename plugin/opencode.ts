@@ -9,14 +9,25 @@ import { YAML } from "bun"
 
 const SKILLS = join(import.meta.dirname, "skills")
 const MODE = "nus-mode"
+const UTF8 = new TextDecoder("utf-8", { fatal: true })
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 export default {
   id: "nustack",
   async setup(context) {
-    const folders = await readdir(SKILLS, { withFileTypes: true })
+    const folders = await readdir(SKILLS, { withFileTypes: true }).catch((error) => {
+      throw new Error(`${SKILLS} is unreadable (${error}); reinstall the nustack plugin`)
+    })
     const skills = await Promise.all(
-      folders.filter((entry) => entry.isDirectory()).map((entry) => load(entry.name)),
+      folders
+        .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+        .map((entry) => {
+          if (entry.isSymbolicLink())
+            throw new Error(
+              `${join(SKILLS, entry.name)} is a symlink, which some hosts skip; reinstall the nustack plugin`,
+            )
+          return load(entry.name)
+        }),
     )
     const mode = skills.find((skill) => skill.id === MODE)
     if (mode === undefined)
@@ -52,9 +63,21 @@ export default {
 
 async function load(id: string): Promise<Skill.Info> {
   const path = join(SKILLS, id, "SKILL.md")
-  const file = Bun.file(path)
-  if (!(await file.exists())) throw new Error(`${path} is missing; reinstall the nustack plugin`)
-  const text = await file.text()
+  const bytes = await Bun.file(path)
+    .bytes()
+    .catch((error) => {
+      throw new Error(
+        error?.code === "ENOENT"
+          ? `${path} is missing; reinstall the nustack plugin`
+          : `${path} cannot be read (${error}); reinstall the nustack plugin`,
+      )
+    })
+  let text: string
+  try {
+    text = UTF8.decode(bytes)
+  } catch {
+    throw new Error(`${path} is not UTF-8; reinstall the nustack plugin`)
+  }
   const match = FRONTMATTER.exec(text)
   if (match?.[1] === undefined)
     throw new Error(`${path} has no frontmatter; reinstall the nustack plugin`)

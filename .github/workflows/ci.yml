@@ -1,17 +1,12 @@
 name: CI
 
+# Runs bun run check and bun run hosts, as AGENTS.md lists them, on each pull request and each push to main.
 on:
   pull_request:
   push:
     branches: [main]
 
 permissions: {}
-
-# An explicit bash adds -o pipefail, so a piped command fails its step:
-# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#defaultsrunshell
-defaults:
-  run:
-    shell: bash
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
