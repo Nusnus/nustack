@@ -2,12 +2,17 @@
 
 All notable changes to nustack are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/Nusnus/nustack/releases/tag/v0.0.4
 [0.0.3]: https://github.com/Nusnus/nustack/releases/tag/v0.0.3
 [0.0.2]: https://github.com/Nusnus/nustack/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Nusnus/nustack/releases/tag/v0.0.1
 
 ## [Unreleased]
+
+## [0.0.4] - 2026-11-08
+
+nustack's fourth release adds one rule to nus-mode, the mode that has a coding agent build software to a senior engineer's bar. When fixing one failure turns up another of the same kind, the agent stops patching them one at a time: it names why its approach keeps producing them, and replaces the approach.
 
 ### Added
 
