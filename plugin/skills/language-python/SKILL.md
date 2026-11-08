@@ -2,8 +2,7 @@
 name: language-python
 description: "Python's tools, and where Python changes how a principle applies."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Python

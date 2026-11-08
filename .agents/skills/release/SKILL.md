@@ -5,7 +5,7 @@ description: Cuts a nustack release, or a dry run of one that publishes nothing.
 
 # Release
 
-Each pull request has already added its entry under `CHANGELOG.md`'s `[Unreleased]`, so a release only sets the version and titles that section. A release and a dry run take the same steps up to the last: a dry run stops before anything leaves the machine and shows what would ship.
+Each pull request has already added its entry under `CHANGELOG.md`'s `[Unreleased]`, so a release only sets the version, titles that section and opens it with a lead. A release and a dry run take the same steps up to the last: a dry run stops before anything leaves the machine and shows what would ship.
 
 1. Run `git fetch origin main`, then create a branch from `origin/main`. The step is done when the branch is checked out at `origin/main`'s latest commit with no changes.
 2. Run `bun scripts/release.ts bump <version>` with the version the user named. It sets the version in every manifest and titles `[Unreleased]` as `[<version>] - <date>`, with today's date in UTC; it refuses a version not above the current one, or an `[Unreleased]` with no change, and then changes nothing. The step is done when it prints `Set version <version>`, or that the version is already set, and `bun run check` passes.

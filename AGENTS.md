@@ -12,7 +12,7 @@ Word every agent file, meaning each skill, this file, REVIEW.md, CLAUDE.md and t
 - `plugin/skills/` holds one mode, nus-mode, beside the principle skills, `principle-<name>/`, the language skills, `language-<name>/`, and the vendored skills. nus-mode's `SKILL.md` states the goal every principle serves and lists every playbook, principle and language skill with when it applies.
 - A principle is stated in its own `SKILL.md` alone; every other file links it. A language skill holds what the principles leave to one language. A playbook holds one task as numbered steps, each ending on a done condition an agent can check.
 - `.agents/skills/` holds the skills for working on nustack, such as the release skill. `.claude/skills` is a symlink to it, since Claude Code reads a project's skills only from there, and `CLAUDE.md` imports this file.
-- `scripts/` holds the short scripts that check, vendor and release nustack, and `tests/` the test of `plugin/opencode.ts`.
+- `scripts/` holds the short scripts that check, vendor and release nustack, and `tests/` the test of `plugin/opencode.ts`. That test sits at `tests/opencode.test.ts` rather than mirroring its path, since a `tests/plugin/` package would hold one module, which [layout](plugin/skills/principle-layout/SKILL.md) rules out.
 - `vendor.json` records each vendored copy: its upstream, the skills it copies and the commit they came from. Change a copy only through the pull request the vendor workflow opens, or upstream. A new record also joins the vendor workflow's matrix.
 
 ## Writing skill text
@@ -43,16 +43,14 @@ nustack is mostly Markdown, and stays that way.
 
 ## Checks
 
-`bun install`, then `bun run check` runs every check in seconds, on macOS as on Linux. `bun run hosts` installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill. CI runs both, and [REVIEW.md](REVIEW.md) lists what review holds beyond them.
+With [Bun](https://bun.sh/docs/installation), [Git](https://git-scm.com/downloads) and [jq](https://jqlang.org/download/) installed, `bun install`, then `bun run check` runs every check in seconds, on macOS as on Linux. `bun run hosts` installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill. CI runs both, and [REVIEW.md](REVIEW.md) lists what review holds beyond them.
 
 ## Environment
 
 `.devin/blueprint.yaml` builds the Linux and macOS machines Devin sessions on nustack start from, through the same steps. Change it by pull request like any other file.
 
-nustack is onboarded in a Devin organization once these hold; set up each one your tools allow, and walk the user through the rest one step at a time:
+nustack is onboarded in a Devin organization once each step below is done; do each one your tools allow, and walk the user through the rest one step at a time:
 
-1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, as the [Plugins guide](https://docs.devin.ai/product-guides/plugins) describes, so sessions list `/nustack:nus-mode`.
-2. GitHub Actions may create pull requests, a repository setting the vendor workflow needs.
-3. The repository's blueprint is included in the organization's environment, its source is GitHub, and it builds on every commit to `main`, as the [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) guide describes.
-
-Onboarding is done when a session that starts after the latest build lists `/nustack:nus-mode` and passes `bun run check`, and the repository's Actions settings allow GitHub Actions to create pull requests.
+1. The organization installs the plugin from `Nusnus/nustack`, subdirectory `plugin`, following `main`, as the [Plugins guide](https://docs.devin.ai/product-guides/plugins) describes. Done when a new session lists `/nustack:nus-mode`.
+2. The repository lets GitHub Actions create pull requests, a setting the vendor workflow needs. Done when the repository's Actions settings allow it.
+3. The repository's blueprint is included in the organization's environment, its source is GitHub, and it builds on every commit to `main`, as the [Git-backed blueprints](https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints) guide describes. Done when a session that starts after the latest build passes `bun run check`.

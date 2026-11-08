@@ -2,8 +2,7 @@
 name: principle-naming
 description: "Names that say what a thing is in the domain."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Naming

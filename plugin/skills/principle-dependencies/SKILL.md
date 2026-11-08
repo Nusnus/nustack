@@ -2,8 +2,7 @@
 name: principle-dependencies
 description: "Dependencies that point one way, onto the language's own tools and stable public APIs, one home for each library, the runtimes a project targets, floating ranges with a pinned lockfile, and deciding logic kept pure."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Dependencies

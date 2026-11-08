@@ -2,8 +2,7 @@
 name: principle-long-term
 description: "Changes built to last, so they are done once."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Long term

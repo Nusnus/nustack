@@ -2,8 +2,7 @@
 name: principle-boundaries
 description: "Outside data parsed once, where it enters, strictly into the project's domain types."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Boundaries

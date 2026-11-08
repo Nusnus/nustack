@@ -8,22 +8,19 @@
 <p align="center">Trust a coding agent to work like a senior engineer while you're away.</p>
 
 <p align="center">
-  <a href="#1️⃣-install">Install</a> · <a href="#2️⃣-turn-it-on-for-a-project">Use</a> · <a href="#skills">Skills</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="#contributing">Contributing</a>
+  <a href="#install">Install</a> · <a href="#use">Use</a> · <a href="#skills">Skills</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="#contributing">Contributing</a>
 </p>
 
 <br>
 
-nustack gives your coding agent nus-mode: Tomer Nosrati's way of building software, as one mode. It works in Devin, Claude Code, Cursor and OpenCode.
+nustack is a plugin for Claude Code, Cursor, Devin and OpenCode. It gives your coding agent nus-mode: Tomer Nosrati's way of building software, as one mode. On each task, nus-mode:
 
-- One mode for any task you give
-- Playbooks that run whole tasks as checked steps
-- One skill per principle, read when the work needs it
-- A newcomer's reread before the work is done
-- Your project's own rules come first
+1. follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does, to start a project, investigate a problem or align existing code;
+2. reads, in full, each principle the work touches;
+3. puts your project's own rules first;
+4. rereads the work as a newcomer would, and fixes each snag before it finishes.
 
-## Quick start
-
-### 1️⃣ Install
+## Install
 
 In [Claude Code](https://code.claude.com/docs/en/discover-plugins):
 
@@ -44,17 +41,17 @@ In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise 
 
 Each host's link says how to update.
 
-### 2️⃣ Turn it on for a project
+## Use
 
-Add this line to the project's AGENTS.md, and each session there works in nus-mode:
+To have every session in a project work in nus-mode, add this line to the project's AGENTS.md:
 
 ```markdown
 Work in this repository in nus-mode: load the skill before you start.
 ```
 
-Claude Code reads CLAUDE.md, so also add `@AGENTS.md` to the project's CLAUDE.md, [as its docs suggest](https://code.claude.com/docs/en/memory#agents-md). The [new-project playbook](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) does both.
+Claude Code reads CLAUDE.md instead, so also add `@AGENTS.md` to the project's CLAUDE.md, [as its docs suggest](https://code.claude.com/docs/en/memory#agents-md). The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) does both.
 
-### 3️⃣ Or use it for one task
+To use nus-mode for one task, invoke it with the task:
 
 ```text
 /nustack:nus-mode Start a CLI that tracks expenses.
@@ -68,25 +65,18 @@ Claude Code reads CLAUDE.md, so also add `@AGENTS.md` to the project's CLAUDE.md
 | Cursor | Type `/`, pick nus-mode, then the task |
 | OpenCode | `@nus-mode <task>` |
 
-It asks you about each open decision until you tell it to [work on its own](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/SKILL.md#standing-rules).
-
-## How it works
-
-1. You give the agent a task.
-2. nus-mode follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does.
-3. It reads each principle the work touches, in full.
-4. Before it finishes, it rereads the work as a newcomer and fixes each snag.
+It asks you about each open decision until you tell it to [work on its own](plugin/skills/nus-mode/SKILL.md#standing-rules).
 
 ## Skills
 
-nus-mode reads its principle skills, which together form the Zen of Nusnus, and its language skills itself.
+Each row holds the skill's own description. nus-mode reads its principle skills, which together form the Zen of Nusnus, and its language skills itself; the model never loads them on its own.
 
 <details>
-<summary>All skills</summary>
+<summary>nus-mode, its principles and its languages</summary>
 
-| Skill | What it holds |
+| Skill | Description |
 | :-- | :-- |
-| [nus-mode](plugin/skills/nus-mode/SKILL.md) | The goal, the standing rules, and when each skill applies. |
+| [nus-mode](plugin/skills/nus-mode/SKILL.md) | Builds software to a senior engineer's bar. Use when asked for nus-mode, or when the project's AGENTS.md turns it on. |
 | [principle-naming](plugin/skills/principle-naming/SKILL.md) | Names that say what a thing is in the domain. |
 | [principle-dry](plugin/skills/principle-dry/SKILL.md) | One home for every piece of knowledge. |
 | [principle-fail-fast](plugin/skills/principle-fail-fast/SKILL.md) | Code that fails where a wrong state is first detected, with an error that says how to recover, and holds an expected absence in its type. |
@@ -103,29 +93,27 @@ nus-mode reads its principle skills, which together form the Zen of Nusnus, and 
 | [principle-responses](plugin/skills/principle-responses/SKILL.md) | Replies, status updates, questions and reports a person takes in at a glance. |
 | [language-python](plugin/skills/language-python/SKILL.md) | Python's tools, and where Python changes how a principle applies. |
 
-Steph Ango's [obsidian-skills](https://github.com/kepano/obsidian-skills) ship unchanged, and each loads when a task matches it.
+</details>
 
-| Skill | What it holds |
+Steph Ango's [obsidian-skills](https://github.com/kepano/obsidian-skills) ship unchanged, and each loads when a task matches its description.
+
+<details>
+<summary>The Obsidian skills</summary>
+
+| Skill | Description |
 | :-- | :-- |
-| [obsidian-markdown](plugin/skills/obsidian-markdown/SKILL.md) | Obsidian Flavored Markdown. |
-| [obsidian-bases](plugin/skills/obsidian-bases/SKILL.md) | Obsidian Bases, `.base` files. |
-| [json-canvas](plugin/skills/json-canvas/SKILL.md) | JSON Canvas, `.canvas` files. |
-| [obsidian-cli](plugin/skills/obsidian-cli/SKILL.md) | The Obsidian CLI. |
-| [defuddle](plugin/skills/defuddle/SKILL.md) | Web pages to Markdown with the Defuddle CLI. |
-| [knap](plugin/skills/knap/SKILL.md) | Markdown from Knap templates and data. |
+| [obsidian-markdown](plugin/skills/obsidian-markdown/SKILL.md) | Create and edit Obsidian Flavored Markdown with wikilinks, embeds, callouts, properties, and other Obsidian-specific syntax. Use when working with .md files in Obsidian, or when the user mentions wikilinks, callouts, frontmatter, tags, embeds, or Obsidian notes. |
+| [obsidian-bases](plugin/skills/obsidian-bases/SKILL.md) | Create and edit Obsidian Bases (.base files) with views, filters, formulas, and summaries. Use when working with .base files, creating database-like views of notes, or when the user mentions Bases, table views, card views, filters, or formulas in Obsidian. |
+| [json-canvas](plugin/skills/json-canvas/SKILL.md) | Create and edit JSON Canvas files (.canvas) with nodes, edges, groups, and connections. Use when working with .canvas files, creating visual canvases, mind maps, flowcharts, or when the user mentions Canvas files in Obsidian. |
+| [obsidian-cli](plugin/skills/obsidian-cli/SKILL.md) | Interact with Obsidian vaults using the Obsidian CLI to read, create, search, and manage notes, tasks, properties, and more. Also supports plugin and theme development with commands to reload plugins, run JavaScript, capture errors, take screenshots, and inspect the DOM. Use when the user asks to interact with their Obsidian vault, manage notes, search vault content, perform vault operations from the command line, or develop and debug Obsidian plugins and themes. |
+| [defuddle](plugin/skills/defuddle/SKILL.md) | Extract clean Markdown from HTML pages with Defuddle CLI. |
+| [knap](plugin/skills/knap/SKILL.md) | Render Markdown from templates and structured data using Knap CLI. Use when the user asks to apply a Knap template, turn JSON or CSV data into notes, batch-generate Markdown files, or format Defuddle output into a note. |
 
 </details>
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack. Then, with [Bun](https://bun.sh/docs/installation), [Git](https://git-scm.com/downloads) and [jq](https://jqlang.org/download/) installed, run every check:
-
-```bash
-bun install
-bun run check
-```
-
-`bun run hosts` installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill. [REVIEW.md](REVIEW.md) lists what review checks, and the [release](.agents/skills/release/SKILL.md) skill cuts a release or a dry run of one.
+Read [AGENTS.md](AGENTS.md) first: it holds the rules for changing nustack and how to run every check. [REVIEW.md](REVIEW.md) lists what review holds each pull request to.
 
 ## Acknowledgements
 

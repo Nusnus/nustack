@@ -13,9 +13,4 @@ maintenance:
         if command -v brew >/dev/null; then brew install jq; else sudo apt-get update && sudo apt-get install -y jq; fi
       fi
       bun install --frozen-lockfile
-knowledge:
-  - name: test
-    contents: bun run check runs every check in seconds; bun run hosts installs the plugin in the latest Claude Code and OpenCode and checks each offers every skill
-  - name: release
-    contents: follow .agents/skills/release/SKILL.md, for a release or a dry run
 runs-on: [default, macos]

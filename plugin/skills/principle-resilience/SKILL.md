@@ -2,8 +2,7 @@
 name: principle-resilience
 description: "Code that comes through failure and load by its design: each failure absorbed by its structure or left to fail, each limit known and accepted."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Resilience

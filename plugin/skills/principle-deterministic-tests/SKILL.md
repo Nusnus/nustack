@@ -2,8 +2,7 @@
 name: principle-deterministic-tests
 description: "Tests that each fail when, and only when, the behaviour they guard breaks."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Deterministic tests

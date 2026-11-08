@@ -2,8 +2,7 @@
 name: principle-self-explanatory-code
 description: "Code that explains itself, and docs for what it cannot say."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Self-explanatory code

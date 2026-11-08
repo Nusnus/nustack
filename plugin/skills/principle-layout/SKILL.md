@@ -2,8 +2,7 @@
 name: principle-layout
 description: "A folder and file layout that shows the design, and one order inside every file."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Layout

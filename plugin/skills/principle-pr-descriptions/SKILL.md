@@ -2,8 +2,7 @@
 name: principle-pr-descriptions
 description: "PR descriptions a reviewer takes in at a glance."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # PR descriptions

@@ -2,8 +2,7 @@
 name: principle-fail-fast
 description: "Code that fails where a wrong state is first detected, with an error that says how to recover, and holds an expected absence in its type."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Fail fast

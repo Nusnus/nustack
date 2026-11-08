@@ -2,8 +2,7 @@
 name: principle-dry
 description: "One home for every piece of knowledge."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # DRY

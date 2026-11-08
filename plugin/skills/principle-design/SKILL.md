@@ -2,8 +2,7 @@
 name: principle-design
 description: "A design built from proven patterns and SOLID objects that put behaviour with the data it serves, short because it fits the problem."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Design

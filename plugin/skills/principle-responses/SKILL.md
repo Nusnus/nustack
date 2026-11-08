@@ -2,8 +2,7 @@
 name: principle-responses
 description: "Replies, status updates, questions and reports a person takes in at a glance."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Responses

@@ -2,8 +2,7 @@
 name: principle-types
 description: "Types that hold the contract, so an invalid value cannot exist."
 disable-model-invocation: true
-triggers:
-  - user
+triggers: [user]
 ---
 
 # Types
