@@ -9,6 +9,10 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- nus-mode changes an approach that keeps failing: when fixing one failure turns up another of the same kind, it names why the approach keeps producing them, and replaces it.
+
 ## [0.0.3] - 2026-11-08
 
 nustack's third release trims nus-mode, the mode that has a coding agent build software to a senior engineer's bar. Most principles, the skills the agent reads for one kind of decision each, keep only where Tomer Nosrati's taste departs from a strong agent's pick, the choice a strong coding agent makes with no instruction, so each rule the agent reads changes what it does. The release adds a principle for how the agent writes to you, a playbook that brings existing code up to nus-mode's bar, and Steph Ango's six Obsidian skills. On Claude Code, Claude Code itself puts nus-mode back after a summary, in place of nustack's hook, except in the two cases the Removed section names.
