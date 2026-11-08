@@ -10,19 +10,22 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- The [`small-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/small-project.md) playbook starts a project only you use, within the task, such as an experiment. It holds the code to the full bar and skips agreed standards, commit hooks, CI, a remote repository and docs beyond those its tools create.
+
+### Changed
+
+- The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook starts a project others will use or that outlives the task. It writes a README, and the license and changelog you agree to, and it creates the remote repository in the step that configures it, after the docs.
+- The [`align`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/align.md) playbook offers a project each part of what new project builds that it lacks: a remote repository with CI, each doc, and each part an existing doc lacks.
+
 ## [0.0.4] - 2026-11-08
 
 nustack's fourth release adds one rule to nus-mode, the mode that has a coding agent build software to a senior engineer's bar. When fixing one failure turns up another of the same kind, the agent stops patching them one at a time: it names why its approach keeps producing them, and replaces the approach.
 
 ### Added
 
-- The [`small-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/small-project.md) playbook starts a project only you use, within the task, such as an experiment. It holds the code to the full bar and skips agreed standards, commit hooks, CI, a remote repository and docs beyond those its tools create.
 - nus-mode changes an approach that keeps failing: when fixing one failure turns up another of the same kind, it names why the approach keeps producing them, and replaces it.
-
-### Changed
-
-- The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook starts a project others will use or that outlives the task. It writes a README, and the license and changelog you agree to, and it creates the remote repository in the step that configures it, after the docs.
-- The [`align`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/align.md) playbook offers a project each part of what new project builds that it lacks: a remote repository with CI, each doc, and each part an existing doc lacks.
 
 ## [0.0.3] - 2026-11-08
 
