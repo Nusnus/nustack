@@ -95,8 +95,7 @@ export const VERSION_FILES = Object.freeze(
   [...MANIFESTS, PACKAGE].map((path) => `${path}:version`).sort(),
 )
 // The loader's SkillFile.BLANK, which plugin/opencode.ts must hold itself, since nothing outside plugin/ reaches a
-// user, and which the check cannot import before it knows plugin/package.json lets the loader load; a test keeps both
-// the same.
+// user, and which the check cannot import before it knows plugin/opencode.ts exists; a test keeps both the same.
 export const BLANK =
   /^[\t\n\v\f\r \x85\xa0\u1680\u2000-\u200d\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]*$/
 const FILLED: TextRule = Object.freeze([(text: string) => !BLANK.test(text), "fill it in"])

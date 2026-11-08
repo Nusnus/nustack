@@ -70,7 +70,7 @@ const groupsOf = (parts: readonly string[]) =>
 function tree(changes: Record<string, string | null | "symlink"> = {}): Tree {
   const files: Record<string, string | null | "symlink"> = {
     LICENSE: "MIT",
-    ".gitattributes": "plugin/skills/knap/** -text\n",
+    ".gitattributes": "plugin/** text eol=lf\nplugin/skills/knap/** -text\n",
     ".pre-commit-config.yaml": hooks("plugin/skills/knap"),
     "plugin/LICENSE": "MIT",
     "pyproject.toml": `[project]\nversion = "0.1.0"\n\n[tool.commitizen]\ntag_format = "v$version"\nversion_files = ${JSON.stringify(versionFiles)}\n`,
@@ -97,7 +97,6 @@ function tree(changes: Record<string, string | null | "symlink"> = {}): Tree {
     ".github/workflows/sync.yml": "jobs: {}\n",
     "tests/unit/a.test.ts": "",
     "plugin/opencode.ts": "export {}\n",
-    "plugin/hooks/hooks.json": "{}",
     "plugin/skills/nus-mode/SKILL.md": mode,
     "plugin/skills/nus-mode/playbooks/p.md": "# p\n\n[mode](../SKILL.md)\n",
     "plugin/skills/principle-naming/SKILL.md":
@@ -840,9 +839,15 @@ describe("check", () => {
       ],
     ],
     [
-      "a stray file, a symlink and a changed LICENSE",
-      { "plugin/notes.txt": "x", "plugin/hooks/link.sh": "symlink", "plugin/LICENSE": "BSD" },
+      "two stray files, a symlink and a changed LICENSE",
+      {
+        "plugin/notes.txt": "x",
+        "plugin/hooks/hooks.json": "{}",
+        "plugin/hooks/link.sh": "symlink",
+        "plugin/LICENSE": "BSD",
+      },
       [
+        "plugin/hooks/hooks.json: is not a file the plugin installs; move it out of plugin/",
         "plugin/hooks/link.sh: is a symlink; put the file itself there",
         "plugin/notes.txt: is not a file the plugin installs; move it out of plugin/",
         "plugin/LICENSE: is not the repository's LICENSE; copy that one here",
@@ -862,12 +867,6 @@ describe("check", () => {
         "plugin/.evil-plugin/plugin.json: is not a file the plugin installs; move it out of plugin/",
       ],
     ],
-    [
-      "a hook script besides the one hook",
-      { "plugin/hooks/other.sh": "x" },
-      ["plugin/hooks/other.sh: is not a file the plugin installs; move it out of plugin/"],
-    ],
-    ["the one hook script", { "plugin/hooks/reload-nus-mode.sh": "x" }, []],
     [
       "a file directly in plugin/ besides its own",
       { "plugin/NOTICE": "x" },
@@ -911,10 +910,9 @@ describe("check", () => {
       ],
     ],
     [
-      "no OpenCode loader, hook config or changelog, and tier folders holding a file that is no test",
+      "no OpenCode loader or changelog, and tier folders holding a file that is no test",
       {
         "plugin/opencode.ts": null,
-        "plugin/hooks/hooks.json": null,
         "CHANGELOG.md": null,
         "tests/unit/helper.ts": "",
         "tests/integration/helper.ts": "",
@@ -922,7 +920,6 @@ describe("check", () => {
       [
         "CHANGELOG.md: is missing; restore it",
         "plugin/opencode.ts: is missing; restore it",
-        "plugin/hooks/hooks.json: is missing; restore it",
         "tests/unit/helper.ts: is no test, so it does not belong in a tier folder; move it to tests/fixtures/",
         "tests/integration/helper.ts: is no test, so it does not belong in a tier folder; move it to tests/fixtures/",
       ],
@@ -2120,61 +2117,12 @@ describe("check", () => {
       ["plugin/skills: holds a mode not named nus-mode; name its folder nus-mode"],
     ],
     [
-      "a mode that lost its title and its index",
+      "a mode that lost its index",
       {
         "plugin/skills/nus-mode/SKILL.md":
           "---\nname: nus-mode\ndescription: m\n---\n## Principles\n",
       },
       [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
-        "plugin/skills/nus-mode/SKILL.md: ## Playbooks does not link plugin/skills/nus-mode/playbooks/p.md; link it there",
-        "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
-      ],
-    ],
-    [
-      "a mode titled by a setext heading",
-      {
-        "plugin/skills/nus-mode/SKILL.md":
-          "---\nname: nus-mode\ndescription: m\n---\nnus-mode\n========\n\n## Principles\n",
-      },
-      [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
-        "plugin/skills/nus-mode/SKILL.md: ## Playbooks does not link plugin/skills/nus-mode/playbooks/p.md; link it there",
-        "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
-      ],
-    ],
-    [
-      "a mode titled with closing hashes",
-      {
-        "plugin/skills/nus-mode/SKILL.md":
-          "---\nname: nus-mode\ndescription: m\n---\n# nus-mode #\n\n## Principles\n",
-      },
-      [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
-        "plugin/skills/nus-mode/SKILL.md: ## Playbooks does not link plugin/skills/nus-mode/playbooks/p.md; link it there",
-        "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
-      ],
-    ],
-    [
-      "a mode title with extra spaces after its marker",
-      {
-        "plugin/skills/nus-mode/SKILL.md":
-          "---\nname: nus-mode\ndescription: m\n---\n#   nus-mode\n\n## Principles\n",
-      },
-      [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
-        "plugin/skills/nus-mode/SKILL.md: ## Playbooks does not link plugin/skills/nus-mode/playbooks/p.md; link it there",
-        "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
-      ],
-    ],
-    [
-      "a mode title indented",
-      {
-        "plugin/skills/nus-mode/SKILL.md":
-          "---\nname: nus-mode\ndescription: m\n---\n   # nus-mode\n\n## Principles\n",
-      },
-      [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
         "plugin/skills/nus-mode/SKILL.md: ## Playbooks does not link plugin/skills/nus-mode/playbooks/p.md; link it there",
         "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
       ],
@@ -2190,13 +2138,6 @@ describe("check", () => {
       },
       [
         "plugin/skills/nus-mode/SKILL.md: ## Principles does not link plugin/skills/principle-naming/SKILL.md; link it there",
-      ],
-    ],
-    [
-      "a mode whose body opens with a line of spaces above its title, which the hook reads as its title",
-      { "plugin/skills/nus-mode/SKILL.md": mode.replace("---\n# nus-mode", "---\n  \n# nus-mode") },
-      [
-        "plugin/skills/nus-mode/SKILL.md: does not open its body with # nus-mode; restore that line",
       ],
     ],
     [
@@ -2378,7 +2319,7 @@ describe("check", () => {
     [
       "a record that lists skills named as nus-mode, a language skill and a principle",
       {
-        ".gitattributes": `${["language-x", "nus-mode", "principle-x"].map((skill) => `.agents/skills/${skill}/** -text\n`).join("")}plugin/skills/knap/** -text\n`,
+        ".gitattributes": `plugin/** text eol=lf\n${["language-x", "nus-mode", "principle-x"].map((skill) => `.agents/skills/${skill}/** -text\n`).join("")}plugin/skills/knap/** -text\n`,
         ".pre-commit-config.yaml": hooks(
           "plugin/skills/knap|\\.agents/skills/language\\-x|\\.agents/skills/nus\\-mode|\\.agents/skills/principle\\-x",
         ),
@@ -2399,7 +2340,8 @@ describe("check", () => {
     [
       "a record that lists a skill whose name holds principle- past its start, which passes",
       {
-        ".gitattributes": ".agents/skills/my-principle-x/** -text\nplugin/skills/knap/** -text\n",
+        ".gitattributes":
+          "plugin/** text eol=lf\n.agents/skills/my-principle-x/** -text\nplugin/skills/knap/** -text\n",
         ".pre-commit-config.yaml": hooks("plugin/skills/knap|\\.agents/skills/my\\-principle\\-x"),
         "vendored/other.json": recordText({
           ...record,
@@ -2690,7 +2632,7 @@ describe("check", () => {
       "a copy two records name, guards that miss it or name no copy, and a LICENSE no record names",
       {
         "vendored/other.json": recordText(record),
-        ".gitattributes": "plugin/skills/gone/** -text\n",
+        ".gitattributes": "plugin/** text eol=lf\nplugin/skills/gone/** -text\n",
         ".pre-commit-config.yaml": hooks("plugin/skills/gone"),
         ".agents/skills/stray/LICENSE": "MIT",
       },
@@ -2726,12 +2668,15 @@ describe("check", () => {
     ],
     [
       "a .gitattributes line unsetting text on a path that is no copy's folder",
-      { ".gitattributes": "README.md -text\nplugin/skills/knap/** -text\n" },
+      { ".gitattributes": "plugin/** text eol=lf\nREADME.md -text\nplugin/skills/knap/** -text\n" },
       [".gitattributes: unsets text on a path that is no copy's folder; drop -text from that line"],
     ],
     [
       "lines unsetting text out of order",
-      { ".gitattributes": "plugin/skills/knap/** -text\nplugin/skills/gone/** -text\n" },
+      {
+        ".gitattributes":
+          "plugin/** text eol=lf\nplugin/skills/knap/** -text\nplugin/skills/gone/** -text\n",
+      },
       [
         ".gitattributes: unsets text for a folder no record in vendored/ names; drop that line",
         ".gitattributes: its lines unsetting text are out of order; sort them",
@@ -2743,7 +2688,7 @@ describe("check", () => {
         "vendored/obsidian-skills.json": null,
         "plugin/skills/knap/LICENSE": null,
         "plugin/skills/knap/SKILL.md": null,
-        ".gitattributes": "",
+        ".gitattributes": "plugin/** text eol=lf\n",
         ".pre-commit-config.yaml": "repos: []\n",
       },
       [],
@@ -2751,7 +2696,7 @@ describe("check", () => {
     [
       "guards only in comments",
       {
-        ".gitattributes": "# plugin/skills/knap/** -text\n",
+        ".gitattributes": "plugin/** text eol=lf\n# plugin/skills/knap/** -text\n",
         ".pre-commit-config.yaml": "# exclude: &copy ^(?:plugin/skills/knap)/\n",
       },
       [
@@ -2763,7 +2708,7 @@ describe("check", () => {
     [
       "guards with more after the copy's folder",
       {
-        ".gitattributes": "plugin/skills/knap/** -text eol=lf\n",
+        ".gitattributes": "plugin/** text eol=lf\nplugin/skills/knap/** -text eol=lf\n",
         ".pre-commit-config.yaml": "exclude: &copy ^(?:plugin/skills/knap)/x\n",
       },
       [
@@ -2771,6 +2716,13 @@ describe("check", () => {
         ".gitattributes: unsets text on a path that is no copy's folder; drop -text from that line",
         ".pre-commit-config.yaml: has no exclude: &copy ^(?:<folder>|...)/ naming the copies; add it",
         ".pre-commit-config.yaml: its &copy exclude does not name plugin/skills/knap; add it",
+      ],
+    ],
+    [
+      "no line keeping plugin/ at LF",
+      { ".gitattributes": "plugin/** text\nplugin/skills/knap/** -text\n" },
+      [
+        ".gitattributes: does not set plugin/** text eol=lf; add that line above the lines that unset text",
       ],
     ],
     [

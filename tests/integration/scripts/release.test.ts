@@ -433,9 +433,9 @@ describe("bundle", () => {
 
   test("zips plugin/ as HEAD holds it, with each file's mode, the same on every run", async () => {
     const root = await checkout()
-    await mkdir(join(root, "plugin/hooks"))
-    await writeFile(join(root, "plugin/hooks/run"), "#!/bin/sh\n")
-    await chmod(join(root, "plugin/hooks/run"), 0o755)
+    await mkdir(join(root, "plugin/skills/a"), { recursive: true })
+    await writeFile(join(root, "plugin/skills/a/SKILL.md"), "# A\n")
+    await chmod(join(root, "plugin/skills/a/SKILL.md"), 0o755)
     await commit(root)
     await writeFile(join(root, "plugin/package.json"), pkg("9.9.9"))
     await writeFile(join(root, "plugin/uncommitted.txt"), "x")
@@ -455,11 +455,12 @@ describe("bundle", () => {
     expect(entries(zip)).toEqual([
       "drwxr-xr-x 19800101.000000 .claude-plugin/",
       "-rw-r--r-- 19800101.000000 .claude-plugin/plugin.json",
-      "drwxr-xr-x 19800101.000000 hooks/",
-      "-rwxr-xr-x 19800101.000000 hooks/run",
       "-rw-r--r-- 19800101.000000 package.json",
+      "drwxr-xr-x 19800101.000000 skills/",
+      "drwxr-xr-x 19800101.000000 skills/a/",
+      "-rwxr-xr-x 19800101.000000 skills/a/SKILL.md",
     ])
-    expect(dosTimes(first)).toEqual(Array(5).fill("1980-01-01 00:00"))
+    expect(dosTimes(first)).toEqual(Array(6).fill("1980-01-01 00:00"))
     await bundle(root)
     expect(await Bun.file(zip).bytes()).toEqual(first)
   })

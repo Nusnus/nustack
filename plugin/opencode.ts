@@ -1,52 +1,26 @@
 /**
- * The OpenCode plugin: it reads each skill folder's SKILL.md as scripts/check.ts reads it and registers the skill with
- * OpenCode as its frontmatter asks, and puts the mode's text and folder back in a session's context once a
- * summarization drops them. A skills folder it cannot read, or any skill folder or SKILL.md it cannot load, fails the
- * load with one error naming each and its fix; once every skill loads, a missing mode fails it.
+ * The OpenCode plugin: it registers each skill folder's SKILL.md as its frontmatter asks, failing with one error that
+ * names each folder or file it cannot load and the fix, or the missing mode, and puts the mode back after a summary.
  */
 import { readdir, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { Plugin, Skill } from "@opencode/plugin"
-import type { SessionContext, SessionPrompt } from "@opencode/plugin/promise/session"
 // OpenCode's opencode command runs the binary Bun compiles for the platform, so plugins run under Bun
 // (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/bin/opencode.cjs#L36-L42;
 // https://github.com/anomalyco/opencode/blob/v2.2.5/packages/cli/script/build.ts#L160-L185), and the loader parses
 // frontmatter with Bun's YAML parser: https://bun.com/docs/runtime/yaml
 import { YAML } from "bun"
-import manifest from "./package.json" with { type: "json" }
 
-/** A model request OpenCode lets a plugin read, and add system text to, before it goes out. */
-export type ModelRequest = Pick<SessionContext, "sessionID" | "messages" | "system">
-
-/** A prompt OpenCode lets a plugin read as it admits it into a session, with the skills its user invoked. */
-export type UserPrompt = Pick<SessionPrompt, "sessionID" | "prompt">
-
-/**
- * The part of OpenCode's session API the mode reload uses: hooks on the agent loop's requests and the summary requests.
- */
-export type SessionHooks = Pick<Plugin.Context["session"], "hook">
-
-/** The part of OpenCode's plugin storage the mode reload uses. */
-export type Store = Pick<Plugin.Context["storage"], "get" | "set">
-
-/** How far the mode reload has read one session's messages since its last summarization. */
-class Progress {
-  loaded: boolean
-  // restart sets both, which tsc cannot see from the constructor:
-  // https://www.typescriptlang.org/docs/handbook/2/classes.html#--strictpropertyinitialization
-  scanned!: number
-  present!: boolean
-
-  constructor(loaded: boolean) {
-    this.loaded = loaded
-    this.restart()
-  }
-
-  restart(): void {
-    this.scanned = 0
-    this.present = false
-  }
+/** The parts of OpenCode's plugin context the loader uses. */
+export type Context = {
+  skill: Pick<Plugin.Context["skill"], "transform">
+  session: Pick<Plugin.Context["session"], "hook">
+  tool: Pick<Plugin.Context["tool"], "hook">
+  storage: Pick<Plugin.Context["storage"], "get" | "set">
 }
+
+/** A hook's registration, which disposes the hook. */
+type Registration = Awaited<ReturnType<Context["session"]["hook"]>>
 
 /**
  * The plugin's skills folder, a skill folder or a SKILL.md the loader cannot load, or a missing mode, named with its
@@ -60,13 +34,18 @@ export class SkillError extends Error {
   }
 }
 
+/** A value in the plugin's storage that the reload never stores, which it refuses rather than guess its meaning. */
+export class StorageError extends Error {
+  override name = "StorageError"
+}
+
 /** A SKILL.md's text, read into the skill OpenCode registers, or an error that names the fix. */
 export class SkillFile {
   static readonly FRONTMATTER = /^---\r?\n([\s\S]*?)(?<=\n)---(?:\r?\n|$)/
   static readonly BARE_CR = /^---\r(?!\n)/
   static readonly OPENING = /^---(?:\r?\n|$)/
-  // A SKILL.md is UTF-8, as scripts/check.ts requires, and ignoreBOM keeps a byte order mark in the text, so split refuses
-  // it as scripts/check.ts does: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/ignoreBOM
+  // A SKILL.md is UTF-8, and ignoreBOM keeps a byte order mark in the text, for split to refuse:
+  // https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/ignoreBOM
   static readonly UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
   // Bun's YAML parser crashes the process, rather than throwing, on frontmatter nested 10813 levels deep as flow
   // collections, or 7858 as block mappings, whose levels each take a deeper indent, under a 64 MB stack on macOS. Each
@@ -75,8 +54,8 @@ export class SkillFile {
   static readonly MOST_CHARACTERS = 4096
   // The bound scripts/check.ts holds JSON, YAML and TOML to, counted on the value the parser builds.
   static readonly MOST_LEVELS = 200
-  // Unicode's White_Space characters and the zero-width ones, as BLANK in scripts/metadata.ts counts them for
-  // scripts/check.ts: https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
+  // Unicode's White_Space characters and the zero-width ones, which the loader and the check take as blank:
+  // https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
   static readonly BLANK =
     /^[\t\n\v\f\r \x85\xa0\u1680\u2000-\u200d\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]*$/
   readonly path: string
@@ -98,9 +77,8 @@ export class SkillFile {
 
   /**
    * Whether a parsed value nests more than MOST_LEVELS arrays and objects deep, the outermost included, walked with a
-   * stack of its own as scripts/check.ts walks it through nestsTooDeep in scripts/tree.ts: a value an alias shares is
-   * walked again only when reached deeper than before, so each value is walked at most MOST_LEVELS times and a cycle
-   * counts as too deep.
+   * stack of its own as scripts/check.ts's nestsTooDeep in scripts/tree.ts walks it: a value an alias shares is walked again
+   * only when reached deeper than before, so each value is walked at most MOST_LEVELS times and a cycle counts as too deep.
    */
   static nestsTooDeep(value: unknown): boolean {
     const deepest = new Map<object, number>()
@@ -128,27 +106,23 @@ export class SkillFile {
   }
 
   split(): readonly [ReadonlyMap<string, unknown>, string] {
-    if (this.text.startsWith("\ufeff")) {
+    if (this.text.startsWith("\ufeff"))
       throw this.error("opens with a byte order mark; save it without one")
-    }
-    if (SkillFile.BARE_CR.test(this.text)) {
+    if (SkillFile.BARE_CR.test(this.text))
       throw this.error("has lines that end in a bare CR; save it with LF line endings")
-    }
     const match = SkillFile.FRONTMATTER.exec(this.text)
     if (match?.[1] === undefined) {
-      if (SkillFile.OPENING.test(this.text)) {
+      if (SkillFile.OPENING.test(this.text))
         throw this.error("opens with --- and never closes; end it with a --- line")
-      }
       throw this.error(
         "has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings",
       )
     }
-    // scripts/check.ts reads an empty block as no fields, where Bun's YAML parser reads it as null; a block of blank
-    // lines is not empty, and scripts/check.ts refuses its lines as no fields, as this does
+    // An empty block holds no fields, which Bun's YAML parser reads as null; it reads a block of blank lines as null
+    // too, and split refuses that block, which is not empty, as lines that are not key: value lines
     const fields = match[1] === "" ? {} : this.parse(match[1])
-    if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
+    if (typeof fields !== "object" || fields === null || Array.isArray(fields))
       throw this.error("has frontmatter that is not key: value lines; write it as key: value lines")
-    }
     return Object.freeze([new Map(Object.entries(fields)), this.text.slice(match[0].length)])
   }
 
@@ -179,28 +153,19 @@ export class SkillFile {
 
   field(frontmatter: ReadonlyMap<string, unknown>, key: string): string {
     const value = frontmatter.get(key)
-    if (value === undefined) {
-      throw this.error(`has no ${key} in its frontmatter; add one`)
-    }
-    if (typeof value !== "string") {
-      throw this.error(`has a ${key} that is not text; write its text`)
-    }
-    if (SkillFile.BLANK.test(value)) {
-      throw this.error(`has a blank ${key}; fill it in`)
-    }
+    if (value === undefined) throw this.error(`has no ${key} in its frontmatter; add one`)
+    if (typeof value !== "string") throw this.error(`has a ${key} that is not text; write its text`)
+    if (SkillFile.BLANK.test(value)) throw this.error(`has a blank ${key}; fill it in`)
     return value
   }
 
   hidden(frontmatter: ReadonlyMap<string, unknown>): boolean {
     const value = frontmatter.get("disable-model-invocation")
-    if (value === undefined) {
-      return false
-    }
-    if (typeof value !== "boolean") {
+    if (value === undefined) return false
+    if (typeof value !== "boolean")
       throw this.error(
         "has a disable-model-invocation that is not true or false; set it to true or false",
       )
-    }
     return value
   }
 
@@ -209,8 +174,24 @@ export class SkillFile {
   }
 }
 
-/** The plugin's skills folder, the one place the loader reads files. */
+/**
+ * A skills folder's entry, as SkillFolder.read finds it: a folder with its SKILL.md's bytes or the error reading them,
+ * a symlink, or a file.
+ */
+export type SkillEntry = Readonly<
+  | { name: string; kind: "file" }
+  | { name: string; kind: "symlink" }
+  | { name: string; kind: "folder"; data: Uint8Array }
+  | { name: string; kind: "folder"; error: unknown }
+>
+
+/**
+ * The plugin's skills folder: read takes its entries from disk, the one place the loader reads files, and skills turns
+ * them into skills.
+ */
 export class SkillFolder {
+  private static readonly SYMLINK =
+    "is a symlink, which the loader does not follow; put the skill folder itself there"
   readonly path: string
 
   constructor(path: string) {
@@ -218,7 +199,7 @@ export class SkillFolder {
     Object.freeze(this)
   }
 
-  async skills(): Promise<readonly Skill.Info[]> {
+  async read(): Promise<readonly SkillEntry[]> {
     const entries = await readdir(this.path, { withFileTypes: true }).catch((error: unknown) => {
       throw SkillError.at(
         this.path,
@@ -226,38 +207,53 @@ export class SkillFolder {
         { cause: error },
       )
     })
-    const results = await Promise.allSettled(
-      entries.flatMap((entry) => {
-        if (entry.isSymbolicLink()) return [this.symlink(entry.name)]
-        return entry.isDirectory() ? [this.skill(entry.name)] : []
+    return Promise.all(
+      entries.map(async (entry): Promise<SkillEntry> => {
+        const { name } = entry
+        if (entry.isSymbolicLink()) return { name, kind: "symlink" }
+        if (!entry.isDirectory()) return { name, kind: "file" }
+        return readFile(this.file(name)).then(
+          (data): SkillEntry => ({ name, kind: "folder", data }),
+          (error: unknown): SkillEntry => ({ name, kind: "folder", error }),
+        )
       }),
     )
-    const failures = results.flatMap((result) =>
-      result.status === "rejected" ? [errorMessage(result.reason)] : [],
-    )
-    if (failures.length > 0) throw new SkillError(failures.sort().join("\n"))
-    return Object.freeze(
-      results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])),
-    )
   }
 
-  async symlink(name: string): Promise<never> {
-    throw SkillError.at(
-      join(this.path, name),
-      "is a symlink, which the loader does not follow; put the skill folder itself there",
-    )
+  skills(entries: readonly SkillEntry[]): readonly Skill.Info[] {
+    const skills: Skill.Info[] = []
+    const failures: SkillError[] = []
+    for (const entry of entries) {
+      try {
+        const skill = this.skill(entry)
+        if (skill !== undefined) skills.push(skill)
+      } catch (error) {
+        // Any other error is a bug in the loader, so it goes on whole, with its stack.
+        if (!(error instanceof SkillError)) throw error
+        failures.push(error)
+      }
+    }
+    if (failures.length > 0) {
+      failures.sort((a, b) => (a.message < b.message ? -1 : 1))
+      throw new SkillError(failures.map((failure) => failure.message).join("\n"), {
+        cause: failures,
+      })
+    }
+    return Object.freeze(skills)
   }
 
-  async skill(id: string): Promise<Skill.Info> {
-    const path = this.file(id)
-    const data = await readFile(path).catch((error: unknown) => {
+  private skill(entry: SkillEntry): Skill.Info | undefined {
+    if (entry.kind === "file") return undefined
+    if (entry.kind === "symlink")
+      throw SkillError.at(join(this.path, entry.name), SkillFolder.SYMLINK)
+    const path = this.file(entry.name)
+    if ("error" in entry)
       throw SkillError.at(
         path,
-        `cannot be read (${errorCode(error)}); give the skill a readable SKILL.md`,
-        { cause: error },
+        `cannot be read (${errorCode(entry.error)}); give the skill a readable SKILL.md`,
+        { cause: entry.error },
       )
-    })
-    return SkillFile.decode(path, data).info(id)
+    return SkillFile.decode(path, entry.data).info(entry.name)
   }
 
   file(id: string): string {
@@ -266,143 +262,170 @@ export class SkillFolder {
 }
 
 /**
- * Puts the mode's text back in the system instructions of a session that loaded the mode, through the skill tool or its
- * user's invocation, once a summarization drops it from the session's messages. The mode's body anywhere in a message
- * puts the mode in the context, but only a skill call that names the mode loads it. Which sessions loaded the mode is
- * kept in storage, so it survives a restart.
+ * Puts the mode's text and folder back in each agent request of a session that loaded the mode whose messages lack
+ * the mode's whole text, as after a summary, keeping each session's state in storage.
+ * Each OpenCode call cites its section of server.mdx:
+ * https://github.com/anomalyco/opencode/blob/v2.2.5/services/www/src/docs/content/build/plugins/server.mdx
  */
 export class ModeReload {
-  static readonly ID = "nus-mode"
-  readonly skill: Skill.Info
-  readonly store: Store
-  readonly sessions = new Map<string, Progress>()
-  readonly escapedBody: string
+  private static readonly ID = "nus-mode"
+  private static readonly STATES = Object.freeze(["selected", "loaded"] as const)
+  private readonly storage: Context["storage"]
+  private readonly escapedBody: string
   readonly reloadText: string
 
-  constructor(skill: Skill.Info, store: Store) {
-    this.skill = skill
-    this.store = store
-    // OpenCode's skill tool shows the body trimmed, its CRLF lines kept, so the reload looks for and gives back that,
-    // as tests/fixtures/opencode/loaded/context.json records.
-    const body = this.skill.content.trim()
+  constructor(skill: Skill.Info, storage: Context["storage"]) {
+    this.storage = storage
+    // The skill tool sends the body without frontmatter and the skill's base directory, as OpenCode's skills page says
+    // under Loading: https://github.com/anomalyco/opencode/blob/v2.2.5/services/www/src/docs/content/skills.mdx, in
+    // these words: https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/skill.ts#L42-L45
+    const body = skill.content.trim()
     this.escapedBody = JSON.stringify(body).slice(1, -1)
-    // The mode's links are relative to its folder, so the folder follows its text, as OpenCode's skill tool gives it in
-    // tests/fixtures/opencode/loaded/context.json.
-    this.reloadText = `${body}\n\nBase directory for this skill: ${dirname(this.skill.path)}\nRelative paths in this skill are relative to this base directory.`
+    this.reloadText = `${body}\n\nBase directory for this skill: ${dirname(skill.path)}\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.`
     Object.freeze(this)
   }
 
   static mode(folder: SkillFolder, skills: readonly Skill.Info[]): Skill.Info {
     const skill = skills.find((candidate) => candidate.id === ModeReload.ID)
-    if (skill === undefined) {
+    if (skill === undefined)
       throw SkillError.at(folder.file(ModeReload.ID), "is missing; restore the mode")
-    }
     return skill
   }
 
-  register(session: SessionHooks): Promise<{ dispose: () => Promise<void> }[]> {
+  register({ session, tool }: Pick<Context, "session" | "tool">): Promise<Registration[]> {
     return Promise.all([
-      session.hook("prompt", (request) => this.prompting(request)),
-      session.hook("compaction", (request) => this.summarizing(request)),
-      session.hook("context", (request) => this.calling(request)),
+      // Hooks › Sessions › Prompt admission: the prompt holds the skills its user selected, each skill's id typed
+      // by the package. It runs before OpenCode admits the prompt, and a request can run before the selected skill's
+      // text reaches its messages, so selecting the mode marks it selected: the first request or summary request
+      // whose messages hold the mode's whole text counts it as a load. A selection no messages show, as when a rule
+      // denies the mode or OpenCode drops the prompt, stays selected and adds nothing.
+      // It settles a selection by the messages, not by asking whether a rule denies the mode: server.mdx documents no
+      // read of a skill's permission, only permission.assert, which prompts the user on ask, and says prompt hooks are
+      // not an exactly-once side-effect boundary, so a hook may run more than once and ask more than once.
+      // A prompt holds only its skills' ids, so this hook knows the mode by its id alone.
+      // A failed read or write of the storage rejects, and Prompt admission says that OpenCode then does not admit
+      // the prompt.
+      session.hook("prompt", async ({ sessionID, prompt }) => {
+        if (!prompt.skills?.some((skill) => skill.id === ModeReload.ID)) return
+        const state = await this.state(sessionID)
+        switch (state) {
+          case undefined:
+            return this.set(sessionID, "selected")
+          case "selected":
+          case "loaded":
+            return
+          default:
+            return state satisfies never
+        }
+      }),
+      // Hooks › Tools: execute.after's example reads the call's status and result. A load counts only when its result
+      // holds the shipped body, so a nus-mode from another skills folder counts as none. A departure from the page,
+      // which lists no other field of ToolExecuteCompleted: only the call's tool, input and sessionID tell which
+      // session loaded which skill. The published @opencode/plugin types declare tool and sessionID and leave input
+      // unknown; the skill tool's input is {"id": ...}, as OpenCode's skills page says under Loading:
+      // https://github.com/anomalyco/opencode/blob/v2.2.5/services/www/src/docs/content/skills.mdx
+      // Permissions' evaluate hook lists its own fields, but runs before a skill loads, and for ask too, so it cannot
+      // tell that the load happened. A failed write rejects, so OpenCode fails the skill tool's call with the storage's
+      // error.
+      tool.hook("execute.after", async (event) => {
+        if (event.tool !== "skill" || Object(event.input).id !== ModeReload.ID) return
+        if (event.status === "completed" && JSON.stringify(event.result).includes(this.escapedBody))
+          await this.set(event.sessionID, "loaded")
+      }),
+      // Hooks › Sessions › Model requests: compaction runs for checkpoint summaries, with the messages the summary is
+      // written from, so a selection still unsettled counts as a load if those messages hold the mode's whole text.
+      session.hook("compaction", async ({ sessionID, messages }) => {
+        const state = await this.state(sessionID)
+        switch (state) {
+          case undefined:
+          case "loaded":
+            return
+          case "selected":
+            if (this.shows(messages)) await this.set(sessionID, "loaded")
+            return
+          default:
+            return state satisfies never
+        }
+      }),
+      // Hooks › Sessions › Model requests: context runs for the agent loop, with the request's messages, and may add
+      // system text. The page leaves unsaid which messages a summary, a summary written ahead and swapped in, or a
+      // revert keeps, so each request of a session that loaded the mode, or selected it, looks for the mode's whole
+      // text in its messages' JSON, reading no field of theirs, and adds the mode only where that text is missing, at
+      // one stringify of the request's messages per request. It writes only a selection's load. The one write a race
+      // can leave stale is a prompt's selection over a load the tool hook stored, and the next request settles it,
+      // since its messages hold the tool's result.
+      // A failed read or write of the storage rejects, and OpenCode's plugin adapter runs the hook as Effect.promise, so the
+      // model request fails: https://github.com/anomalyco/opencode/blob/v2.2.5/packages/plugin/src/promise/adapter.ts#L625
+      session.hook("context", async ({ sessionID, system, messages }) => {
+        const state = await this.state(sessionID)
+        switch (state) {
+          case undefined:
+            return
+          case "selected":
+            if (this.shows(messages)) await this.set(sessionID, "loaded")
+            return
+          case "loaded":
+            if (this.shows(messages)) return
+            break
+          default:
+            return state satisfies never
+        }
+        system.push({ type: "text", text: this.reloadText })
+      }),
     ])
   }
 
-  // OpenCode records a user's invocation only in the prompt's skills, which prompt text cannot add to, as
-  // tests/fixtures/opencode/invoked/prompt.json and forged/prompt.json record.
-  async prompting(request: UserPrompt): Promise<void> {
-    if (!request.prompt.skills?.some((skill) => skill.id === this.skill.id)) return
-    await this.remember(request.sessionID, await this.progress(request.sessionID))
+  // API › Storage: set keeps a JSON value scoped to the plugin, which get reads back.
+  private set(sessionID: string, state: (typeof ModeReload.STATES)[number]): Promise<void> {
+    return this.storage.set(this.key(sessionID), state)
   }
 
-  async summarizing(request: ModelRequest): Promise<void> {
-    const progress = await this.progress(request.sessionID)
-    if (!progress.loaded && this.loads(request.messages))
-      await this.remember(request.sessionID, progress)
-    progress.restart()
+  private shows(messages: readonly unknown[]): boolean {
+    return JSON.stringify(messages).includes(this.escapedBody)
   }
 
-  async calling(request: ModelRequest): Promise<void> {
-    const progress = await this.progress(request.sessionID)
-    if (request.messages.length < progress.scanned) progress.restart()
-    const fresh = request.messages.slice(progress.scanned)
-    if (fresh.some((message) => JSON.stringify(message).includes(this.escapedBody))) {
-      progress.present = true
-      if (!progress.loaded && this.loads(fresh)) await this.remember(request.sessionID, progress)
-    }
-    progress.scanned = request.messages.length
-    if (progress.loaded && !progress.present) {
-      request.system.push({ type: "text", text: this.reloadText })
-    }
+  // API › Storage: get reads back what set kept, parsed here, where it enters, into the state set stores.
+  private async state(sessionID: string): Promise<(typeof ModeReload.STATES)[number] | undefined> {
+    const key = this.key(sessionID)
+    const value = await this.storage.get(key)
+    const state = ModeReload.STATES.find((each) => each === value)
+    if (value !== undefined && state === undefined)
+      throw new StorageError(
+        `the plugin's storage holds ${JSON.stringify(value)} under ${key}, a value the loader never stores; continue in a new session, whose state starts empty`,
+      )
+    return state
   }
 
-  async progress(sessionID: string): Promise<Progress> {
-    const known = this.sessions.get(sessionID)
-    if (known !== undefined) return known
-    const progress = new Progress((await this.store.get(this.key(sessionID))) === true)
-    this.sessions.set(sessionID, progress)
-    return progress
-  }
-
-  async remember(sessionID: string, progress: Progress): Promise<void> {
-    await this.store.set(this.key(sessionID), true)
-    progress.loaded = true
-  }
-
-  // A load is the skill tool's result for a call that names the mode, as tests/fixtures/opencode/loaded/context.json
-  // records; a prompt or another skill's result can hold the mode's body, as forged/ and quoted/ there record.
-  loads(messages: ModelRequest["messages"]): boolean {
-    const parts = messages.flatMap((message) => message.content)
-    const calls = new Set(
-      parts.flatMap((part) =>
-        part.type === "tool-call" &&
-        part.name === "skill" &&
-        Object(part.input).id === this.skill.id
-          ? [part.id]
-          : [],
-      ),
-    )
-    return parts.some(
-      (part) =>
-        part.type === "tool-result" &&
-        calls.has(part.id) &&
-        JSON.stringify(part.result).includes(this.escapedBody),
-    )
-  }
-
-  key(sessionID: string): string {
-    return `${this.skill.id}/loaded/${sessionID}`
+  // Each session that loads the mode keeps its key after it ends, as 0.0.2's keys do: a few bytes each, accepted.
+  private key(sessionID: string): string {
+    return `${ModeReload.ID}/${sessionID}`
   }
 }
 
 export default {
-  id: manifest.name,
-  async setup(context: {
-    skill: Pick<Plugin.Context["skill"], "transform">
-    session: SessionHooks
-    storage: Store
-  }): Promise<() => Promise<void>> {
-    const folder = new SkillFolder(join(import.meta.dirname, "skills"))
-    const skills = await folder.skills()
-    const reload = new ModeReload(ModeReload.mode(folder, skills), context.storage)
-    const registrations = [
-      await context.skill.transform((editor) => {
-        for (const skill of skills) editor.add(skill)
-      }),
-      ...(await reload.register(context.session)),
-    ]
-    return async () => {
-      await Promise.all(registrations.map((registration) => registration.dispose()))
-    }
-  },
+  // OpenCode knows the plugin by this id, which the loader's unit test holds to plugin/package.json's name, so
+  // the plugin reads no file until it starts.
+  id: "nustack",
+  setup: (context: Context) => start(context, new SkillFolder(join(import.meta.dirname, "skills"))),
 } satisfies Plugin.Plugin
 
-export function errorCode(error: unknown): string {
+export async function start(context: Context, folder: SkillFolder): Promise<() => Promise<void>> {
+  const skills = folder.skills(await folder.read())
+  const reload = new ModeReload(ModeReload.mode(folder, skills), context.storage)
+  const registrations = [
+    // server.mdx › API › Skills: a transform adds skills.
+    await context.skill.transform((editor) => {
+      for (const skill of skills) editor.add(skill)
+    }),
+    ...(await reload.register(context)),
+  ]
+  // server.mdx › Hooks: dispose each returned registration once it is no longer needed.
+  return async () =>
+    void (await Promise.all(registrations.map((registration) => registration.dispose())))
+}
+
+function errorCode(error: unknown): string {
   return error instanceof Error && "code" in error && typeof error.code === "string"
     ? error.code
     : "no error code"
-}
-
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

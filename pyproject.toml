@@ -11,7 +11,7 @@ dev = [
   "commitizen>=4.19.3",
   "pre-commit>=4.7",
   # actionlint checks workflow scripts with ShellCheck only when it is
-  # installed, and the shellcheck hook runs it:
+  # installed:
   # https://github.com/rhysd/actionlint/blob/v1.7.12/docs/checks.md#check-shellcheck-integ
   "shellcheck-py>=0.11.0.1",
   "zizmor>=1.31.1",

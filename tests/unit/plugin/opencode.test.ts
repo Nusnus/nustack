@@ -1,296 +1,160 @@
 /**
- * The OpenCode loader reads each skill folder into the skill OpenCode registers, registers every skill the plugin ships
- * with the principle and language skills hidden from the model, and fails with one error naming each skill folder or
- * SKILL.md it cannot load, or the skills folder it cannot read; once every skill loads, a missing mode fails it with an
- * error naming the mode's SKILL.md. It puts the mode back in a session's context once a summarization drops it.
+ * The OpenCode loader reads the skills folder and registers each SKILL.md, hiding the principle and language skills
+ * from the model, or fails with one error naming each skill it cannot load and the fix; importing it reads no file. It
+ * puts the mode back after a summary of a session that loaded it.
  */
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
-import { chmod, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Skill } from "@opencode/plugin"
 import { YAML } from "bun"
 import plugin, {
-  errorCode,
-  errorMessage,
-  type ModelRequest,
+  type Context,
   ModeReload,
+  type SkillEntry,
   SkillError,
   SkillFile,
   SkillFolder,
-  type UserPrompt,
+  StorageError,
+  start,
 } from "../../../plugin/opencode.ts"
+import manifest from "../../../plugin/package.json" with { type: "json" }
 import { TemporaryFolders } from "../../fixtures/folders.ts"
-import { skipAsRoot } from "../../fixtures/permissions.ts"
-import { FakeRegistry } from "../../fixtures/registry.ts"
-import { FakeSession, FakeStorage } from "../../fixtures/session.ts"
+import forgedPrompt from "../../fixtures/opencode/forged/prompt.json" with { type: "json" }
+import keptSummary from "../../fixtures/opencode/kept/compaction.json" with { type: "json" }
+import keptLoading from "../../fixtures/opencode/kept/context.json" with { type: "json" }
+import keptFollowing from "../../fixtures/opencode/kept/following.json" with { type: "json" }
+import pastedSummary from "../../fixtures/opencode/pasted/compaction.json" with { type: "json" }
+import pastedCall from "../../fixtures/opencode/pasted/context.json" with { type: "json" }
+import pastedFollowing from "../../fixtures/opencode/pasted/following.json" with { type: "json" }
+import twice from "../../fixtures/opencode/twice/session.json" with { type: "json" }
+import { fakeOpenCode, type HookEvent, refusal } from "../../fixtures/opencode.ts"
 import { thrown } from "../../fixtures/thrown.ts"
 import { VENDORED_SKILLS } from "../../fixtures/vendored.ts"
 
-const SKILLS = new SkillFolder(join(import.meta.dirname, "..", "..", "..", "plugin", "skills"))
+const SKILLS = new SkillFolder("/p")
+const folders = new TemporaryFolders()
+const PATH = "/s/a-skill/SKILL.md"
+const UNOPENED = `has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings`
+const UNCLOSED = "opens with --- and never closes; end it with a --- line"
+const NOT_FIELDS = "has frontmatter that is not key: value lines; write it as key: value lines"
+const BLANK = "has a blank description; fill it in"
+const NO_BOOL = "has a disable-model-invocation that is not true or false; set it to true or false"
+const TOO_DEEP = "has frontmatter that nests values more than 200 levels deep; flatten them"
+const MODE = {
+  id: "nus-mode",
+  content: "# nus-mode\n\nBody.\n",
+  path: "/p/nus-mode/SKILL.md",
+} as Skill.Info
+const SYMLINK = "is a symlink, which the loader does not follow; put the skill folder itself there"
 
-/** One request OpenCode passed a session hook, as the recording plugin wrote it down. */
-interface Recorded<Request = ModelRequest> {
-  readonly hook: Request extends UserPrompt ? "prompt" : "context" | "compaction"
-  readonly request: Request
+// The skill tool's result for MODE, in the shape a recorded execute.after holds it.
+const SHOWN = {
+  output: {
+    output:
+      '<skill_content name="nus-mode">\n# Skill: nus-mode\n\n# nus-mode\n\nBody.\n\nBase directory for this skill: /p/nus-mode\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.\n</skill_content>',
+  },
 }
+const loaded = (over = {}): HookEvent => [
+  "execute.after",
+  { tool: "skill", status: "completed", input: { id: "nus-mode" }, result: SHOWN, ...over },
+]
+const invoked = (id = "nus-mode"): HookEvent => ["prompt", { prompt: { skills: [{ id }] } }]
+const request = (messages: object[] = []): HookEvent => ["context", { system: [], messages }]
+const summary = (messages: object[] = []): HookEvent => ["compaction", { messages }]
+const SUMMARIZED = summary()
+// Messages that hold MODE's whole text, as a request's messages hold a skill the session loaded.
+const SHOWING = [{ role: "tool", content: [{ result: SHOWN }] }]
+// Each recorded event holds one request an OpenCode hook received, as a recording plugin wrote it down; the copy
+// takes the system text a hook adds.
+const replayed = ({ hook, request }: { hook: string; request: object }): HookEvent => [
+  hook,
+  structuredClone(request),
+]
 
-// The loaded, unloaded, invoked, forged and quoted folders each hold one OpenCode session under an agent with a
-// one-line prompt and Code Mode denied, so each request carries little but what the reload reads; the crlf,
-// config-skill, kept, pasted and other-skill sessions ran under OpenCode's default prompt. Each file holds the fields
-// the loader reads of one request a session hook received, recorded by a plugin loaded beside the loader. The loaded
-// and unloaded sessions ran against the real model, and the rest in the smoke tests' OpenCode against
-// tests/fixtures/model.ts.
-// The agent loop's request right after the skill tool loaded the mode: the one context request whose messages hold it.
-const loading = await recorded("loaded/context")
-// The summary request of that session: the one compaction request whose messages hold the mode.
-const summary = await recorded("loaded/compaction")
-// The session's first request after the summary: its messages are the summary and one prompt, without the mode.
-const following = await recorded("loaded/following")
-// The summary request of a session that never loaded the mode, and its first request after it.
-const unloadedSummary = await recorded("unloaded/compaction")
-const unloadedFollowing = await recorded("unloaded/following")
-// In one session the user invoked the mode through the prompt endpoint's skills field, as the TUI does: its prompt, and
-// the model call that followed. In the other a prompt held the mode's body inside the skill_content envelope an
-// invocation shows: its prompt, the model call that followed, and the session's summary request.
-const invoking = await recorded<UserPrompt>("invoked/prompt")
-const invoked = await recorded("invoked/context")
-const forging = await recorded<UserPrompt>("forged/prompt")
-const forged = await recorded("forged/context")
-const forgedSummary = await recorded("forged/compaction")
-// In the quoted session the skill tool loaded another skill whose body quotes the mode inside its skill_content
-// envelope: the model call that followed, and the session's summary request.
-const quotedCall = await recorded("quoted/context")
-const quotedSummary = await recorded("quoted/compaction")
-// In one the skill tool loaded a CRLF SKILL.md, and in one a nus-mode from the config's skills folder, beside
-// nustack's: each load, its summary request and the first request after it.
-const crlfLoading = await recorded("crlf/context")
-const crlfSummary = await recorded("crlf/compaction")
-const crlfFollowing = await recorded("crlf/following")
-const configSkillLoading = await recorded("config-skill/context")
-const configSkillSummary = await recorded("config-skill/compaction")
-const configSkillFollowing = await recorded("config-skill/following")
-// In the kept session the skill tool loaded the mode in the turn after a first one, the last before a summary the user
-// asked for, since a session's first summary, unless its model compacts natively, never keeps its first user turn
-// (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L967-L971;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L1017-L1027;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L321-L323). OpenCode kept
-// that turn as text in the summary's message, as compaction.keep allows, 15,000 tokens of recent conversation unless
-// set (https://unpkg.com/@opencode/schema@2.2.5/dist/config/compaction.js;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L47-L48;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/compaction.ts#L263;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/config/plugin/compaction.ts#L22),
-// with the mode's text cut short at "[truncated]", since its session code cuts a tool result to 1250 characters
-// (https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L6;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L50;
-// https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L72-L84): the load, its
-// summary request and the first request after it.
-const keptLoading = await recorded("kept/context")
-const keptSummary = await recorded("kept/compaction")
-const keptFollowing = await recorded("kept/following")
-// In one a prompt pasted the mode's body, with no skill call: its model call, its summary request and the next request.
-const pastedCall = await recorded("pasted/context")
-const pastedSummary = await recorded("pasted/compaction")
-const pastedFollowing = await recorded("pasted/following")
-// In one the user invoked another skill, sample-mode, as the TUI does: its prompt and the model call that followed.
-const otherInvoking = await recorded<UserPrompt>("other-skill/prompt")
-const otherInvoked = await recorded("other-skill/context")
-// The mode's body as the recorded session loaded it, between OpenCode's skill heading and its base-directory note. The
-// recording ran an older nus-mode, and the reload matches whatever body the loader registered, so the recorded body
-// stands in for the shipped one; the smoke tests reload the shipped body in OpenCode itself.
-const loaded = String(Object(Object(loading.request.messages[2]).content[0]).result.value)
-const MODE: Skill.Info = {
-  ...ModeReload.mode(SKILLS, await SKILLS.skills()),
-  content: shownBody(loaded),
-}
+afterEach(() => folders.clear())
 
-/** Temporary skill folders, removed after each test. */
-class Folders extends TemporaryFolders {
-  async holding(text: string): Promise<string> {
-    const folder = await this.with("a-skill")
-    await writeFile(join(folder, "a-skill", "SKILL.md"), text)
-    return folder
-  }
-
-  async with(skill: string): Promise<string> {
-    const folder = await this.make()
-    await mkdir(join(folder, skill))
-    return folder
-  }
-}
-
-async function recorded<Request = ModelRequest>(name: string): Promise<Recorded<Request>> {
-  const path = join(import.meta.dirname, "..", "..", "fixtures", "opencode", `${name}.json`)
-  return JSON.parse(await readFile(path, "utf8"))
-}
-
-function withSet(storage: FakeStorage, set: FakeStorage["set"]): FakeStorage {
-  return Object.assign(new FakeStorage(), { set, get: storage.get })
-}
-
-function shownBody(text: string, endMarker = "\n\nBase directory for this skill:"): string {
-  return text.slice(text.indexOf("\n\n") + 2, text.indexOf(endMarker))
-}
-
-/**
- * A SKILL.md loads as `scripts/check.ts` reads it, or fails naming its file and the fix. Frontmatter reads CRLF as LF and
- * breaks at a stray CR while the body keeps both, and the frontmatter may close at the end of the file.
- */
+/** A SKILL.md loads into the skill OpenCode registers, or fails naming its file and the fix. */
 describe("SkillFile", () => {
-  const path = "/s/a-skill/SKILL.md"
-
-  test("decodes a UTF-8 SKILL.md and refuses one that is not UTF-8, naming the fix", async () => {
-    const text = "---\nname: café\ndescription: A.\n---\n"
-    expect(SkillFile.decode(path, new TextEncoder().encode(text)).text).toBe(text)
-    expect(SkillFile.decode(path, new TextEncoder().encode(`\ufeff${text}`)).text).toBe(
-      `\ufeff${text}`,
+  test("hands out a file and a skill that never change", () => {
+    const file = SkillFile.decode(
+      PATH,
+      new TextEncoder().encode("---\nname: a\ndescription: A.\n---\n"),
     )
-    expect(await thrown(() => SkillFile.decode(path, Uint8Array.of(0x2d, 0xff)))).toEqual(
-      new SkillError(
-        "/s/a-skill/SKILL.md is not valid UTF-8; save it as UTF-8, or reinstall the nustack plugin",
-      ),
-    )
-  })
-
-  test("keeps the file's name over its folder's, and its description, path and body", () => {
-    const text = '---\nname: a-skill\ndescription: "A skill: \\"quoted\\"."\n---\n# A\n---\nB\n'
-    expect(new SkillFile(path, text).info("a-folder")).toEqual({
-      id: "a-folder" as Skill.ID,
-      name: "a-skill" as Skill.Name,
-      description: 'A skill: "quoted".',
-      autoinvoke: true,
-      path: path as Skill.Info["path"],
-      content: "# A\n---\nB\n",
-    })
-  })
-
-  test("hands out a skill and a file that never change", () => {
-    const file = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n")
     expect([Object.isFrozen(file), Object.isFrozen(file.info("a"))]).toEqual([true, true])
   })
 
-  test("reads frontmatter that closes at the end of the file", () => {
-    const info = new SkillFile(path, "---\nname: a\ndescription: A.\n---").info("a")
-    expect([info.name, info.content]).toEqual(["a", ""])
-  })
-
-  test("closes the frontmatter only at a line that holds ---", () => {
-    const info = new SkillFile(path, "---\nname: a\ndescription: x---\n---\n# A\n").info("a")
-    expect([info.description, info.content]).toEqual(["x---", "# A\n"])
-  })
-
-  test("reads a --- line that ends in a bare CR in the body as text", () => {
-    const info = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n# A\n---\rX\n").info("a")
-    expect(info.content).toBe("# A\n---\rX\n")
-  })
-
-  test("keeps the body's opening blank line", () => {
-    const info = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n\n# A\n").info("a")
-    expect(info.content).toBe("\n# A\n")
-  })
-
-  test("reads CRLF lines as LF in the frontmatter and keeps them in the body", () => {
-    const skill = new SkillFile(path, "---\r\nname: a\r\ndescription: A.\r\n---\r\n# A\r\n").info(
-      "a",
-    )
-    expect([skill.name, skill.content]).toEqual(["a", "# A\r\n"])
+  test("decodes UTF-8, a byte order mark kept for split to refuse, and refuses other bytes", async () => {
+    const text = "\ufeff---\nname: café\n---\n"
+    expect(SkillFile.decode(PATH, new TextEncoder().encode(text)).text).toBe(text)
+    const decoded = thrown(() => SkillFile.decode(PATH, Uint8Array.of(0x2d, 0xff)))
+    expect(await decoded).toEqual(refusal(PATH, "is not valid UTF-8; save it as UTF-8"))
   })
 
   test.each([
-    [
-      "\ufeff---\nname: a\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md opens with a byte order mark; save it without one, or reinstall the nustack plugin",
-    ],
-    [
-      "---\rname: a\rdescription: A.\r---\r",
-      "/s/a-skill/SKILL.md has lines that end in a bare CR; save it with LF line endings, or reinstall the nustack plugin",
-    ],
-    [
-      "# A\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: a\ndescription: A.\n",
-      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
-    ],
-    [
-      "---",
-      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
-    ],
-    [
-      "---\r\nname: a\r\ndescription: A.\r\n",
-      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
-    ],
-    [
-      "A\n---\nname: a\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: a\ndescription: A.\n---x\n",
-      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
-    ],
-    [
-      "--- \nname: a\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: a\ndescription: A.\n--- \n",
-      "/s/a-skill/SKILL.md opens with --- and never closes; end it with a --- line, or reinstall the nustack plugin",
-    ],
-    [
-      "---\n- a\n---\n",
-      "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nnull\n---\n",
-      "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
-    ],
-    [
-      "---\n\n\n---\n",
-      "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
-    ],
-    [
-      "---\n7\n---\n",
-      "/s/a-skill/SKILL.md has frontmatter that is not key: value lines; write it as key: value lines, or reinstall the nustack plugin",
-    ],
-  ])(
-    "refuses a file %j whose frontmatter does not split from its body, naming the fix",
-    async (text, message) => {
-      expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(
-        new SkillError(message),
-      )
-    },
-  )
-
-  test("breaks a frontmatter line at a stray CR", () => {
-    const text = "---\nname: a\ndescription: a\r\r\n b\n---\n"
-    expect(new SkillFile(path, text).info("a").description).toBe("a\nb")
+    ['name: b\ndescription: "A: \\"q\\"."\n---\n', { id: "a", name: "b", description: 'A: "q".' }],
+    ["name: a\ndescription: A.\n---", { content: "", autoinvoke: true, path: PATH }],
+    ["name: a\ndescription: x---\n---\n# A\n", { description: "x---", content: "# A\n" }],
+    ["name: a\ndescription: A.\n---\n# A\n---\rX\n", { content: "# A\n---\rX\n" }],
+    ["name: a\ndescription: A.\n---\n\n# A\n", { content: "\n# A\n" }],
+    ["\rname: a\r\ndescription: A.\r\n---\r\n# A\r\n", { name: "a", content: "# A\r\n" }],
+    ["name: a\ndescription: a\r\r\n b\n---\n", { description: "a\nb" }],
+    ["name: a\ndescription: A.\ndisable-model-invocation: true # x\n---\n", { autoinvoke: false }],
+    ["name: a\ndescription: A.\ndisable-model-invocation: True\n---\n", { autoinvoke: false }],
+    ["name: a\ndescription: A.\ndisable-model-invocation: false\n---\n", { autoinvoke: true }],
+  ])("reads ---\\n%j", (text, expected) => {
+    expect(new SkillFile(PATH, `---\n${text}`).info("a")).toMatchObject(expected)
   })
 
-  test("refuses frontmatter that is not valid YAML, naming the fix", async () => {
-    expect(await thrown(() => new SkillFile(path, "---\nname: [a\n---\n").info("a"))).toEqual(
-      new SkillError(
-        "/s/a-skill/SKILL.md has frontmatter that is not valid YAML; fix it, or reinstall the nustack plugin",
-      ),
-    )
+  test.each([
+    ["\ufeff---\nname: a\n---\n", "opens with a byte order mark; save it without one"],
+    ["---\rname: a\r---\r", "has lines that end in a bare CR; save it with LF line endings"],
+    ["# A\n", UNOPENED],
+    ["# A\n---\nname: a\ndescription: A.\n---\n", UNOPENED],
+    ["--- \nname: a\n---\n", UNOPENED],
+    ["---\nname: a\n", UNCLOSED],
+    ["---", UNCLOSED],
+    ["---\nname: a\n---x\n", UNCLOSED],
+    ["---\nname: a\n--- \n", UNCLOSED],
+    ["---\n- a\n---\n", NOT_FIELDS],
+    ["---\n\n\n---\n", NOT_FIELDS],
+    ["---\n7\n---\n", NOT_FIELDS],
+    ["---\nname: [a\n---\n", "has frontmatter that is not valid YAML; fix it"],
+    ["---\ndescription: A.\n---\n", "has no name in its frontmatter; add one"],
+    ["---\n---\n# A\n", "has no name in its frontmatter; add one"],
+    ["---\nname: a\n---\n", "has no description in its frontmatter; add one"],
+    ["---\nname: 7\ndescription: A.\n---\n", "has a name that is not text; write its text"],
+    ['---\nname: a\ndescription: " "\n---\n', BLANK],
+    ['---\nname: a\ndescription: "\\u200B\\u2060\\x85"\n---\n', BLANK],
+    ["---\nname: a\ndescription: A.\ndisable-model-invocation: yes\n---\n", NO_BOOL],
+    [
+      `---\nname: a\ndescription: A.\nmetadata: ${"[".repeat(200)}${"]".repeat(200)}\n---\n`,
+      TOO_DEEP,
+    ],
+    [
+      `---\nname: a\ndescription: A.\nmetadata: [[&x ${"[".repeat(198)}${"]".repeat(198)}]]\nother: *x\n---\n`,
+      TOO_DEEP,
+    ],
+    ["---\nname: a\ndescription: A.\nmetadata: &x [*x]\n---\n", TOO_DEEP],
+  ])("refuses %j, naming the fix", async (text, problem) => {
+    expect(await thrown(() => new SkillFile(PATH, text).info("a"))).toEqual(refusal(PATH, problem))
   })
 
   test("reads frontmatter nested 200 levels deep, the most it reads", () => {
     const text = `---\nname: a\ndescription: A.\nmetadata: ${"[".repeat(199)}${"]".repeat(199)}\n---\n`
-    expect(new SkillFile(path, text).split()[0].get("name")).toBe("a")
+    expect(new SkillFile(PATH, text).split()[0].get("name")).toBe("a")
   })
 
   test("reads frontmatter of 4096 characters, the most it reads", () => {
     const text = `---\nname: a\ndescription: ${"A".repeat(4074)}\n---\n`
-    expect(new SkillFile(path, text).info("a").description).toHaveLength(4074)
+    expect(new SkillFile(PATH, text).info("a").description).toHaveLength(4074)
   })
 
   test.each([["4097 characters", `name: a\ndescription: ${"A".repeat(4075)}\n`]])(
     "refuses frontmatter of %s before Bun's YAML parser reads it, naming the fix",
     async (_, frontmatter) => {
-      expect(await thrown(() => new SkillFile(path, `---\n${frontmatter}---\n`).info("a"))).toEqual(
-        new SkillError(
-          "/s/a-skill/SKILL.md has frontmatter longer than 4096 characters; shorten it, or reinstall the nustack plugin",
-        ),
+      expect(await thrown(() => new SkillFile(PATH, `---\n${frontmatter}---\n`).info("a"))).toEqual(
+        refusal(PATH, "has frontmatter longer than 4096 characters; shorten it"),
       )
     },
   )
@@ -298,7 +162,7 @@ describe("SkillFile", () => {
   test("reads frontmatter whose apostrophe comes before 201 flow lists, 2 levels deep", () => {
     const lists = Array.from({ length: 201 }, (_, at) => `k${at}: [1]`).join("\n")
     const text = `---\nname: x\ndescription: it's\n${lists}\n---\n`
-    expect(new SkillFile(path, text).info("x").description).toBe("it's")
+    expect(new SkillFile(PATH, text).info("x").description).toBe("it's")
   })
 
   test.each([
@@ -309,7 +173,7 @@ describe("SkillFile", () => {
     ["brackets in a quoted value over two lines", 'metadata: "a [\n  ]]"\n', "a [ ]]"],
   ])("reads frontmatter whose text holds %s, which nest nothing", (_, field, value) => {
     const text = `---\nname: a\ndescription: A.\n${field}---\n`
-    expect(new SkillFile(path, text).split()[0].get("metadata")).toEqual(value)
+    expect(new SkillFile(PATH, text).split()[0].get("metadata")).toEqual(value)
   })
 
   test("reads a stack overflow in Bun's YAML parser as frontmatter nested too deep, naming the fix", async () => {
@@ -317,12 +181,8 @@ describe("SkillFile", () => {
       throw new RangeError("Maximum call stack size exceeded.")
     })
     try {
-      const file = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n")
-      expect(await thrown(() => file.info("a"))).toEqual(
-        new SkillError(
-          "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
-        ),
-      )
+      const file = new SkillFile(PATH, "---\nname: a\ndescription: A.\n---\n")
+      expect(await thrown(() => file.info("a"))).toEqual(refusal(PATH, TOO_DEEP))
     } finally {
       parse.mockRestore()
     }
@@ -339,546 +199,471 @@ describe("SkillFile", () => {
         throw bug
       })
       try {
-        const file = new SkillFile(path, "---\nname: a\ndescription: A.\n---\n")
+        const file = new SkillFile(PATH, "---\nname: a\ndescription: A.\n---\n")
         expect(await thrown(() => file.info("a"))).toBe(bug)
       } finally {
         parse.mockRestore()
       }
     },
   )
-
-  test.each([
-    [
-      "---\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has no name in its frontmatter; add one, or reinstall the nustack plugin",
-    ],
-    [
-      "---\n---\n# A\n",
-      "/s/a-skill/SKILL.md has no name in its frontmatter; add one, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: a\n---\n",
-      "/s/a-skill/SKILL.md has no description in its frontmatter; add one, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: 7\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has a name that is not text; write its text, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname:\ndescription: A.\n---\n",
-      "/s/a-skill/SKILL.md has a name that is not text; write its text, or reinstall the nustack plugin",
-    ],
-    [
-      '---\nname: a\ndescription: " "\n---\n',
-      "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
-    ],
-    [
-      '---\nname: a\ndescription: "\\u200B"\n---\n',
-      "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
-    ],
-    [
-      '---\nname: a\ndescription: "\\u2060"\n---\n',
-      "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
-    ],
-    [
-      '---\nname: a\ndescription: "\\x85"\n---\n',
-      "/s/a-skill/SKILL.md has a blank description; fill it in, or reinstall the nustack plugin",
-    ],
-    [
-      `---\nname: a\ndescription: A.\nmetadata: ${"[".repeat(200)}${"]".repeat(200)}\n---\n`,
-      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
-    ],
-    [
-      `---\nname: a\ndescription: A.\nmetadata: [[&x ${"[".repeat(198)}${"]".repeat(198)}]]\nother: *x\n---\n`,
-      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
-    ],
-    [
-      "---\nname: a\ndescription: A.\nmetadata: &x [*x]\n---\n",
-      "/s/a-skill/SKILL.md has frontmatter that nests values more than 200 levels deep; flatten them, or reinstall the nustack plugin",
-    ],
-  ])("refuses a field %j it cannot register, naming the fix", async (text, message) => {
-    expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(new SkillError(message))
-  })
-
-  test.each([
-    ["true # hidden from the model", false],
-    ["true", false],
-    ["True", false],
-    ["false", true],
-  ])("sets autoinvoke from disable-model-invocation: %s to %p", (value, autoinvoke) => {
-    const text = `---\nname: a\ndescription: A.\ndisable-model-invocation: ${value}\n---\n`
-    expect(new SkillFile(path, text).info("a").autoinvoke).toBe(autoinvoke)
-  })
-
-  test.each(["yes", "null"])(
-    "refuses disable-model-invocation: %s, naming the fix",
-    async (value) => {
-      const text = `---\nname: a\ndescription: A.\ndisable-model-invocation: ${value}\n---\n`
-      expect(await thrown(() => new SkillFile(path, text).info("a"))).toEqual(
-        new SkillError(
-          "/s/a-skill/SKILL.md has a disable-model-invocation that is not true or false; set it to true or false, or reinstall the nustack plugin",
-        ),
-      )
-    },
-  )
 })
 
-/**
- * OpenCode gets every skill, or one error that lets the user fix them all at once. That error lists the failing skills
- * in path order, and a symlinked skill folder or one without a SKILL.md fails.
- */
-describe("SkillFolder", () => {
-  const folders = new Folders()
-
-  afterEach(() => folders.clear())
-
-  test("reads each skill folder, and no file beside them", async () => {
-    const folder = await folders.holding("---\nname: a-skill\ndescription: A skill.\n---\n")
-    await writeFile(join(folder, "README.md"), "# Skills\n")
-    const skills = await new SkillFolder(folder).skills()
-    expect([skills.map((skill): string => skill.id), Object.isFrozen(skills)]).toEqual([
-      ["a-skill"],
-      true,
-    ])
-  })
-
+/** The loader reads each entry of a skills folder as its kind needs, or fails naming the folder and the fix. */
+describe("SkillFolder.read", () => {
   test("lets the model invoke the mode and the vendored skills alone", async () => {
-    const skills = await SKILLS.skills()
-    const invocable = skills.filter((skill) => skill.autoinvoke).map((skill): string => skill.id)
-    expect(invocable.sort()).toEqual([...VENDORED_SKILLS, "nus-mode"].sort())
+    const folder = new SkillFolder(join(import.meta.dirname, "../../../plugin/skills"))
+    const skills = folder.skills(await folder.read())
+    const invocable = skills.flatMap((info) => (info.autoinvoke ? [info.id] : []))
+    expect<string[]>(invocable.sort()).toEqual([...VENDORED_SKILLS, "nus-mode"].sort())
   })
 
-  test("refuses a skills folder it cannot read, naming the errno and the fix", async () => {
-    const folder = join(await folders.with("a-skill"), "missing")
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(String(error)).toBe(
-      `SkillError: ${folder} cannot be read (ENOENT); restore the plugin's skills folder, or reinstall the nustack plugin`,
+  test("refuses a skills folder it cannot read, naming the errno and the fix, with readdir's error as its cause", async () => {
+    const folder = join(await folders.make(), "missing")
+    const error = await thrown(() => new SkillFolder(folder).read())
+    expect(`${error}`).toBe(
+      `${refusal(folder, "cannot be read (ENOENT); restore the plugin's skills folder")}`,
     )
+    expect(error).toMatchObject({ cause: { code: "ENOENT", path: folder } })
   })
 
-  test("reports every skill that fails in one error", async () => {
-    const folder = await folders.with("a-skill")
-    await mkdir(join(folder, "b-skill"))
-    await writeFile(join(folder, "b-skill", "SKILL.md"), "# B\n")
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(String(error)).toBe(
-      `SkillError: ${join(folder, "a-skill", "SKILL.md")} cannot be read (ENOENT); give the skill a readable SKILL.md, or reinstall the nustack plugin\n` +
-        `${join(folder, "b-skill", "SKILL.md")} has no frontmatter; open it with a line that holds only ---, and save it with no byte order mark and with LF or CRLF line endings, or reinstall the nustack plugin`,
-    )
-  })
-
-  test("lists the failing skills in path order", async () => {
-    const folder = await folders.with("h-skill")
-    await Promise.all(
-      ["g", "f", "e", "d", "c", "b", "a"].map((name) => mkdir(join(folder, `${name}-skill`))),
-    )
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(
-      String(error)
-        .split("\n")
-        .map((line) => line.split("/").at(-2)),
-    ).toEqual([
-      "a-skill",
-      "b-skill",
-      "c-skill",
-      "d-skill",
-      "e-skill",
-      "f-skill",
-      "g-skill",
-      "h-skill",
+  test("reads each folder's SKILL.md, or the error reading it, and names each symlink and file", async () => {
+    const folder = await folders.make()
+    await Promise.all(["empty", "valid"].map((name) => mkdir(join(folder, name))))
+    await writeFile(join(folder, "valid", "SKILL.md"), "x")
+    await writeFile(join(folder, "README.md"), "# Skills\n")
+    await symlink(join(folder, "valid"), join(folder, "link"))
+    const entries = await new SkillFolder(folder).read()
+    expect(entries.toSorted((a, b) => (a.name < b.name ? -1 : 1))).toEqual([
+      { name: "README.md", kind: "file" },
+      { name: "empty", kind: "folder", error: expect.objectContaining({ code: "ENOENT" }) },
+      { name: "link", kind: "symlink" },
+      { name: "valid", kind: "folder", data: Buffer.from("x") },
     ])
   })
+})
 
-  test("refuses a symlinked skill folder, naming the fix", async () => {
-    const folder = await folders.holding("---\nname: a-skill\ndescription: A skill.\n---\n")
-    await symlink(join(folder, "a-skill"), join(folder, "b-skill"))
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(error).toEqual(
-      new SkillError(
-        `${join(folder, "b-skill")} is a symlink, which the loader does not follow; put the skill folder itself there, or reinstall the nustack plugin`,
-      ),
+/** OpenCode gets every skill the folder's entries hold, or one error, in path order, that lets the user fix them all. */
+describe("SkillFolder.skills", () => {
+  const VALID = new TextEncoder().encode("---\nname: valid\ndescription: V.\n---\n")
+
+  test("turns each folder's SKILL.md into a skill, and skips files", () => {
+    const entries: SkillEntry[] = [
+      { name: "valid", kind: "folder", data: VALID },
+      { name: "README.md", kind: "file" },
+    ]
+    expect<string[]>(SKILLS.skills(entries).map((skill) => skill.id)).toEqual(["valid"])
+  })
+
+  test("names each SKILL.md it cannot read or decode, and each symlink, by path", async () => {
+    const missing = Object.assign(new Error("no such file"), { code: "ENOENT" })
+    const entries: SkillEntry[] = [
+      { name: "d-skill", kind: "symlink" },
+      { name: "c-skill", kind: "folder", data: Uint8Array.of(0x2d, 0xff) },
+      { name: "b-skill", kind: "folder", error: missing },
+      { name: "a-skill", kind: "folder", error: "not an Error" },
+      { name: "valid", kind: "folder", data: VALID },
+    ]
+    const unreadable = "give the skill a readable SKILL.md"
+    const expected = [
+      refusal("/p/a-skill/SKILL.md", `cannot be read (no error code); ${unreadable}`).message,
+      refusal("/p/b-skill/SKILL.md", `cannot be read (ENOENT); ${unreadable}`).message,
+      refusal("/p/c-skill/SKILL.md", "is not valid UTF-8; save it as UTF-8").message,
+      refusal("/p/d-skill", SYMLINK).message,
+    ]
+    expect(`${await thrown(() => SKILLS.skills(entries))}`).toBe(
+      `${new SkillError(expected.join("\n"))}`,
     )
   })
 
-  test("refuses a skill folder without a SKILL.md, naming the errno and the fix", async () => {
-    const folder = await folders.with("a-skill")
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(error).toEqual(
-      new SkillError(
-        `${join(folder, "a-skill", "SKILL.md")} cannot be read (ENOENT); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
-      ),
+  test("says a read error has no error code unless it is an Error with a string code", async () => {
+    const entries: SkillEntry[] = [
+      { name: "a-skill", kind: "folder", error: Object.assign(new Error("odd"), { code: 5 }) },
+      { name: "b-skill", kind: "folder", error: { code: "EACCES" } },
+    ]
+    const problem = "cannot be read (no error code); give the skill a readable SKILL.md"
+    const expected = ["a", "b"].map((id) => refusal(`/p/${id}-skill/SKILL.md`, problem).message)
+    expect(`${await thrown(() => SKILLS.skills(entries))}`).toBe(
+      `${new SkillError(expected.join("\n"))}`,
     )
   })
 
-  test("refuses a SKILL.md that is not UTF-8, naming the fix", async () => {
-    const folder = await folders.with("a-skill")
-    await writeFile(join(folder, "a-skill", "SKILL.md"), Uint8Array.of(0x2d, 0xff))
-    const error = await thrown(() => new SkillFolder(folder).skills())
-    expect(error).toEqual(
-      new SkillError(
-        `${join(folder, "a-skill", "SKILL.md")} is not valid UTF-8; save it as UTF-8, or reinstall the nustack plugin`,
-      ),
+  test("keeps each failure as the error's cause, with the error that failed its read", async () => {
+    const missing = Object.assign(new Error("no such file"), { code: "ENOENT" })
+    const error = await thrown(() =>
+      SKILLS.skills([{ name: "b-skill", kind: "folder", error: missing }]),
     )
+    expect(error).toHaveProperty(["cause", "0", "cause"], missing)
   })
 
-  skipAsRoot(
-    "keeps the errno of a SKILL.md it may not read; root reads every file, so it skips as root",
-    async () => {
-      const folder = await folders.holding("---\nname: a\ndescription: A.\n---\n")
-      await chmod(join(folder, "a-skill", "SKILL.md"), 0)
-      const error = await thrown(() => new SkillFolder(folder).skills())
-      expect(String(error)).toBe(
-        `SkillError: ${join(folder, "a-skill", "SKILL.md")} cannot be read (EACCES); give the skill a readable SKILL.md, or reinstall the nustack plugin`,
-      )
-    },
-  )
+  test("passes on, unchanged, an error that is not the loader's own", async () => {
+    const bug = new RangeError("a bug")
+    const entry: SkillEntry = {
+      name: "a",
+      kind: "folder",
+      get data(): Uint8Array {
+        throw bug
+      },
+    }
+    expect(await thrown(() => SKILLS.skills([entry]))).toBe(bug)
+  })
 })
 
 /**
- * No model call after a summary leaves out the mode in a session that loaded it, through a skill call that names the
- * mode or its user's invocation. A summary request or a shorter message list counts as a summary, and plugin storage
- * keeps which sessions loaded it. The requests are records of the real OpenCode sessions the setup above names. A
- * session that loaded a nus-mode from the config's skills folder, or whose other tool took the mode's id, gets nothing,
- * and one whose messages still hold the mode gets no second copy. A store that fails surfaces its error, and the next
- * request retries it. Skills without the mode fail with an error that names the mode's SKILL.md and its fix.
+ * Each agent request of a session that loaded the mode, by the skill tool or its user, gets the mode's text and folder
+ * back where its messages lack the mode's whole text, as after a summary; storage keeps the load across a restart. No
+ * other session does.
  */
 describe("ModeReload", () => {
-  const restored: ModelRequest["system"] = [
-    {
-      type: "text",
-      text: `${MODE.content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
-    },
-  ]
-
-  /** One session's model requests, replayed through the session hooks. */
-  class Conversation {
-    readonly session = new FakeSession()
-    readonly storage: FakeStorage
-    readonly mode: Skill.Info
-
-    constructor(storage = new FakeStorage(), mode = MODE) {
-      this.storage = storage
-      this.mode = mode
-    }
-
-    async start(): Promise<this> {
-      await new ModeReload(this.mode, this.storage).register(this.session)
-      return this
-    }
-
-    async prompt(record: Recorded<UserPrompt>): Promise<void> {
-      await this.session.run("prompt", structuredClone(record.request))
-    }
-
-    // messages replaces the recorded request's messages, for a session no recording shows, such as one with fewer
-    // messages than its recording.
-    async replay(
-      record: Recorded,
-      messages = record.request.messages,
-    ): Promise<ModelRequest["system"]> {
-      const request = { ...structuredClone(record.request), messages }
-      await this.session.run(record.hook, request)
-      return request.system.slice(record.request.system.length)
-    }
+  async function reloads(events: HookEvent[], opencode = fakeOpenCode(), messages: object[] = []) {
+    await new ModeReload(MODE, opencode.context.storage).register(opencode.context)
+    for (const event of events) await opencode.run(event)
+    const system: { text: string }[] = []
+    for (const _request of [1, 2]) await opencode.run(["context", { system, messages }])
+    const reload =
+      "# nus-mode\n\nBody.\n\nBase directory for this skill: /p/nus-mode\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory."
+    return system.filter((part) => part.text === reload).length
   }
 
   test("gives back the trimmed body, CRLF lines kept, then the mode's folder", () => {
-    const skill = {
-      ...MODE,
-      content: "\n# nus-mode\r\nSay hi.\n\n",
-      path: "/plugin/skills/nus-mode/SKILL.md" as Skill.Info["path"],
-    }
-    expect(new ModeReload(skill, new FakeStorage()).reloadText).toBe(
-      "# nus-mode\r\nSay hi.\n\nBase directory for this skill: /plugin/skills/nus-mode\nRelative paths in this skill are relative to this base directory.",
+    const skill = { ...MODE, content: "\n# M\r\nx\r\n", path: "/p/nus-mode/SKILL.md" } as Skill.Info
+    expect(new ModeReload(skill, fakeOpenCode().context.storage).reloadText).toBe(
+      "# M\r\nx\n\nBase directory for this skill: /p/nus-mode\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
     )
   })
 
-  test("fails with the remedy for skills without the mode", async () => {
-    expect(await thrown(() => ModeReload.mode(new SkillFolder("/plugin/skills"), []))).toEqual(
-      new SkillError(
-        "/plugin/skills/nus-mode/SKILL.md is missing; restore the mode, or reinstall the nustack plugin",
-      ),
-    )
+  test("picks the mode out of the skills", () => {
+    const other = { ...MODE, id: "a-skill" } as Skill.Info
+    expect(ModeReload.mode(SKILLS, [other, MODE])).toBe(MODE)
   })
 
-  test("gives the mode from skills that hold it", () => {
-    expect(ModeReload.mode(new SkillFolder("/plugin/skills"), [MODE])).toBe(MODE)
-  })
-
-  test("gives its text back to a session the summarization caught loading the mode", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(summary)
-    expect(await conversation.replay(following)).toEqual(restored)
-  })
-
-  test("gives its text back to a session that loaded the mode once a summarization drops it", async () => {
-    const conversation = await new Conversation().start()
-    expect(await conversation.replay(loading)).toEqual([])
-    await conversation.replay(summary)
-    expect(await conversation.replay(following)).toEqual(restored)
-  })
-
-  test("gives nothing after a summarization to a session that loaded a nus-mode from the config's skills folder", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(configSkillLoading)
-    await conversation.replay(configSkillSummary)
-    expect(await conversation.replay(configSkillFollowing)).toEqual([])
-  })
-
-  test("gives nothing after a summarization to a session that never loaded the mode", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(unloadedSummary)
-    expect(await conversation.replay(unloadedFollowing)).toEqual([])
-  })
-
-  test("gives no second copy to a session whose first request after a summarization still holds the mode", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(loading)
-    await conversation.replay(summary)
-    expect(await conversation.replay(loading)).toEqual([])
-  })
-
-  test("stores a session's load once, however often its requests hold it", async () => {
-    let sets = 0
-    const storage = new FakeStorage()
-    const counting = withSet(storage, async (...args) => {
-      sets += 1
-      await storage.set(...args)
-    })
-    const conversation = await new Conversation(counting).start()
-    await conversation.replay(loading)
-    await conversation.replay(loading, loading.request.messages.slice(1))
-    await conversation.replay(summary)
-    expect([sets, storage.entries.size]).toEqual([1, 1])
-  })
-
-  test("stores a session's load again on its next request once storing it failed", async () => {
-    const storage = new FakeStorage()
-    let failures = 1
-    const flaky = withSet(storage, async (...args) => {
-      if (failures-- > 0) throw new Error("storage is down")
-      await storage.set(...args)
-    })
-    const conversation = await new Conversation(flaky).start()
-    expect(await thrown(() => conversation.replay(loading))).toEqual(new Error("storage is down"))
-    await conversation.replay(loading)
-    expect(storage.entries.size).toBe(1)
-  })
-
-  test("reads no message again when a request repeats the count already read", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(loading)
-    let reads = 0
-    const counted = {
-      role: "user" as const,
-      content: [],
-      toJSON: () => {
-        reads += 1
-        return {}
-      },
-    }
-    const messages = [...loading.request.messages.slice(0, -1), counted]
-    const added = await conversation.replay(loading, messages)
-    expect([added, reads, JSON.stringify(counted), reads]).toEqual([[], 0, "{}", 1])
-  })
-
-  test("gives no second copy to a session whose shorter message list still holds the mode", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(loading)
-    expect(await conversation.replay(loading, loading.request.messages.slice(1))).toEqual([])
-  })
-
-  test("gives nothing after a summarization to a session whose other tool took the mode's id", async () => {
-    // FakeModel plays only replies recorded from the real API, and none calls a tool other than skill with the mode's
-    // id as its input, though a plugin's tool can take one; this one is the recorded load with its skill call's tool
-    // renamed.
-    const messages = JSON.parse(
-      JSON.stringify(loading.request.messages).replaceAll('"name":"skill"', '"name":"other"'),
-    )
-    expect(messages).not.toEqual(loading.request.messages)
-    const conversation = await new Conversation().start()
-    await conversation.replay(loading, messages)
-    expect(await conversation.replay(following)).toEqual([])
-  })
-
-  test("gives the mode back to a session whose messages shrink without a summary request", async () => {
-    const conversation = await new Conversation().start()
-    await conversation.replay(loading)
-    expect(await conversation.replay(following)).toEqual(restored)
-  })
-
-  test("reads each of a session's messages once between summarizations", async () => {
-    const conversation = await new Conversation().start()
-    let reads = 0
-    const readCounter = {
-      get content() {
-        reads += 1
-        return []
-      },
-    }
-    const messages = loading.request.messages
-    await conversation.replay(loading, [readCounter as never])
-    await conversation.replay(loading, [readCounter as never, ...messages])
-    expect(
-      await conversation.replay(loading, [readCounter as never, ...messages, ...messages]),
-    ).toEqual([])
-    expect(reads).toBe(1)
-  })
-
-  test("finds a CRLF mode in a session's messages and gives its text back as it reads", async () => {
-    const load = String(Object(Object(crlfLoading.request.messages[2]).content[0]).result.value)
-    const shown = shownBody(load).trim()
-    // A CRLF SKILL.md's body, as the loader reads it: its opening blank line and last line break kept.
-    const crlf = { ...MODE, content: `\r\n${shown}\r\n` }
-    const conversation = await new Conversation(new FakeStorage(), crlf).start()
-    await conversation.replay(crlfLoading)
-    await conversation.replay(crlfSummary)
-    expect([shown.includes("\r\n"), await conversation.replay(crlfFollowing)]).toEqual([
-      true,
+  test.each<[string, number, HookEvent[]]>([
+    ["a skill tool load", 2, [loaded(), SUMMARIZED]],
+    ["a revert that cut the load, with no summary", 2, [loaded()]],
+    [
+      "a load whose summary was written ahead, from messages that show the mode's text, then swapped in with no hook",
+      2,
+      [loaded(), summary(SHOWING), request(SHOWING)],
+    ],
+    [
+      "a user's invocation that the next request shows",
+      2,
+      [invoked(), request(SHOWING), SUMMARIZED],
+    ],
+    [
+      "a user's invocation beside another skill's, that the next request shows",
+      2,
       [
-        {
-          type: "text",
-          text: `${shown}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
-        },
+        ["prompt", { prompt: { skills: [{ id: "b" }, { id: "nus-mode" }] } }],
+        request(SHOWING),
+        SUMMARIZED,
       ],
-    ])
+    ],
+    ["a user's invocation that the next request lacks", 0, [invoked(), request(), SUMMARIZED]],
+    [
+      "a user's invocation that a later request shows, after one that lacks it",
+      2,
+      [invoked(), request(), request(SHOWING), SUMMARIZED],
+    ],
+    ["a user's invocation that the summary request shows", 2, [invoked(), summary(SHOWING)]],
+    ["a user's invocation that the summary request lacks", 0, [invoked(), SUMMARIZED]],
+    [
+      "a user's invocation that the summary request lacks, before a request that shows the mode's text",
+      2,
+      [invoked(), SUMMARIZED, request(SHOWING), SUMMARIZED],
+    ],
+    [
+      "a user's invocation, while the mode is due back, that the next requests lack",
+      2,
+      [loaded(), SUMMARIZED, request(), invoked()],
+    ],
+    ["no load", 0, [SUMMARIZED]],
+    ["a failed skill tool call", 0, [loaded({ status: "error" }), SUMMARIZED]],
+    ["another skill's load", 0, [loaded({ input: { id: "b" } }), SUMMARIZED]],
+    [
+      "a load of a nus-mode from the config's skills folder",
+      0,
+      [loaded({ result: { output: { output: "# nus-mode\n\nAnother body." } } }), SUMMARIZED],
+    ],
+    ["another tool given the mode's id", 0, [loaded({ tool: "read" }), SUMMARIZED]],
+    [
+      "a user's invocation of another skill, whose next request shows the mode's text",
+      0,
+      [invoked("b"), request(SHOWING), SUMMARIZED],
+    ],
+    [
+      "session t's load",
+      0,
+      [loaded({ sessionID: "t" }), ["compaction", { sessionID: "t", messages: [] }]],
+    ],
+  ])(
+    "after %s, puts the mode in %d of two requests that lack its text",
+    async (_case, count, events) => {
+      expect(await reloads(events)).toBe(count)
+    },
+  )
+
+  test.each<[string, number, HookEvent[]]>([
+    [
+      "a user's invocation, while the mode is due back, that the next request shows",
+      0,
+      [loaded(), SUMMARIZED, request(), invoked(), request(SHOWING)],
+    ],
+    [
+      "a user's invocation, while the mode is due back, that a later request shows, after one that lacks it",
+      0,
+      [loaded(), SUMMARIZED, request(), invoked(), request(), request(SHOWING)],
+    ],
+    [
+      "a user's invocation right after a summary, that a later request shows, after one that lacks it",
+      0,
+      [loaded(), SUMMARIZED, invoked(), request(), request(SHOWING)],
+    ],
+    ["no summary since the load", 0, [loaded()]],
+    ["a load again after the summary", 0, [loaded(), SUMMARIZED, loaded()]],
+  ])(
+    "after %s, puts the mode in %d of two requests that show its text",
+    async (_case, count, events) => {
+      expect(await reloads(events, fakeOpenCode(), SHOWING)).toBe(count)
+    },
+  )
+
+  test("gives nothing to a request whose messages hold a CRLF mode's whole text", async () => {
+    const mode = { ...MODE, content: "# nus-mode\r\n\r\nBody.\r\n" } as Skill.Info
+    const opencode = fakeOpenCode(new Map([["nus-mode/s", "loaded"]]))
+    await new ModeReload(mode, opencode.context.storage).register(opencode.context)
+    const system: { text: string }[] = []
+    const messages = [{ role: "tool", content: [{ result: { value: "# nus-mode\r\n\r\nBody." } }] }]
+    await opencode.run(["context", { system, messages }])
+    expect(system).toEqual([])
   })
 
-  test("gives nothing after a summarization to a session whose prompt only pasted the mode", async () => {
-    // OpenCode's run command sent the prompt twice, each copy in quotes, so the mode's body runs from the first copy's
-    // first blank line to its closing quote. The loader holds that body, so only the missing skill call keeps the mode
-    // out.
-    const text = String(Object(pastedCall.request.messages[0]).content[0].text)
-    const pasted = {
-      ...MODE,
-      content: `${shownBody(text, '" "')}\n`,
-    }
-    const conversation = await new Conversation(new FakeStorage(), pasted).start()
-    await conversation.replay(pastedCall)
-    await conversation.replay(pastedSummary)
-    expect(await conversation.replay(pastedFollowing)).toEqual([])
+  test("keeps a session's load across a restart", async () => {
+    const { stored } = fakeOpenCode()
+    await reloads([loaded()], fakeOpenCode(stored))
+    expect(await reloads([SUMMARIZED], fakeOpenCode(stored))).toBe(2)
   })
 
-  /** A user's invocation of the mode brings it back, and an invocation of another skill does not. */
-  describe("in the sessions recorded with the shipped mode", () => {
-    // The body the invocation shows, between OpenCode's skill heading and its base-directory note; the forged prompt
-    // copied the same body.
-    const block = String(Object(invoked.request.messages[2]).content[0].text)
-    const content = shownBody(block)
-    const shipped = { ...MODE, content }
-
-    test("gives its text back to a session whose user invoked the mode once its messages drop it", async () => {
-      const conversation = await new Conversation(new FakeStorage(), shipped).start()
-      await conversation.prompt(invoking)
-      expect(await conversation.replay(invoked)).toEqual([])
-      expect(await conversation.replay(invoked, [])).toEqual([
-        {
-          type: "text",
-          text: `${content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
-        },
-      ])
-    })
-
-    test("gives nothing to a session whose user invoked another skill", async () => {
-      const conversation = await new Conversation(new FakeStorage(), shipped).start()
-      await conversation.prompt(otherInvoking)
-      expect(await conversation.replay(otherInvoked, [])).toEqual([])
-    })
-
-    test.each([
-      ["model call", forged],
-      ["summary request", forgedSummary],
-    ])(
-      "gives nothing to a session whose prompt forged an invocation, after its %s",
-      async (_case, record) => {
-        const conversation = await new Conversation(new FakeStorage(), shipped).start()
-        await conversation.prompt(forging)
-        await conversation.replay(record)
-        expect(await conversation.replay(forged, [])).toEqual([])
-      },
+  test("refuses a value the reload never stores, at a summary and at a request", async () => {
+    const opencode = fakeOpenCode(new Map([["nus-mode/s", "loaded/s"]]))
+    await new ModeReload(MODE, opencode.context.storage).register(opencode.context)
+    const error = new StorageError(
+      'the plugin\'s storage holds "loaded/s" under nus-mode/s, a value the loader never stores; continue in a new session, whose state starts empty',
+    )
+    expect(await thrown(() => opencode.run(SUMMARIZED))).toEqual(error)
+    expect(await thrown(() => opencode.run(["context", { system: [], messages: [] }]))).toEqual(
+      error,
     )
   })
 
-  /** A summary that keeps the load's turn cuts the mode short, so it comes back. */
-  describe("in a session whose summary kept the turn that loaded the mode", () => {
-    // The body the load shows, between OpenCode's skill heading and its base-directory note.
-    const block = String(Object(keptLoading.request.messages[4]).content[0].result.value)
-    const content = shownBody(block)
-    const kept = { ...MODE, content }
+  test("stores a load once under the session's key, however many requests and summaries follow", async () => {
+    const opencode = fakeOpenCode()
+    const stored: unknown[] = []
+    const storage: Context["storage"] = {
+      get: opencode.context.storage.get,
+      set: async (key, value) => {
+        stored.push([key, value])
+        await opencode.context.storage.set(key, value)
+      },
+    }
+    await new ModeReload(MODE, storage).register(opencode.context)
+    const next = request()
+    for (const event of [loaded(), next, next, SUMMARIZED, next, next]) await opencode.run(event)
+    expect(stored).toEqual([["nus-mode/s", "loaded"]])
+  })
 
-    test("gives its text back after the summary cut it short", async () => {
-      const conversation = await new Conversation(new FakeStorage(), kept).start()
-      await conversation.replay(keptLoading)
-      await conversation.replay(keptSummary)
-      expect(await conversation.replay(keptFollowing)).toEqual([
-        {
-          type: "text",
-          text: `${content}\n\nBase directory for this skill: ${SKILLS.path}/nus-mode\nRelative paths in this skill are relative to this base directory.`,
-        },
-      ])
+  test("adds the mode once when a selection lands between a loaded session's read and its check", async () => {
+    const opencode = fakeOpenCode(new Map([["nus-mode/s", "loaded"]]))
+    const held = holdFirstRead(opencode)
+    await new ModeReload(MODE, held.storage).register(opencode.context)
+    const first: { text: string }[] = []
+    const reading = opencode.run(["context", { system: first, messages: [] }])
+    await opencode.run(invoked())
+    held.release()
+    await reading
+    const next: { text: string }[] = []
+    await opencode.run(["context", { system: next, messages: SHOWING }])
+    expect([first.length, next.length]).toEqual([1, 0])
+  })
+
+  test("keeps a selection that lands while a summary that lacks the mode's text reads", async () => {
+    const opencode = fakeOpenCode(new Map([["nus-mode/s", "selected"]]))
+    const held = holdFirstRead(opencode)
+    await new ModeReload(MODE, held.storage).register(opencode.context)
+    const summarizing = opencode.run(SUMMARIZED)
+    await opencode.run(invoked())
+    held.release()
+    await summarizing
+    for (const event of [request(SHOWING), SUMMARIZED]) await opencode.run(event)
+    const system: { text: string }[] = []
+    for (const _request of [1, 2]) await opencode.run(["context", { system, messages: [] }])
+    expect(system.length).toBe(2)
+  })
+
+  test("settles a selection whose prompt read the state before a load stored it", async () => {
+    const opencode = fakeOpenCode()
+    const held = holdFirstRead(opencode)
+    await new ModeReload(MODE, held.storage).register(opencode.context)
+    const prompting = opencode.run(invoked())
+    await opencode.run(loaded())
+    held.release()
+    await prompting
+    for (const event of [request(SHOWING), SUMMARIZED]) await opencode.run(event)
+    const system: { text: string }[] = []
+    for (const _request of [1, 2]) await opencode.run(["context", { system, messages: [] }])
+    expect([opencode.stored.get("nus-mode/s"), system.length]).toEqual(["loaded", 2])
+  })
+
+  // The reload learns of a load only from its event, so no later request can store it again.
+  test("fails the tool hook with the storage's error when it cannot store a load", async () => {
+    const opencode = fakeOpenCode()
+    const failure = new Error("storage is full")
+    const storage: Context["storage"] = {
+      get: opencode.context.storage.get,
+      set: () => Promise.reject(failure),
+    }
+    await new ModeReload(MODE, storage).register(opencode.context)
+    expect(await thrown(() => opencode.run(loaded()))).toBe(failure)
+  })
+
+  /** In sessions OpenCode recorded, the mode comes back once a summary drops its whole text, and only after a load. */
+  describe("in recorded sessions", () => {
+    // A recorded load's mode, and the text OpenCode's skill tool showed for it: the body after the tool's heading, then
+    // the base-directory note through its line on relative paths.
+    function shown(messages: readonly object[]): {
+      mode: Skill.Info
+      text: string
+      result: object
+    } {
+      const [{ result }] = Object(
+        messages.find((message) => Object(message).role === "tool"),
+      ).content
+      const match =
+        /(?<=\n\n)([\s\S]*)\n\nBase directory for this skill: (.*)\n.* are relative to this base directory\./.exec(
+          String(result.value),
+        )
+      if (match === null)
+        throw new Error("the recording shows no skill load; record the session again")
+      const [text, body, base] = match
+      const mode = { ...MODE, content: `${body}\n`, path: `${base}/SKILL.md` } as Skill.Info
+      return { mode, text, result }
+    }
+    async function copies(
+      events: HookEvent[],
+      { mode, text } = shown(keptLoading.request.messages),
+    ): Promise<number[]> {
+      const opencode = fakeOpenCode()
+      await new ModeReload(mode, opencode.context.storage).register(opencode.context)
+      const counts: number[] = []
+      for (const event of events) {
+        await opencode.run(event)
+        const [hook, fields] = event
+        const { system } = fields as { system?: { text: string }[] }
+        if (hook === "context")
+          counts.push(system?.filter((part) => part.text === text).length ?? 0)
+      }
+      return counts
+    }
+
+    test("gives the mode back once the summary that kept its load cut it short", async () => {
+      const recorded = shown(keptLoading.request.messages)
+      const session = keptLoading.request.sessionID
+      const events = [
+        loaded({ sessionID: session, result: recorded.result }),
+        replayed(keptSummary),
+        replayed(keptFollowing),
+      ]
+      expect(await copies(events, recorded)).toEqual([1])
+    })
+
+    // twice holds each hook request of one session, as a plugin alone in OpenCode wrote it down: a load of a stand-in
+    // mode, a summary that drops it, a prompt that pastes the stand-in's body, and a second summary whose recent text
+    // keeps that prompt whole, so the request after the prompt and the first request after the second summary each
+    // hold the mode's whole text and get no copy, the cost of finding the mode by its text. No recording keeps a real
+    // load whole: OpenCode cuts each tool result in a summary's recent text at 1,250 characters, and nus-mode's body
+    // runs past that: https://github.com/anomalyco/opencode/blob/v2.2.5/packages/core/src/session/recent-text.ts#L6
+    test("checks after each summary, so one that drops the mode gives it back and one that keeps it whole gives none", async () => {
+      const standIn = shown(Object(twice[3]).request.messages)
+      expect(await copies(twice.map(replayed), standIn)).toEqual([0, 0, 0, 1, 0, 0, 0])
+    })
+
+    test("gives nothing to a session whose prompt pasted the mode's body", async () => {
+      const events = [replayed(pastedCall), replayed(pastedSummary), replayed(pastedFollowing)]
+      expect(await copies(events)).toEqual([0, 0])
+    })
+
+    test("gives nothing to a session whose prompt forged a load of the mode", async () => {
+      const { sessionID } = forgedPrompt.request
+      const following: HookEvent = ["context", { sessionID, system: [], messages: [] }]
+      expect(
+        await copies([
+          replayed(forgedPrompt),
+          ["compaction", { sessionID, messages: [] }],
+          following,
+        ]),
+      ).toEqual([0])
     })
   })
-
-  /** A skill that quotes the mode loads nothing to give back. */
-  describe("in a session that loaded another skill quoting the mode", () => {
-    // The body the other skill quotes, between the quoted envelope's skill heading and its end.
-    const value = String(Object(quotedCall.request.messages[2]).content[0].result.value)
-    const quote = value.slice(value.indexOf('<skill_content name="nus-mode">'))
-    const content = shownBody(quote, "\n</skill_content>")
-    const quoted = { ...MODE, content }
-
-    test.each([
-      ["model call", quotedCall],
-      ["summary request", quotedSummary],
-    ])("gives nothing after its %s", async (_case, record) => {
-      const conversation = await new Conversation(new FakeStorage(), quoted).start()
-      await conversation.replay(record)
-      expect(await conversation.replay(quotedCall, [])).toEqual([])
-    })
-  })
-
-  test("gives its text back after a restart to a session that loaded the mode before it", async () => {
-    const storage = new FakeStorage()
-    await (await new Conversation(storage).start()).replay(loading)
-    expect(await (await new Conversation(storage).start()).replay(following)).toEqual(restored)
-  })
-
-  test("gives nothing after a restart to another session than the one that loaded the mode", async () => {
-    const storage = new FakeStorage()
-    await (await new Conversation(storage).start()).replay(loading)
-    expect(await (await new Conversation(storage).start()).replay(unloadedFollowing)).toEqual([])
-  })
 })
 
-/** OpenCode sees exactly the shipped skills and the mode reload's hooks, and none once the plugin unloads. */
-describe("plugin", () => {
-  test("registers every shipped skill and the mode reload's hooks, and its cleanup removes them", async () => {
-    const registry = new FakeRegistry()
-    const session = new FakeSession()
-    const cleanup = await plugin.setup({ ...registry.context, session, storage: new FakeStorage() })
-    const hooks = [...session.hooks.keys()].sort()
-    await cleanup()
-    const entries = await readdir(SKILLS.path, { withFileTypes: true })
-    const shipped = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
-    expect([
-      [...registry.skills.keys()].sort(),
-      hooks,
-      registry.disposed,
-      session.hooks.size,
-    ]).toEqual([shipped.sort(), ["compaction", "context", "prompt"], true, 0])
-  })
+test("the plugin's id is its package's name", () => {
+  expect(plugin.id).toBe(manifest.name)
 })
 
-/** A thrown value's errno code, or a note that it has none. */
-describe("errorCode", () => {
-  test("names an error without a code as one", () => {
-    expect([errorCode(new Error("x")), errorCode("x")]).toEqual(["no error code", "no error code"])
-  })
+test("importing the loader reads no file", async () => {
+  const folder = await folders.make()
+  await mkdir(join(folder, "package.json"))
+  await copyFile(
+    join(import.meta.dirname, "../../../plugin/opencode.ts"),
+    join(folder, "opencode.ts"),
+  )
+  const copy = await import(join(folder, "opencode.ts"))
+  expect(copy.default.id).toBe(plugin.id)
 })
 
-/** A thrown value's message, whether or not it is an Error. */
-describe("errorMessage", () => {
-  test("reads the message of anything thrown", () => {
-    expect([errorMessage(new Error("x")), errorMessage("y")]).toEqual(["x", "y"])
-  })
+test("start registers each skill and the reload's hooks, and its cleanup removes them", async () => {
+  const folder = await folders.make()
+  for (const name of ["a-skill", "nus-mode"]) {
+    await mkdir(join(folder, name))
+    await writeFile(join(folder, name, "SKILL.md"), `---\nname: ${name}\ndescription: D.\n---\n`)
+  }
+  const opencode = fakeOpenCode()
+  const cleanup = await start(opencode.context, new SkillFolder(folder))
+  const registered = [opencode.skills.toSorted(), [...opencode.hooks.keys()].sort()]
+  await cleanup()
+  expect([...registered, opencode.skills.length + opencode.hooks.size]).toEqual([
+    ["a-skill", "nus-mode"],
+    ["compaction", "context", "execute.after", "prompt"],
+    0,
+  ])
 })
+
+test("start fails without the mode, naming its SKILL.md and the fix", async () => {
+  const folder = await folders.make()
+  await mkdir(join(folder, "a-skill"))
+  await writeFile(join(folder, "a-skill", "SKILL.md"), "---\nname: a-skill\ndescription: D.\n---\n")
+  const error = refusal(join(folder, "nus-mode", "SKILL.md"), "is missing; restore the mode")
+  expect(await thrown(() => start(fakeOpenCode().context, new SkillFolder(folder)))).toEqual(error)
+})
+
+function holdFirstRead(opencode: ReturnType<typeof fakeOpenCode>): {
+  storage: Context["storage"]
+  release: () => void
+} {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let holding = true
+  const storage: Context["storage"] = {
+    get: async (key) => {
+      const value = opencode.stored.get(key)
+      if (holding) {
+        holding = false
+        await held
+      }
+      return value
+    },
+    set: opencode.context.storage.set,
+  }
+  return { storage, release: () => release() }
+}

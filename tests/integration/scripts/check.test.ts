@@ -1,7 +1,7 @@
 /**
  * readTree reads what Git tracks or would track, skipping what it ignores and reading a symlink as one, and stops on a
- * name that is not UTF-8. Run as a command, the check stops on an entry it cannot read, naming its path and the fix, and on a plugin/package.json the loader cannot
- * load, prints its rules on --help, and prints its usage, exiting 1, on any other argument.
+ * name that is not UTF-8. Run as a command, the check stops on an entry it cannot read, naming its path and the fix,
+ * prints its rules on --help, and prints its usage, exiting 1, on any other argument.
  */
 import { afterEach, expect, test } from "bun:test"
 import { chmod, copyFile, mkdir, rm, symlink, writeFile } from "node:fs/promises"
@@ -99,14 +99,9 @@ test("stops on a listed name that is not UTF-8, which would read as no file", as
   )
 })
 
-// Runs the check as a command in a checkout of the scripts, with the given plugin/package.json, or the repository's,
-// and, when given, loader and mode, after arrange changes the checkout.
-async function runCheck(
-  packageJson?: string,
-  loader?: string,
-  mode?: string,
-  arrange?: (root: string) => Promise<void>,
-) {
+// Runs the check as a command in a checkout of the scripts, the loader and plugin/package.json, after arrange changes
+// the checkout.
+async function runCheck(arrange: (root: string) => Promise<void>) {
   const [repository, root] = [join(import.meta.dir, "../../.."), await folders.make()]
   await git(["init", "-q"], root)
   await mkdir(join(root, "scripts"))
@@ -124,17 +119,9 @@ async function runCheck(
   ])
     await copyFile(join(repository, "scripts", script), join(root, "scripts", script))
   await symlink(join(repository, "node_modules"), join(root, "node_modules"))
-  if (loader === undefined)
-    await copyFile(join(repository, "plugin/opencode.ts"), join(root, "plugin/opencode.ts"))
-  else await writeFile(join(root, "plugin/opencode.ts"), loader)
-  if (packageJson === undefined)
-    await copyFile(join(repository, "plugin/package.json"), join(root, "plugin/package.json"))
-  else await writeFile(join(root, "plugin/package.json"), packageJson)
-  if (mode !== undefined) {
-    await mkdir(join(root, "plugin/skills/nus-mode"), { recursive: true })
-    await writeFile(join(root, "plugin/skills/nus-mode/SKILL.md"), mode)
-  }
-  await arrange?.(root)
+  for (const file of ["plugin/opencode.ts", "plugin/package.json"])
+    await copyFile(join(repository, file), join(root, file))
+  await arrange(root)
   const run = Bun.spawnSync([process.execPath, join(root, "scripts/check.ts")], { cwd: root })
   Bun.spawnSync(["chmod", "-R", "u+rwx", root])
   return run
@@ -323,7 +310,7 @@ test.each([
 ])(
   "stops on %s, naming its path and the fix, exiting 1 with no stack trace",
   async (_entry, arrange, fault) => {
-    const checked = await runCheck(undefined, undefined, undefined, async (root) => {
+    const checked = await runCheck(async (root) => {
       await addSkill(root)
       await arrange(root)
     })
@@ -331,43 +318,28 @@ test.each([
   },
 )
 
-test("reports a plugin/package.json that stops the OpenCode loader, naming the file", async () => {
-  const checked = await runCheck("null")
-  expect(checked.exitCode).toBe(1)
-  expect(checked.stderr.toString()).toContain(
-    "plugin/package.json: stops the OpenCode loader, so no skill is checked; fix it as the metadata rule in bun scripts/check.ts --help says\n",
-  )
-})
-
-test("reads a mode as unchecked beside a plugin/package.json that stops the OpenCode loader, so its broken title goes unreported", async () => {
-  const checked = await runCheck(
-    "null",
-    undefined,
-    "---\nname: nus-mode\ndescription: m\n---\nNo title.\n",
-  )
-  expect(checked.stderr.toString()).toContain(
-    "plugin/package.json: stops the OpenCode loader, so no skill is checked; fix it as the metadata rule in bun scripts/check.ts --help says\n",
-  )
-  expect(checked.stderr.toString()).not.toContain("plugin/skills/nus-mode/SKILL.md")
-})
-
-test("stops on a loader that fails to load beside the repository's plugin/package.json, with the loader's error", async () => {
-  const checked = await runCheck(undefined, "export const broken = ;\n")
-  expect(checked.exitCode).not.toBe(0)
-  expect(checked.stderr.toString()).not.toContain("stops the OpenCode loader")
-  expect(checked.stderr.toString()).toMatch(/error: Unexpected ;\n.*opencode\.ts/)
-})
-
 test("names a missing plugin/opencode.ts as its one problem beyond a checkout's, exiting 1 with no crash", async () => {
   const lines = (run: { stderr: Buffer }) => run.stderr.toString().split("\n").sort()
-  const present = await runCheck()
-  const missing = await runCheck(undefined, undefined, undefined, (root) =>
-    rm(join(root, "plugin/opencode.ts")),
-  )
+  const present = await runCheck(async () => {})
+  const missing = await runCheck((root) => rm(join(root, "plugin/opencode.ts")))
   expect([missing.exitCode, lines(missing)]).toEqual([
     1,
     [...lines(present), "plugin/opencode.ts: is missing; restore it"].sort(),
   ])
+})
+
+test("reads the mode as unchecked beside a missing plugin/opencode.ts, naming only the missing loader", async () => {
+  const checked = await runCheck(async (root) => {
+    await mkdir(join(root, "plugin/skills/nus-mode"), { recursive: true })
+    await writeFile(
+      join(root, "plugin/skills/nus-mode/SKILL.md"),
+      "---\nname: nus-mode\ndescription: m\n---\n",
+    )
+    await rm(join(root, "plugin/opencode.ts"))
+  })
+  expect(checked.exitCode).toBe(1)
+  expect(checked.stderr.toString()).toContain("plugin/opencode.ts: is missing; restore it\n")
+  expect(checked.stderr.toString()).not.toContain("plugin/skills/nus-mode/SKILL.md")
 })
 
 test("passes the repository it sits in, run from another folder, exiting 0 with nothing printed", async () => {
@@ -396,6 +368,7 @@ test("prints its rules on --help, and its usage, exiting 1, on any other argumen
     "readme",
     "vendored",
     "copies",
+    "endings",
   ])
   for (const args of [["--fix"], ["--help", "--fix"]]) {
     const wrong = Bun.spawnSync([process.execPath, script, ...args])

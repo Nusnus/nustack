@@ -44,15 +44,10 @@ import {
 import { workflowProblems } from "./workflows.ts"
 
 type Loader = typeof import("../plugin/opencode.ts")
-// The loader imports plugin/package.json as it loads, so the check imports it only when it runs. A missing loader, which
-// the layout rule names, and a package.json that stops it, which the metadata rule reports, each leave the skills
-// unread; any other failure to load is the loader's own bug, so it stops the run.
+// The check imports the loader as it runs, and only once its file exists, so a missing loader, which the layout rule
+// names, leaves the skills unread; any failure to load it is the loader's own bug, so it stops the run.
 let loader: Loader | undefined
-// The skills rule's problems while no loader is loaded: UNLOADED beside a package.json that stops it, none without one.
-let unloaded: Problem[] = []
-const UNLOADED = problem(
-  `${PACKAGE}: stops the OpenCode loader, so no skill is checked; fix it as the metadata rule in bun scripts/check.ts --help says`,
-)
+const MISSING_LOADER = problem("plugin/opencode.ts: is missing; restore it")
 const MAX_LINES = 500
 // The Agent Skills limits: https://agentskills.io/specification
 const NAME_CAP = 64
@@ -61,8 +56,9 @@ const DESCRIPTION_CAP = 1024
 // read from the tree, since a record that lists the mode's name turns its folder into a copy, which the tree then
 // shows as no authored skill.
 const MODE = "nus-mode"
-// The hook gives the body back on its stdout, which Claude Code caps at 10,000 characters, after a lead sentence and the
-// skill's folder, which the other 1,000 leave room for: https://code.claude.com/docs/en/hooks
+// Claude Code keeps an invoked skill's first 5,000 tokens through a summary: https://code.claude.com/docs/en/skills
+// 9,000 characters, with the base-directory line the smoke test records Claude Code adding (tests/fixtures/bundle.ts
+// builds it), stay within them for text above about 1.85 characters per token.
 const MODE_CAP = 9000
 const AUTHORED_KEYS = Object.freeze(["name", "description", "disable-model-invocation", "triggers"])
 const INDEX = Object.freeze({
@@ -85,22 +81,23 @@ const RULES = Object.freeze({
   workflows:
     "the release workflow sets jobs.ci.needs: tag and jobs.publish.needs: ci, the CI workflow sets jobs.release-zip.needs: make-check, and each job of each workflow in .github/workflows installs bun.lock before it runs a script",
   layout:
-    "plugin/ holds opencode.ts and hooks/hooks.json, and only the host manifests, each skill's SKILL.md, the mode's playbooks, the OpenCode loader with its package.json, the Claude Code hook, the vendored copies and a LICENSE equal to the repository's, which exists, and no symlink; tests/unit/ and tests/integration/ hold only *.test.ts files",
+    "plugin/ holds opencode.ts, and only the host manifests, each skill's SKILL.md, the mode's playbooks, the OpenCode loader with its package.json, the vendored copies and a LICENSE equal to the repository's, which exists, and no symlink; tests/unit/ and tests/integration/ hold only *.test.ts files",
   skills: `each skill folder is named in kebab case and holds a SKILL.md whose name is the folder's and whose description is filled in, with a name of at most ${NAME_CAP} characters and a description of at most ${DESCRIPTION_CAP}; an authored one keeps each field and list entry to one line, with no --- in a value and no field repeated, and holds in its frontmatter only field and list entry lines, no control character YAML cannot read, no NEL or Unicode line or paragraph separator, no | or > block value, no tab outside quotes, no tag outside YAML's core schema or on a value it cannot build, no alias, no reused anchor and no key that is not text, holds no field but ${AUTHORED_KEYS.join(", ")}, sets disable-model-invocation: true and triggers: [user] in a principle- or language- skill and neither in the mode, and stays under ${MAX_LINES} lines`,
-  mode: `plugin/skills/ holds exactly one mode, ${MODE}, whose body opens with # <its name>, stays within ${MODE_CAP} characters, and links each playbook under ## ${INDEX.playbook}, each principle under ## ${INDEX.principle} and each language skill under ## ${INDEX.language}`,
+  mode: `plugin/skills/ holds exactly one mode, ${MODE}, whose body stays within ${MODE_CAP} characters, and links each playbook under ## ${INDEX.playbook}, each principle under ## ${INDEX.principle} and each language skill under ## ${INDEX.language}`,
   links:
     "each link, image, autolink or link definition GitHub renders in an authored file under plugin/, so none in code, frontmatter or HTML, whether a tag such as <a href> or a comment, is an https, http or mailto URL, an anchor, or a file under plugin/",
   readme: `each step of README.md the release page copies, ${PAGE_STEPS.join(" and ")}, links only by https URL and defines each reference label it uses within itself, and its skills tables give each skill folder under plugin/skills/ one row, which links that skill alone`,
   vendored:
     "vendored/ holds only records named <copy>.json in kebab case, each copying from a repository other than the manifests', each of a record's shape, giving each skill its SKILL.md and LICENSE once it lists files, and each skill folder a record names holds exactly the files it lists, at the Git blobs it lists",
   copies: `each skill folder a record names is named by no other record, and has its own line unsetting text in .gitattributes, where those lines, sorted, end the file and no other line unsets text, and its place in the hooks' &copy exclude, which names no other folder and which ${REWRITING_HOOKS.join(", ")}, each present and each rewriting files, take as their exclude, an exclude needed once a record exists; each skill folder under .agents/skills/ holding a LICENSE is a record's`,
+  endings: ".gitattributes sets plugin/** text eol=lf",
 } as const)
 
 // The kinds of skill nustack writes besides its mode, each named by its prefix.
 const SKILL_KINDS = Object.freeze(["principle", "language"] as const)
 // The plugin's own files besides the host manifests, which MANIFESTS lists.
 const PLUGIN_FILE = new RegExp(
-  String.raw`^plugin/(?:LICENSE|opencode\.ts|package\.json|hooks/hooks\.json|hooks/reload-nus-mode\.sh|skills/[a-z0-9-]+/SKILL\.md|skills/(?!${SKILL_KINDS.map((kind) => `${kind}-`).join("|")})[a-z0-9-]+/playbooks/[a-z0-9-]+\.md)$`,
+  String.raw`^plugin/(?:LICENSE|opencode\.ts|package\.json|skills/[a-z0-9-]+/SKILL\.md|skills/(?!${SKILL_KINDS.map((kind) => `${kind}-`).join("|")})[a-z0-9-]+/playbooks/[a-z0-9-]+\.md)$`,
 )
 const READ_FOLDERS = Object.freeze([
   "plugin",
@@ -147,32 +144,24 @@ const CHECKS: Record<keyof typeof RULES, (tree: Tree) => Problem[]> = Object.fre
   workflows: workflowProblems,
   layout: layoutProblems,
   skills: (tree) =>
-    loader === undefined
-      ? unloaded
-      : skillFolders(tree).flatMap((folder) => skillProblems(tree, folder)),
+    loader === undefined ? [] : skillFolders(tree).flatMap((folder) => skillProblems(tree, folder)),
   mode: modeProblems,
   links: linkProblems,
   readme: readmeProblems,
   vendored: (tree) => under(tree, "vendored/").flatMap((path) => recordProblems(tree, path)),
   copies: copyProblems,
+  endings: endingProblems,
 })
 
 export async function check(tree: Tree): Promise<Problem[]> {
-  const loaded = await load()
-  loader = Array.isArray(loaded) ? undefined : loaded
-  unloaded = Array.isArray(loaded) ? loaded : []
+  loader = await load()
   // Two rules can find one break, such as a symlinked manifest, and the problem shows once.
   return [...new Set(Object.values(CHECKS).flatMap((rule) => rule(tree)))]
 }
 
-// The loader, or the skills rule's problems without it.
-async function load(): Promise<Loader | Problem[]> {
+async function load(): Promise<Loader | undefined> {
   const path = join(import.meta.dirname, "../plugin/opencode.ts")
-  if (!(await Bun.file(path).exists())) return []
-  return import(path).catch(async (error: unknown) => {
-    if (await holdsNameAndVersion(join(import.meta.dirname, "../plugin/package.json"))) throw error
-    return [UNLOADED]
-  })
+  return (await Bun.file(path).exists()) ? import(path) : undefined
 }
 
 function metadataProblems(tree: Tree): Problem[] {
@@ -248,8 +237,7 @@ function layoutProblems(tree: Tree): Problem[] {
     if (MANIFESTS.includes(path) || PLUGIN_FILE.test(path) || inCopy(tree, path)) return []
     return [problem(`${path}: is not a file the plugin installs; move it out of plugin/`)]
   })
-  for (const path of ["plugin/opencode.ts", "plugin/hooks/hooks.json"])
-    if (!tree.has(path)) problems.push(problem(`${path}: is missing; restore it`))
+  if (!tree.has("plugin/opencode.ts")) problems.push(MISSING_LOADER)
   for (const path of [...under(tree, "tests/unit/"), ...under(tree, "tests/integration/")])
     if (!path.endsWith(".test.ts"))
       problems.push(
@@ -338,13 +326,8 @@ function modeProblems(tree: Tree): Problem[] {
   const read = decode(tree, file, markdown)
   if (!Array.isArray(read)) return []
   const text = read[0]
-  const title = `# ${mode.slice("plugin/skills/".length)}`
-  const rest = text.text.slice(text.blocks.find(({ type }) => type === "yaml")?.end ?? 0)
-  const body = rest.trim()
+  const body = text.text.slice(text.blocks.find(({ type }) => type === "yaml")?.end ?? 0).trim()
   const problems: Problem[] = []
-  // The hook puts the body back after a summary and finds it by that exact first line, past only empty lines.
-  if (rest.split(/\r?\n/).find((line) => line !== "") !== title)
-    problems.push(problem(`${file}: does not open its body with ${title}; restore that line`))
   if (body.length > MODE_CAP)
     problems.push(problem(`${file}: body has ${body.length} characters, over ${MODE_CAP}; cut it`))
   const indexed = written(text).map(
@@ -555,9 +538,7 @@ function copyProblems(tree: Tree): Problem[] {
         ),
       )
     const UNSET = /^\S+\/\*\* -text$/
-    const lines = String(attributes[0])
-      .split(/\r?\n/)
-      .filter((line) => line.trim() !== "" && !line.trimStart().startsWith("#"))
+    const lines = attributeLines(String(attributes[0]))
     const first = lines.findIndex((line) => UNSET.test(line))
     if (first !== -1 && lines.slice(first).some((line) => !UNSET.test(line)))
       problems.push(
@@ -623,6 +604,28 @@ function copyProblems(tree: Tree): Problem[] {
         ),
       )
   return problems
+}
+
+// .gitattributes holds the line plugin/** text eol=lf, whose own comment says what it guards. The copies rule keeps
+// it above the lines unsetting text.
+function endingProblems(tree: Tree): Problem[] {
+  const attributes = decode(tree, ".gitattributes", (text) => text)
+  if (
+    !Array.isArray(attributes) ||
+    attributeLines(String(attributes[0])).includes("plugin/** text eol=lf")
+  )
+    return []
+  return [
+    problem(
+      ".gitattributes: does not set plugin/** text eol=lf; add that line above the lines that unset text",
+    ),
+  ]
+}
+
+function attributeLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "" && !line.trimStart().startsWith("#"))
 }
 
 // Reads only a record's folder and skills, so a record broken elsewhere keeps its copy's files from reading as stray.
@@ -737,7 +740,7 @@ function skillFile(tree: Tree, folder: string) {
     const bytes = tree.get(path)
     if (!(bytes instanceof Uint8Array))
       return problem(`${folder}: has no SKILL.md; add one or remove it`)
-    if (loader === undefined) return UNLOADED
+    if (loader === undefined) return MISSING_LOADER
     try {
       const file = loader.SkillFile.decode(path, bytes)
       // The loader refuses frontmatter too long to parse safely before it counts levels, and yaml parses any length
@@ -844,13 +847,6 @@ async function refuseSpecial(
       throw new UnreadableEntry(neitherInFolderPlace(inner))
     else throw new UnreadableEntry(neither(inner))
   }
-}
-
-async function holdsNameAndVersion(path: string): Promise<boolean> {
-  const parsed: unknown = await Bun.file(path)
-    .json()
-    .catch(() => undefined)
-  return isObject(parsed) && typeof parsed.name === "string" && typeof parsed.version === "string"
 }
 
 if (import.meta.main) {

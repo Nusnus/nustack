@@ -62,11 +62,6 @@ repos:
         language: unsupported
         always_run: true
         pass_filenames: false
-      - id: shellcheck
-        name: shellcheck
-        entry: uv run --locked shellcheck
-        language: unsupported
-        types: [shell]
       - id: bun-lock
         name: bun.lock is current
         entry: make --no-print-directory bun-lock
