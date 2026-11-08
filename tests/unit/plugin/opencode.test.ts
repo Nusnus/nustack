@@ -57,7 +57,13 @@ const SHOWN = {
 }
 const loaded = (over = {}): HookEvent => [
   "execute.after",
-  { tool: "skill", status: "completed", input: { id: "nus-mode" }, result: SHOWN, ...over },
+  {
+    tool: "skill",
+    status: "completed",
+    input: { id: "nus-mode" },
+    result: SHOWN,
+    ...over,
+  },
 ]
 const invoked = (id = "nus-mode"): HookEvent => ["prompt", { prompt: { skills: [{ id }] } }]
 const request = (messages: object[] = []): HookEvent => ["context", { system: [], messages }]
@@ -150,19 +156,21 @@ describe("SkillFile", () => {
     expect(new SkillFile(PATH, text).info("a").description).toHaveLength(4074)
   })
 
-  const deepMap = Array.from({ length: 6000 }, (_, at) => `${"  ".repeat(at)}k:`).join("\n")
   test.each([
-    ["4097 characters", `name: a\ndescription: ${"A".repeat(4075)}\n`],
+    ["4097 characters", () => `name: a\ndescription: ${"A".repeat(4075)}\n`],
     [
       "a quote holding a bracket, then a map 6000 levels deep",
-      `name: x\ndescription: see "[docs]" here\n${deepMap} 1\n`,
+      () => {
+        const deepMap = Array.from({ length: 6000 }, (_, at) => `${"  ".repeat(at)}k:`).join("\n")
+        return `name: x\ndescription: see "[docs]" here\n${deepMap} 1\n`
+      },
     ],
   ])(
     "refuses frontmatter of %s before Bun's YAML parser reads it, naming the fix",
     async (_, frontmatter) => {
-      expect(await thrown(() => new SkillFile(PATH, `---\n${frontmatter}---\n`).info("a"))).toEqual(
-        refusal(PATH, "has frontmatter longer than 4096 characters; shorten it"),
-      )
+      expect(
+        await thrown(() => new SkillFile(PATH, `---\n${frontmatter()}---\n`).info("a")),
+      ).toEqual(refusal(PATH, "has frontmatter longer than 4096 characters; shorten it"))
     },
   )
 
@@ -242,7 +250,11 @@ describe("SkillFolder.read", () => {
     const entries = await new SkillFolder(folder).read()
     expect(entries.toSorted((a, b) => (a.name < b.name ? -1 : 1))).toEqual([
       { name: "README.md", kind: "file" },
-      { name: "empty", kind: "folder", error: expect.objectContaining({ code: "ENOENT" }) },
+      {
+        name: "empty",
+        kind: "folder",
+        error: expect.objectContaining({ code: "ENOENT" }),
+      },
       { name: "link", kind: "symlink" },
       { name: "valid", kind: "folder", data: Buffer.from("x") },
     ])
@@ -262,7 +274,9 @@ describe("SkillFolder.skills", () => {
   })
 
   test("names each SKILL.md it cannot read or decode, and each symlink, by path", async () => {
-    const missing = Object.assign(new Error("no such file"), { code: "ENOENT" })
+    const missing = Object.assign(new Error("no such file"), {
+      code: "ENOENT",
+    })
     const entries: SkillEntry[] = [
       { name: "d-skill", kind: "symlink" },
       { name: "c-skill", kind: "folder", data: Uint8Array.of(0x2d, 0xff) },
@@ -284,7 +298,11 @@ describe("SkillFolder.skills", () => {
 
   test("says a read error has no error code unless it is an Error with a string code", async () => {
     const entries: SkillEntry[] = [
-      { name: "a-skill", kind: "folder", error: Object.assign(new Error("odd"), { code: 5 }) },
+      {
+        name: "a-skill",
+        kind: "folder",
+        error: Object.assign(new Error("odd"), { code: 5 }),
+      },
       { name: "b-skill", kind: "folder", error: { code: "EACCES" } },
     ]
     const problem = "cannot be read (no error code); give the skill a readable SKILL.md"
@@ -295,7 +313,9 @@ describe("SkillFolder.skills", () => {
   })
 
   test("keeps each failure as the error's cause, with the error that failed its read", async () => {
-    const missing = Object.assign(new Error("no such file"), { code: "ENOENT" })
+    const missing = Object.assign(new Error("no such file"), {
+      code: "ENOENT",
+    })
     const error = await thrown(() =>
       SKILLS.skills([{ name: "b-skill", kind: "folder", error: missing }]),
     )
@@ -332,7 +352,11 @@ describe("ModeReload", () => {
   }
 
   test("gives back the trimmed body, CRLF lines kept, then the mode's folder", () => {
-    const skill = { ...MODE, content: "\n# M\r\nx\r\n", path: "/p/nus-mode/SKILL.md" } as Skill.Info
+    const skill = {
+      ...MODE,
+      content: "\n# M\r\nx\r\n",
+      path: "/p/nus-mode/SKILL.md",
+    } as Skill.Info
     expect(new ModeReload(skill, fakeOpenCode().context.storage).reloadText).toBe(
       "# M\r\nx\n\nBase directory for this skill: /p/nus-mode\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
     )
@@ -389,7 +413,12 @@ describe("ModeReload", () => {
     [
       "a load of a nus-mode from the config's skills folder",
       0,
-      [loaded({ result: { output: { output: "# nus-mode\n\nAnother body." } } }), SUMMARIZED],
+      [
+        loaded({
+          result: { output: { output: "# nus-mode\n\nAnother body." } },
+        }),
+        SUMMARIZED,
+      ],
     ],
     ["another tool given the mode's id", 0, [loaded({ tool: "read" }), SUMMARIZED]],
     [
@@ -435,11 +464,19 @@ describe("ModeReload", () => {
   )
 
   test("gives nothing to a request whose messages hold a CRLF mode's whole text", async () => {
-    const mode = { ...MODE, content: "# nus-mode\r\n\r\nBody.\r\n" } as Skill.Info
+    const mode = {
+      ...MODE,
+      content: "# nus-mode\r\n\r\nBody.\r\n",
+    } as Skill.Info
     const opencode = fakeOpenCode(new Map([["nus-mode/s", "loaded"]]))
     await new ModeReload(mode, opencode.context.storage).register(opencode.context)
     const system: { text: string }[] = []
-    const messages = [{ role: "tool", content: [{ result: { value: "# nus-mode\r\n\r\nBody." } }] }]
+    const messages = [
+      {
+        role: "tool",
+        content: [{ result: { value: "# nus-mode\r\n\r\nBody." } }],
+      },
+    ]
     await opencode.run(["context", { system, messages }])
     expect(system).toEqual([])
   })
@@ -551,7 +588,11 @@ describe("ModeReload", () => {
       if (match === null)
         throw new Error("the recording shows no skill load; record the session again")
       const [text, body, base] = match
-      const mode = { ...MODE, content: `${body}\n`, path: `${base}/SKILL.md` } as Skill.Info
+      const mode = {
+        ...MODE,
+        content: `${body}\n`,
+        path: `${base}/SKILL.md`,
+      } as Skill.Info
       return { mode, text, result }
     }
     async function copies(

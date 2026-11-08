@@ -1,9 +1,9 @@
 /**
  * Markdown as GitHub renders it, read by one CommonMark parser, micromark, with its GitHub Flavored Markdown and YAML
  * frontmatter extensions, into frozen values: the top-level blocks, a skill's frontmatter among them as a yaml block,
- * and their headings; each link and image with its destination; each link reference definition; each footnote call
- * with its definition; the HTML and the table rows; and a heading's section. The check and the release read Markdown
- * only through these values, so each reads it as GitHub's renderer does.
+ * and their headings; each link and image with its destination; each link reference definition; and a heading's
+ * section. The check and the release read Markdown only through these values, so each reads it as GitHub's renderer
+ * does.
  */
 import type { Nodes, RootContent } from "mdast"
 import { fromMarkdown } from "mdast-util-from-markdown"
@@ -49,26 +49,13 @@ export type Heading = Span &
 /** A block at the top level of the text, outside any blockquote or list. */
 export type Block = Heading | (Span & Readonly<{ type: Exclude<RootContent["type"], "heading"> }>)
 
-/** A GFM footnote definition, `[^label]: text`. */
-export type Note = Span & Readonly<{ identifier: string }>
-
-/** A GFM footnote call, `[^label]`, with the definition it renders from: the first its label matches. */
-export type Footnote = Span & Readonly<{ label: string; identifier: string; definition: Note }>
-
-/** Raw HTML, a block or inline, as written, an HTML comment included. */
-export type Html = Span & Readonly<{ value: string }>
-
-/** One parse of a Markdown text. Each table row lists its cells, and each cell the links in it. */
+/** One parse of a Markdown text. */
 export type Markdown = Readonly<{
   text: string
   blocks: readonly Block[]
   headings: readonly Heading[]
   links: readonly Link[]
   definitions: readonly Definition[]
-  footnotes: readonly Footnote[]
-  notes: readonly Note[]
-  html: readonly Html[]
-  rows: readonly (readonly (readonly Link[])[])[]
 }>
 
 /** The text under a heading, up to the line before the next heading of its level or higher, or to the end. */
@@ -82,9 +69,6 @@ export function markdown(text: string): Markdown {
   const definitions: Definition[] = []
   // A label matches the first definition of its normalized form: https://spec.commonmark.org/0.31.2/#matches
   const defined = new Map<string, Definition>()
-  const notes: Note[] = []
-  const noted = new Map<string, Note>()
-  const html: Html[] = []
   const written: Nodes[] = []
   walk(root, (node) => {
     if (node.type === "definition") {
@@ -97,13 +81,7 @@ export function markdown(text: string): Markdown {
       })
       definitions.push(definition)
       if (!defined.has(node.identifier)) defined.set(node.identifier, definition)
-    } else if (node.type === "footnoteDefinition") {
-      const note = Object.freeze({ ...spanOf(node), identifier: node.identifier })
-      notes.push(note)
-      if (!noted.has(node.identifier)) noted.set(node.identifier, note)
-    } else if (node.type === "html")
-      html.push(Object.freeze({ ...spanOf(node), value: node.value }))
-    else written.push(node)
+    } else written.push(node)
   })
   const linkOf = (node: Nodes): Link | undefined => {
     const span = spanOf(node)
@@ -124,41 +102,13 @@ export function markdown(text: string): Markdown {
     const label = node.label ?? node.identifier
     return Object.freeze({ ...span, image, destination: definition.destination, label, definition })
   }
-  const footnotes = written.flatMap((node) => {
-    if (node.type !== "footnoteReference") return []
-    const definition = noted.get(node.identifier)
-    // micromark makes a footnote call only of a label a definition matches.
-    if (definition === undefined)
-      throw new Error(`a footnote at offset ${spanOf(node).start} matches no definition`)
-    const label = node.label ?? node.identifier
-    return [Object.freeze({ ...spanOf(node), label, identifier: node.identifier, definition })]
-  })
   const blocks = root.children.map((node) => blockOf(text, node))
-  const rows = root.children.flatMap((node) => {
-    if (node.type !== "table") return []
-    return node.children.map((row) =>
-      Object.freeze(
-        row.children.map((cell) => {
-          const links: Link[] = []
-          walk(cell, (inner) => {
-            const link = linkOf(inner)
-            if (link !== undefined) links.push(link)
-          })
-          return Object.freeze(links)
-        }),
-      ),
-    )
-  })
   return Object.freeze({
     text,
     blocks: Object.freeze(blocks),
     headings: Object.freeze(blocks.filter((block) => block.type === "heading")),
     links: Object.freeze(written.flatMap((node) => linkOf(node) ?? [])),
     definitions: Object.freeze(definitions),
-    footnotes: Object.freeze(footnotes),
-    notes: Object.freeze(notes),
-    html: Object.freeze(html),
-    rows: Object.freeze(rows),
   })
 }
 

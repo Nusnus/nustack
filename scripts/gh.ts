@@ -3,7 +3,6 @@
  * (https://cli.github.com/manual/gh_help_environment), as each workflow step that runs it names them. A gh that runs past
  * its time limit is killed, and a gh that fails stops the script with what it printed to stderr.
  */
-import { requireTool } from "./command.ts"
 
 /** What a gh command printed and its exit code. */
 export type GhResult = Readonly<{ code: number; stdout: string; stderr: string }>
@@ -21,7 +20,6 @@ export async function ghOutput(gh: Gh, args: readonly string[], ran?: GhResult):
 }
 
 export async function runGh(args: readonly string[], limit = GH_LIMIT_MS): Promise<GhResult> {
-  requireTool("gh", "install gh, as https://cli.github.com says")
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" })
   let stalled = false
   const timer = setTimeout(() => {

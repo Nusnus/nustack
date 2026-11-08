@@ -1,8 +1,7 @@
 /**
  * What the scripts share as commands: the form of the usage each prints, for the release and sync scripts when they
- * print it and how each runs from the command line, and the stop when a tool a command runs is not on the PATH. A usage
- * names how to run its script, then its arguments' forms, and --help alone, or as a command's only argument, asks for
- * it. A script prints what it returns, or its error's message with no stack trace, exiting 1.
+ * print it and how each runs from the command line. A usage names how to run its script, then its arguments' forms,
+ * and --help alone, or as a command's only argument, asks for it. A script prints what it returns, or its error's message with no stack trace, exiting 1.
  */
 export function usage(script: string, forms: string): string {
   return `usage: bun scripts/${script}.ts ${forms}`
@@ -26,9 +25,4 @@ export async function runMain(
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
   }
-}
-
-// Bun names a missing executable with no fix, so the stop says how to install it.
-export function requireTool(name: string, install: string): void {
-  if (Bun.which(name) === null) throw new Error(`${name} is not on PATH; ${install}, then rerun`)
 }

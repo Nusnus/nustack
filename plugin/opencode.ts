@@ -52,7 +52,7 @@ export class SkillFile {
   // level takes at least one character, so frontmatter this long reaches neither. Set when nustack's longest frontmatter
   // held 500 characters, the cap refuses longer frontmatter however shallow it nests.
   static readonly MOST_CHARACTERS = 4096
-  // The bound scripts/check.ts holds JSON, YAML and TOML to, counted on the value the parser builds.
+  // The deepest the loader parses frontmatter, counted on the value the parser builds.
   static readonly MOST_LEVELS = 200
   // Unicode's White_Space characters and the zero-width ones, which the loader and the check take as blank:
   // https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
@@ -77,8 +77,9 @@ export class SkillFile {
 
   /**
    * Whether a parsed value nests more than MOST_LEVELS arrays and objects deep, the outermost included, walked with a
-   * stack of its own as scripts/check.ts's nestsTooDeep in scripts/tree.ts walks it: a value an alias shares is walked again
-   * only when reached deeper than before, so each value is walked at most MOST_LEVELS times and a cycle counts as too deep.
+   * stack of its own, so a deep value fails with an error rather than overflowing the stack: a value an alias shares is
+   * walked again only when reached deeper than before, so each value is walked at most MOST_LEVELS times and a cycle
+   * counts as too deep.
    */
   static nestsTooDeep(value: unknown): boolean {
     const deepest = new Map<object, number>()

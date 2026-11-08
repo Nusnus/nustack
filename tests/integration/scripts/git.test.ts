@@ -8,7 +8,7 @@ import { chmod } from "node:fs/promises"
 import { constants } from "node:os"
 import { join } from "node:path"
 import type { Subprocess } from "bun"
-import { endGroup, GRACE_MS, git, gitBytes } from "../../../scripts/git.ts"
+import { git, gitBytes, killGroup } from "../../../scripts/git.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
 import "../../fixtures/scripts/git.ts"
 
@@ -84,7 +84,7 @@ test("names the limit a run passed, and the fix", async () => {
   )
 })
 
-// This row and the next wait out their backstop by design, so their timeouts count it and the grace after it.
+// This row and the next wait out their backstop by design, so their timeouts count it.
 test(
   "returns at the limit when a remote accepts the connection and never answers",
   async () => {
@@ -103,8 +103,22 @@ test(
     // The server holds the connection until it stops, so a run that waits on git-remote-https never returns.
     expect(performance.now() - started).toBeLessThan(5000)
   },
-  GRACE_MS + 1000 + 5000,
+  1000 + 5000,
 )
+
+test("fails when Git cannot list a hook's repository variables, rather than keeping them", async () => {
+  const bin = await folders.make()
+  await Bun.write(join(bin, "git"), "#!/bin/sh\nexit 3\n")
+  await chmod(join(bin, "git"), 0o755)
+  const script = `import { git } from ${JSON.stringify(join(import.meta.dir, "../../../scripts/git.ts"))}
+await git(["status"], "/").catch((error) => console.log(error.message))`
+  const run = Bun.spawn([process.execPath, "-e", script], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  expect(await new Response(run.stdout).text()).toBe(
+    "git rev-parse --local-env-vars exited 3, so the hook's repository variables stay unknown; install a working Git, then rerun\n",
+  )
+})
 
 test(
   "ends at its backstop each process the run started, though one holds none of its pipes",
@@ -135,56 +149,20 @@ await gitBytes(["fetch"], "/", { backstop: 1000 }).catch((error) => console.log(
       held.kill()
     }
   },
-  GRACE_MS + 1000 + 5000,
-)
-
-// Git removes its lock files on a signal it can catch, so a stalled run gets SIGTERM, then SIGKILL once its grace ends.
-// The trap runs in a subshell off Git's pipes, which Git does not wait for, so only awaiting the group's end sees it.
-// Each row waits out its backstop, and the second the grace too, by design.
-test.each([
-  [
-    "cleans up on SIGTERM before it stops",
-    "(trap 'sleep 0.5; touch cleaned; exit 1' TERM; sleep 30 & wait) >/dev/null 2>&1 & wait",
-    true,
-  ],
-  ["ends on SIGKILL though it ignores SIGTERM", "trap '' TERM; sleep 30", false],
-])(
-  "a stalled run %s",
-  async (_, body, cleans) => {
-    const root = await folders.make()
-    const started = performance.now()
-    await expect(
-      gitBytes(["-c", `alias.x=!${body}`, "x"], root, { backstop: 500 }),
-    ).rejects.toThrow(
-      new Error(
-        `git -c alias.x=!${body} x ran past its 0.5 s limit; check the network and the remote, then rerun`,
-      ),
-    )
-    expect(await Bun.file(join(root, "cleaned")).exists()).toBe(cleans)
-    expect(performance.now() - started).toBeLessThan(5000)
-  },
-  GRACE_MS + 500 + 5000,
+  1000 + 5000,
 )
 
 // The longest a row waits for the script to exit, and then for its sleep to be reaped.
 const EXIT_MS = 5000
 const REAP_MS = 5000
 
-// A Git that ignores SIGTERM still ends at SIGKILL, once the grace ends, or at once on a second signal, and the script
-// exits with the signal's code.
-test.each([
-  ["SIGINT", "ends on SIGTERM", "", false, EXIT_MS],
-  ["SIGTERM", "ends on SIGTERM", "", false, EXIT_MS],
-  ["SIGINT", "ignores SIGTERM", "trap '' TERM; ", false, EXIT_MS],
-  ["SIGTERM", "ignores SIGTERM", "trap '' TERM; ", false, EXIT_MS],
-  ["SIGINT twice", "ignores SIGTERM", "trap '' TERM; ", true, 1000],
-] as const)(
-  "ends each running Git's process group when the script gets %s, from a Git that %s",
-  async (name, _, trap, twice, bound) => {
-    const signal = twice ? "SIGINT" : (name as NodeJS.Signals)
+// The script kills each running Git's group and exits with the signal's code.
+test.each(["SIGINT", "SIGTERM"] as const)(
+  "kills each running Git's process group when the script gets %s",
+  async (signal) => {
     const root = await folders.make()
     const pid = join(root, "pid")
-    const alias = `alias.y=!${trap}echo $$ >pid.new && mv pid.new pid && exec sleep 60`
+    const alias = "alias.y=!echo $$ >pid.new && mv pid.new pid && exec sleep 60"
     const script = `import { gitBytes } from ${JSON.stringify(join(import.meta.dir, "../../../scripts/git.ts"))}
 await gitBytes(["-c", ${JSON.stringify(alias)}, "y"], ${JSON.stringify(root)})`
     const run = Bun.spawn([process.execPath, "-e", script])
@@ -192,10 +170,6 @@ await gitBytes(["-c", ${JSON.stringify(alias)}, "y"], ${JSON.stringify(root)})`
     const sleep = Number(await Bun.file(pid).text())
     const started = performance.now()
     run.kill(signal)
-    if (twice) {
-      await Bun.sleep(100)
-      run.kill(signal)
-    }
     // Once its group ends, sleep waits for its new parent to reap it.
     const gone = async () => {
       for (
@@ -211,10 +185,10 @@ await gitBytes(["-c", ${JSON.stringify(alias)}, "y"], ${JSON.stringify(root)})`
       return false
     }
     try {
-      expect(await Promise.race([run.exited, Bun.sleep(bound)])).toBe(
+      expect(await Promise.race([run.exited, Bun.sleep(EXIT_MS)])).toBe(
         128 + constants.signals[signal],
       )
-      expect(performance.now() - started).toBeLessThan(bound)
+      expect(performance.now() - started).toBeLessThan(EXIT_MS)
       expect(await gone()).toBe(true)
     } finally {
       // A run that leaves sleep alive would hold it past the test run.
@@ -224,7 +198,6 @@ await gitBytes(["-c", ${JSON.stringify(alias)}, "y"], ${JSON.stringify(root)})`
       run.kill("SIGKILL")
     }
   },
-  // A row's bound for the exit plus REAP_MS for the reap; rows that ignore SIGTERM wait out the grace by design.
   EXIT_MS + REAP_MS + 5000,
 )
 
@@ -240,10 +213,10 @@ test("names a signal from elsewhere as one, not as the limit", async () => {
   )
 })
 
-test("ends a run's process group once it has exited, reaped or not", async () => {
+test("kills a run's process group once it has exited, reaped or not", async () => {
   const reaped = Bun.spawn(["true"], { detached: true })
   await reaped.exited
-  expect(await endGroup(reaped.pid)).toBeUndefined()
+  expect(() => killGroup(reaped.pid)).not.toThrow()
   const fifo = join(await folders.make(), "output")
   Bun.spawnSync(["mkfifo", fifo])
   const exited = Bun.spawn(["sh", "-c", 'exec >"$0"', fifo], { detached: true })
@@ -251,7 +224,7 @@ test("ends a run's process group once it has exited, reaped or not", async () =>
   const output = openSync(fifo, "r")
   expect(readSync(output, Buffer.alloc(1))).toBe(0)
   closeSync(output)
-  expect(await endGroup(exited.pid)).toBeUndefined()
+  expect(() => killGroup(exited.pid)).not.toThrow()
   await exited.exited
 })
 
@@ -259,69 +232,4 @@ test("reaches a local repository only when a run passes the file transport", asy
   const root = await folders.make()
   await git(["init", "-q", "--bare", "r.git"], root)
   expect(await git(["ls-remote", join(root, "r.git")], root, { transport: "file" })).toBe("")
-})
-
-test.each([
-  ["fails", "echo broken >&2\nexit 3", "exited 3: broken"],
-  [
-    "outlasts its limit",
-    `exec ${Bun.which("sleep")} 30`,
-    "ran past its 0.5 s limit; check what Git waits on, such as its disk, then rerun",
-  ],
-])(
-  "names the command when Git's listing of a hook's repository variables %s",
-  async (_, body, problem) => {
-    const bin = await folders.make()
-    await Bun.write(join(bin, "git"), `#!/bin/sh\n${body}\n`)
-    await chmod(join(bin, "git"), 0o755)
-    const script = `import { git } from ${JSON.stringify(join(import.meta.dir, "../../../scripts/git.ts"))}
-await git(["--version"], "/", { backstop: 500 }).catch((error) => console.log(error.message))`
-    const child = Bun.spawnSync([process.execPath, "-e", script], {
-      env: { ...process.env, PATH: bin },
-    })
-    expect(child.stdout.toString()).toBe(`git rev-parse --local-env-vars ${problem}\n`)
-  },
-)
-
-test("names the fix when Git is not on the PATH", async () => {
-  const script = `import { git } from ${JSON.stringify(join(import.meta.dir, "../../../scripts/git.ts"))}
-await git(["--version"], "/").catch((error) => console.log(error.message))`
-  const env = { ...process.env, PATH: await folders.make() }
-  const child = Bun.spawnSync([process.execPath, "-e", script], { env })
-  expect(child.stdout.toString()).toBe("git is not on PATH; install Git, then rerun\n")
-})
-
-// Runs git in a Bun whose PATH finds a fake git first, one that does as the case given on --local-env-vars and runs
-// the real Git on anything else; a fresh Bun, since git lists the local variables once per process.
-async function listedBy(onLocalVariables: string): Promise<string> {
-  const bin = await folders.make()
-  const real = Bun.which("git")
-  await Bun.write(
-    join(bin, "git"),
-    `#!/bin/sh\ncase "$*" in *--local-env-vars*) ${onLocalVariables} ;; esac\nexec "${real}" "$@"\n`,
-  )
-  await chmod(join(bin, "git"), 0o755)
-  const script = `import { git } from ${JSON.stringify(join(import.meta.dir, "../../../scripts/git.ts"))}
-await git(["--version"], ".", { backstop: 200 }).then(
-  () => console.log("ran"),
-  (error) => console.log(error.code, error.message),
-)`
-  const run = Bun.spawn([process.execPath, "-e", script], {
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-  })
-  return await new Response(run.stdout).text()
-}
-
-test("fails with Git's exit code when listing the local variables fails", async () => {
-  expect(await listedBy("echo broken >&2; exit 3")).toBe(
-    "3 git rev-parse --local-env-vars exited 3: broken\n",
-  )
-})
-
-test("stops listing the local variables at the backstop, failing with code 1", async () => {
-  const started = performance.now()
-  expect(await listedBy("exec sleep 30")).toBe(
-    "1 git rev-parse --local-env-vars ran past its 0.2 s limit; check what Git waits on, such as its disk, then rerun\n",
-  )
-  expect(performance.now() - started).toBeLessThan(5000)
 })

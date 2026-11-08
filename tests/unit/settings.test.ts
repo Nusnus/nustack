@@ -118,8 +118,9 @@ describe("package.json", () => {
 
 /** Bun runs the suite shuffled and strict. */
 describe("bunfig.toml", () => {
-  test("runs every tier but smoke in random order, failing on warnings", async () => {
+  test("runs every tier but smoke in random order, failing on warnings, with auto-install off", async () => {
     expect(await new RootFile("bunfig.toml").read()).toEqual({
+      install: { auto: "disable" },
       test: {
         root: "tests",
         preload: ["./tests/fixtures/warnings.ts"],

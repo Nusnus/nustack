@@ -13,17 +13,14 @@
  */
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
-import { asksForUsage, requireTool, runMain, usage } from "./command.ts"
+import { asksForUsage, runMain, usage } from "./command.ts"
 import { type Gh, ghOutput, runGh } from "./gh.ts"
 import { GitError, type GitOptions, git, gitBytes } from "./git.ts"
 import { type Markdown, markdown, type Section, section, within } from "./markdown.ts"
-import { CLAUDE_MANIFEST, entryProblems, PACKAGE, parseManifest, parsePackage } from "./metadata.ts"
+import { CLAUDE_MANIFEST, PACKAGE, type Plugin, parseManifest, parsePackage } from "./metadata.ts"
 import { PAGE_STEPS, VERSION } from "./plugin.ts"
 import { SHA } from "./record.ts"
 import { decode, readEntry, type Tree } from "./tree.ts"
-
-/** The plugin's manifest fields a release reads. */
-export type Plugin = Readonly<Record<"name" | "version" | "description" | "repository", string>>
 
 // Each command, with the fewest and the most arguments it takes.
 const COMMANDS = Object.freeze({
@@ -51,8 +48,6 @@ const NO_COMMIT = "No commit found for SHA"
 // own time zone, so it runs in UTC. git reads its environment when it starts, which is before archive's first
 // await, so the zone it sets reaches only that run.
 const ZIP_TIME = "1980-01-01T00:00:00Z"
-// git archive takes --mtime from Git 2.40 on: https://github.com/git/git/blob/v2.40.0/Documentation/RelNotes/2.40.0.txt
-const ARCHIVE_GIT = "2.40.0"
 // tag fetches main into this ref, which only tag writes, and reads main at the one commit it names, since another fetch
 // in the clone, such as an editor's, can rewrite FETCH_HEAD between any two reads of it.
 const FETCHED_MAIN = "refs/nustack/fetched-main"
@@ -102,10 +97,6 @@ export async function bump(root: string, given?: string, setVersion = czBump): P
   // The tree started clean, so a bump that fails part-way goes back to HEAD and changes nothing.
   try {
     await setVersion(root, version)
-    if ((await readPlugin(root)).version !== version)
-      throw new Error(
-        `cz bump left ${PACKAGE} off ${version}; list it in [tool.commitizen] version_files, then rerun`,
-      )
     await writeFile(join(root, "CHANGELOG.md"), titled)
   } catch (error) {
     await git(["restore", "--source=HEAD", "--staged", "--worktree", ":/"], root)
@@ -149,8 +140,6 @@ export function notes(changelog: string, readme: string, version: string, plugin
   if (!VERSION.test(version)) throw new Error("pass the version as <major>.<minor>.<patch>")
   const log = markdown(changelog)
   const entry = sectionOf(log, `## [${version}]`, "CHANGELOG.md")
-  const [wrong] = entryProblems(log, entry.heading)
-  if (wrong !== undefined) throw new Error(wrong)
   const [kind] = log.headings.filter((heading) => within(heading, entry))
   const lead = log.text.slice(entry.start, kind?.lines.start ?? entry.end).trim()
   const changes = log.text.slice(kind?.lines.start ?? entry.end, entry.end).trim()
@@ -201,7 +190,6 @@ export async function bundle(root: string): Promise<string> {
   await mkdir(folder, { recursive: true })
   try {
     await archive(partial, root)
-    await writeFile(partial, unixModes(await readFile(partial)))
     await rename(partial, zip)
   } catch (error) {
     await rm(partial, { force: true })
@@ -277,11 +265,6 @@ export async function tag(
 }
 
 async function archive(zip: string, root: string): Promise<string> {
-  const version = /\d+\.\d+\.\d+/.exec(await git(["--version"], root))?.[0]
-  if (version === undefined || Bun.semver.order(version, ARCHIVE_GIT) < 0)
-    throw new Error(
-      `git archive dates the zip's entries only from Git ${ARCHIVE_GIT} on; install Git ${ARCHIVE_GIT} or later, then rerun`,
-    )
   const zone = process.env.TZ
   process.env.TZ = "UTC"
   try {
@@ -304,32 +287,6 @@ async function archive(zip: string, root: string): Promise<string> {
     if (zone === undefined) delete process.env.TZ
     else process.env.TZ = zone
   }
-}
-
-// git archive records a Unix mode only for an executable, and gives every other entry MS-DOS attributes, which
-// unzip unpacks under the user's umask, so each entry of the central directory
-// (https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT, 4.3.12 and 4.3.16) is marked Unix with 0644 for
-// a file, 0755 for an executable or a folder.
-export function unixModes(zip: Uint8Array): Uint8Array {
-  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
-  const end = zip.byteLength - 22
-  if (view.getUint32(end, true) !== 0x06054b50)
-    throw new Error(
-      "git archive ended the zip in a comment, which bundle does not read; report it to nustack",
-    )
-  let at = view.getUint32(end + 16, true)
-  for (let left = view.getUint16(end + 10, true); left > 0; left--) {
-    const made = view.getUint16(at + 4, true)
-    const attributes = view.getUint32(at + 38, true)
-    const named = view.getUint16(at + 28, true)
-    const folder = zip[at + 46 + named - 1] === 0x2f
-    const executable = made >> 8 === 3 && (attributes >>> 16) & 0o111
-    const mode = folder ? 0o40755 : executable ? 0o100755 : 0o100644
-    view.setUint16(at + 4, (3 << 8) | (made & 0xff), true)
-    view.setUint32(at + 38, ((mode << 16) | (attributes & 0xffff)) >>> 0, true)
-    at += 46 + named + view.getUint16(at + 30, true) + view.getUint16(at + 32, true)
-  }
-  return zip
 }
 
 // The commit on fetched main's first-parent line that set the version: the oldest of the newest commits to touch
@@ -454,29 +411,18 @@ async function refuseChanges(root: string, consequence: string): Promise<void> {
 
 // make and cz run while the releaser watches the run they started, which bounds the wait.
 export async function makeChecks(root: string): Promise<void> {
-  requireTool("make", "install make with your system package manager")
   const make = Bun.spawn(["make", "check", "smoke"], { cwd: root, stdout: "inherit" })
   if ((await make.exited) !== 0) throw new Error("make check or smoke failed; fix it, then rerun")
 }
 
 // cz bump sets the version in each file [tool.commitizen] names, and the script titles the changelog itself.
-// A bump reads the release tags and rewrites a few small files, which takes about a second; a minute still stops one
-// that stalls.
-export async function czBump(root: string, version: string, limit = 60_000): Promise<void> {
-  const args = ["uv", "run", "cz", "bump", "--version-files-only", "--yes", version]
-  requireTool("uv", "install uv, as https://docs.astral.sh/uv/getting-started/installation/ says")
-  const cz = Bun.spawn(args, { cwd: root, stdout: "inherit" })
-  let stalled = false
-  const timer = setTimeout(() => {
-    stalled = true
-    cz.kill()
-  }, limit)
-  const code = await cz.exited.finally(() => clearTimeout(timer))
-  if (stalled)
-    throw new Error(
-      `cz bump took over ${limit / 1000} seconds; check what it waits on, such as its disk, then rerun`,
-    )
-  if (code !== 0) throw new Error("cz bump failed; fix the cause it printed, then rerun")
+export async function czBump(root: string, version: string): Promise<void> {
+  const cz = Bun.spawn(["uv", "run", "cz", "bump", "--version-files-only", "--yes", version], {
+    cwd: root,
+    stdout: "inherit",
+  })
+  if ((await cz.exited) !== 0)
+    throw new Error("cz bump failed; fix the cause it printed, then rerun")
 }
 
 // The version of plugin/package.json at a commit, such as HEAD's, so a zip or a tag never names an unset version.

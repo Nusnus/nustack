@@ -205,65 +205,10 @@ describe("definitions", () => {
   })
 })
 
-describe("footnotes", () => {
-  test("reads a footnote call with the first definition its label matches, in any case", () => {
-    const text = "See[^Note].\n\n[^note]: First.\n\n[^NOTE]: Second.\n"
-    const read = markdown(text)
-    expect(read.footnotes.map(({ label }) => label)).toEqual(["Note"])
-    const [footnote] = read.footnotes
-    expect(text.slice(footnote?.definition.start, footnote?.definition.end)).toBe("[^note]: First.")
-  })
-
-  test("reads a footnote label no definition matches as text, not a call", () => {
-    expect(markdown("See[^none].\n").footnotes).toEqual([])
-  })
-
-  test("lists each footnote definition, one whose label repeats an earlier one's included", () => {
-    expect(markdown("See[^a].\n\n[^a]: n\n\n[^A]: m\n").notes).toEqual([
-      { start: 10, end: 17, identifier: "a" },
-      { start: 19, end: 26, identifier: "a" },
-    ])
-  })
-})
-
-describe("rows", () => {
-  test("lists each table row's cells and the links in each, the header row first", () => {
-    const read = markdown(
-      "| [a](a.md) | b |\n| --- | --- |\n| [c](c.md) [d](d.md) | `[e](e.md)` |\n",
-    )
-    expect(
-      read.rows.map((row) => row.map((cell) => cell.map(({ destination }) => destination))),
-    ).toEqual([
-      [["a.md"], []],
-      [["c.md", "d.md"], []],
-    ])
-  })
-
-  test("reads lines of pipes with no delimiter row as no table", () => {
-    expect(markdown("| [a](a.md) | b |\n").rows).toEqual([])
-  })
-})
-
-describe("html", () => {
-  test("reads each block of raw HTML and each inline tag as written, an HTML comment included", () => {
-    expect(markdown("<!-- c -->\n\na <b>x</b>\n").html).toEqual([
-      { start: 0, end: 10, value: "<!-- c -->" },
-      { start: 14, end: 17, value: "<b>" },
-      { start: 18, end: 22, value: "</b>" },
-    ])
-  })
-})
-
 test("freezes every value it gives", () => {
-  const read = markdown(
-    "## A\n\n| [a](a.md) |\n| - |\n\n[x]: https://h\n\n<!-- c -->\n\nSee[^1].\n\n[^1]: n\n",
-  )
+  const read = markdown("## A\n\n[a](a.md)\n\n[x]: https://h\n")
   for (const value of [
     read,
-    read.notes,
-    read.notes[0],
-    read.footnotes,
-    read.footnotes[0],
     section(read, "## A"),
     read.blocks,
     read.headings[0],
@@ -271,10 +216,6 @@ test("freezes every value it gives", () => {
     read.links,
     read.links[0],
     read.definitions[0],
-    read.html[0],
-    read.rows,
-    read.rows[0],
-    read.rows[0]?.[0],
   ])
     expect(Object.isFrozen(value)).toBe(true)
 })

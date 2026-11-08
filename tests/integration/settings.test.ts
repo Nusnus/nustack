@@ -2,10 +2,12 @@
  * Each target make help lists installs bun.lock before it runs a Bun script, as make itself expands the target: through
  * its prerequisites and each recursive make. The test reads each command by its own pattern, apart from the check's
  * workflows rule, so a script form that rule misses still counts here. make check stops at once without zip or unzip,
- * and make smoke without unzip, each naming the fix.
+ * and make smoke without unzip, each naming the fix. bunfig.toml turns off Bun's auto-install, so a script that runs
+ * before bun install --frozen-lockfile fails on the package it lacks instead of fetching a version bun.lock does not
+ * lock.
  */
 import { afterEach, expect, test } from "bun:test"
-import { symlink } from "node:fs/promises"
+import { copyFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { TemporaryFolders } from "../fixtures/folders.ts"
 import { type Finished, finished } from "../fixtures/process.ts"
@@ -106,3 +108,20 @@ test.each([
     expect(run.stderr).toStartWith(fix)
   },
 )
+
+test("turns off auto-install", async () => {
+  expect(Bun.TOML.parse(await Bun.file(join(root, "bunfig.toml")).text())).toMatchObject({
+    install: { auto: "disable" },
+  })
+})
+
+test("fails a script whose package is not installed", async () => {
+  const folder = await folders.make()
+  await copyFile(join(root, "bunfig.toml"), join(folder, "bunfig.toml"))
+  await writeFile(join(folder, "script.ts"), 'import "is-odd"\n')
+  const run = await finished(
+    Bun.spawn([process.execPath, "script.ts"], { cwd: folder, stdout: "pipe", stderr: "pipe" }),
+  )
+  expect(run.code).not.toBe(0)
+  expect(run.stderr).toContain("Cannot find package 'is-odd'")
+})

@@ -3,7 +3,7 @@
  * its error's message alone, exiting 1; requireTool stops on a tool not on the PATH, saying how to install it.
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
-import { asksForUsage, requireTool, runMain } from "../../../scripts/command.ts"
+import { asksForUsage, runMain } from "../../../scripts/command.ts"
 
 test.each([
   [["--help"], true],
@@ -57,25 +57,4 @@ describe("runMain", () => {
       }
     },
   )
-})
-
-describe("requireTool", () => {
-  test("stops on a tool not on the PATH, saying how to install it", () => {
-    const which = spyOn(Bun, "which").mockReturnValue(null)
-    try {
-      expect(() => requireTool("x", "install x")).toThrow("x is not on PATH; install x, then rerun")
-      expect(which).toHaveBeenCalledWith("x")
-    } finally {
-      which.mockRestore()
-    }
-  })
-
-  test("passes a tool on the PATH", () => {
-    const which = spyOn(Bun, "which").mockReturnValue("/bin/x")
-    try {
-      expect(() => requireTool("x", "install x")).not.toThrow()
-    } finally {
-      which.mockRestore()
-    }
-  })
 })

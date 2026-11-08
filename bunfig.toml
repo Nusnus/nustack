@@ -1,3 +1,9 @@
+# https://bun.com/docs/runtime/bunfig#install-auto
+[install]
+# A script run before bun install --frozen-lockfile fails with "Cannot find
+# package" instead of fetching a version bun.lock does not lock.
+auto = "disable"
+
 # https://bun.com/docs/runtime/bunfig#test-runner
 [test]
 root = "tests"

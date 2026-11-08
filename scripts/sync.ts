@@ -1,31 +1,22 @@
 /**
  * The vendored copies' sync. `list` prints each record in vendored/ with its pull request's branch, for the sync
  * workflow's matrix; `sync <record> <body-file>` copies the record's skills from upstream's default branch, rewrites
- * the record's commit and files, and writes the pull request's body from the PR template's layout, listing each file
- * the copy changes, adds or drops and each skill upstream holds that the record does not list. It compares upstream with
+ * the record's commit and files, and writes the pull request's body, listing each file the copy changes, adds or drops,
+ * upstream's commits since the last sync and what review asks before the merge. It compares upstream with
  * the copy the checkout holds, so it also restores a copy edited by hand since the last sync. `proposed <record> <branch>
  * <base> <body-file>` writes proposed=true to $GITHUB_OUTPUT when an open pull request from the copy's branch into the base comes from
  * this repository and that branch already proposes the copy on the base's head, so the workflow leaves that pull request,
  * with the commits a reviewer added, as it is; it gives the pull request the body the sync wrote only where the two
- * differ beyond the run that wrote them, so a reviewer sees an edit only when the copy's description changes.
+ * differ, so a reviewer sees an edit only when the copy's description changes.
  */
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { asksForUsage, runMain, usage } from "./command.ts"
 import { type Gh, ghOutput, runGh } from "./gh.ts"
 import { GitError, type GitOptions, git, gitBytes } from "./git.ts"
-import { type Markdown, markdown, within } from "./markdown.ts"
-import {
-  type CopyRecord,
-  FILE_PATH,
-  KEBAB,
-  OBJECT_ID,
-  parseRecord,
-  recordText,
-  SHA,
-} from "./record.ts"
-import { readEntry, rethrowUnlessMissing } from "./tree.ts"
+import { type CopyRecord, FILE_PATH, OBJECT_ID, parseRecord, recordText, SHA } from "./record.ts"
+import { readEntry } from "./tree.ts"
 
 // The most characters GitHub takes in a pull request's body.
 const BODY_LIMIT = 65_536
@@ -41,56 +32,8 @@ const USAGE = usage(
 
 export type Change = Readonly<Record<"changed" | "added" | "removed", readonly string[]>>
 
-/** The pages a reviewer checks the sync against: the run that wrote it, and upstream's commits since the last sync. */
-export type Links = Readonly<{ run?: string; compare?: string }>
-
-/** What a sync proposes, for its pull request's body; `recordChanges` says whether the record changes too. */
-export type Proposal = Readonly<{
-  path: string
-  copy: CopyRecord
-  changes: Change
-  unlisted: readonly string[]
-  recordChanges: boolean
-  links: Links
-}>
-
 /** The pull request's body, or the notice of a run that proposes nothing. */
 export type Outcome = Readonly<{ body: string; proposes: boolean }>
-
-export const TEMPLATE = ".github/pull_request_template.md"
-// A placeholder in the template is an HTML comment naming what fills it, such as <!-- Changes -->.
-const PLACEHOLDER = /<!-- (.+?) -->/
-// The Checks bullet that links the sync run that wrote a body, which each run changes.
-const RUN = "- The sync run that wrote it: "
-const RUN_LINK = new RegExp(`^(${RUN})\\S*`, "m")
-
-// The parts of the PR template, in its order; body() fills each that a sync has.
-const PARTS = Object.freeze([
-  "What changed",
-  "Risk",
-  "Review first",
-  "After merge",
-  "Checks",
-  "Files",
-  "Decisions",
-] as const)
-
-// Each placeholder of the PR template that body() fills.
-const PLACEHOLDERS = Object.freeze([
-  "Headline",
-  "What the change does for its reader",
-  "Badges",
-  "issue",
-  "Changes",
-  "Risk",
-  "Review",
-  "step",
-  "Fold summary",
-  "Checks",
-  "Files",
-  "Decisions",
-] as const)
-type Placeholder = (typeof PLACEHOLDERS)[number]
 
 // A copy in plugin/ changes what users install, so its sync is a feature; any other copy only documents nustack.
 const TYPES: Readonly<Record<CopyRecord["folder"], "feat" | "docs">> = Object.freeze({
@@ -102,10 +45,6 @@ type Entry = Readonly<{ mode: string; blob: string; file: string }>
 // An entry of `git ls-tree -z` and of `git ls-files --stage -z`, which gives the blob's merge stage after it.
 const TREE_ENTRY = new RegExp(`^(?<mode>\\d{6}) blob (?<blob>${OBJECT_ID})\t(?<file>.+)$`, "s")
 const INDEX_ENTRY = new RegExp(`^(?<mode>\\d{6}) (?<blob>${OBJECT_ID}) \\d\t(?<file>.+)$`, "s")
-
-function isPlaceholder(name: string): name is Placeholder {
-  return (PLACEHOLDERS as readonly string[]).includes(name)
-}
 
 export async function run(
   root: string,
@@ -243,8 +182,7 @@ export async function proposed(
   return (await holds(["diff", "--quiet", proposing, "--", path, ...folders])) ? kept : []
 }
 
-// A kept pull request takes the body the sync wrote only where the two differ beyond the run that wrote them, as main's
-// sync did, so each run's new run link alone edits no description. It says whether it edited the body.
+// A kept pull request takes the body the sync wrote only where the two differ. It says whether it edited the body.
 export async function refresh(gh: Gh, number: number, bodyFile: string): Promise<boolean> {
   const view = ["pr", "view", String(number), "--json", "body"]
   const output = await ghOutput(gh, view)
@@ -254,14 +192,14 @@ export async function refresh(gh: Gh, number: number, bodyFile: string): Promise
   } catch {}
   if (typeof current !== "string")
     throw new Error(`gh ${view.join(" ")} printed no pull request body; update gh, then rerun`)
-  if (beyondTheRun(current) === beyondTheRun(await readFile(bodyFile, "utf8"))) return false
+  if (trimmed(current) === trimmed(await readFile(bodyFile, "utf8"))) return false
   await ghOutput(gh, ["pr", "edit", String(number), "--body-file", bodyFile])
   return true
 }
 
-// A body with its run link dropped, and the newlines it ends on, which GitHub may trim from a stored body.
-function beyondTheRun(body: string): string {
-  return body.replace(RUN_LINK, "$1").replace(/\n+$/, "")
+// A body without the newlines it ends on, which GitHub may trim from a stored body.
+function trimmed(body: string): string {
+  return body.replace(/\n+$/, "")
 }
 
 async function readRecord(root: string, path: string): Promise<CopyRecord> {
@@ -272,9 +210,6 @@ async function readRecord(root: string, path: string): Promise<CopyRecord> {
 
 export async function sync(root: string, path: string, clone = cloneUpstream): Promise<Outcome> {
   const old = await readRecord(root, path)
-  const text = await readFile(join(root, TEMPLATE), "utf8").catch(rethrowUnlessMissing)
-  if (text === undefined) throw new Error(`${TEMPLATE}: is missing; restore it`)
-  const template = checkTemplate(text)
   const upstream = await mkdtemp(join(tmpdir(), "nustack-sync-"))
   try {
     await clone(old.upstream, upstream).catch((error) => {
@@ -287,7 +222,6 @@ export async function sync(root: string, path: string, clone = cloneUpstream): P
       throw new Error(
         `${path}: its upstream names its commits by other than SHA-1; nustack syncs SHA-1 repositories only, so point the record at one`,
       )
-    const unlisted = await unlistedSkills(upstream, old)
     const files: Record<string, string> = {}
     const executables = new Set<string>()
     const borrowed = new Set<string>()
@@ -311,16 +245,8 @@ export async function sync(root: string, path: string, clone = cloneUpstream): P
         if (entry.mode === "100755") executables.add(name)
         else executables.delete(name)
       }
-      if (!(`${skill}/SKILL.md` in files && `${skill}/LICENSE` in files)) {
-        // A skill upstream renamed shows up as one the record does not list.
-        const renamed =
-          unlisted.length === 0
-            ? ""
-            : ` Upstream holds ${unlisted.join(", ")}, which the record does not list; it may have renamed ${skill} to one.`
-        throw new Error(
-          `${old.upstream} holds no ${from}/SKILL.md or no LICENSE; fix ${path}.${renamed}`,
-        )
-      }
+      if (!(`${skill}/SKILL.md` in files && `${skill}/LICENSE` in files))
+        throw new Error(`${old.upstream} holds no ${from}/SKILL.md or no LICENSE; fix ${path}`)
     }
     // An upstream commit that touches none of the copied files leaves the record's commit as it was.
     const paths = [
@@ -339,18 +265,11 @@ export async function sync(root: string, path: string, clone = cloneUpstream): P
     const changes = change(await checkedIn(root, old), modes)
     const unchanged = (each: Change) => Object.values(each).every((list) => list.length === 0)
     const sameFiles = unchanged(change(old.files, sorted))
-    if (unchanged(changes) && sameFiles) {
-      const also =
-        unlisted.length === 0
-          ? ""
-          : ` Upstream also holds ${unlisted.join(", ")}, which the record does not list.`
-      const body = `The copy matches upstream, so the sync proposes nothing.${also}\n`
-      return { body, proposes: false }
-    }
+    if (unchanged(changes) && sameFiles)
+      return { body: "The copy matches upstream, so the sync proposes nothing.\n", proposes: false }
     const next: CopyRecord = Object.freeze({ ...old, commit, files: Object.freeze(sorted) })
     const recordChanges = !sameFiles || old.commit !== commit
-    const links = linksOf(old, commit)
-    const text = body(template, { path, copy: next, changes, unlisted, recordChanges, links })
+    const text = body(path, next, changes, recordChanges, compareOf(old, commit))
     if (text.length > BODY_LIMIT)
       throw new Error(
         `${path}: its sync's pull request body for ${old.folder} runs past GitHub's ${BODY_LIMIT.toLocaleString("en")} characters; split its skills across records, then rerun`,
@@ -364,21 +283,10 @@ export async function sync(root: string, path: string, clone = cloneUpstream): P
       const mode = executables.has(name) ? 0o755 : 0o644
       await writeFile(copy(name), await gitBytes(["cat-file", "blob", blob], upstream), { mode })
     }
-    if (recordChanges) await writeWhole(join(root, path), recordText(next))
+    if (recordChanges) await writeFile(join(root, path), recordText(next))
     return { body: text, proposes: true }
   } finally {
     await rm(upstream, { recursive: true, force: true })
-  }
-}
-
-// A stop partway through leaves the old file as it was, since the rename replaces it in one step.
-async function writeWhole(path: string, text: string): Promise<void> {
-  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`)
-  try {
-    await writeFile(temporary, text)
-    await rename(temporary, path)
-  } finally {
-    await rm(temporary, { force: true })
   }
 }
 
@@ -413,170 +321,34 @@ function entryOf(line: string, pattern: RegExp): Entry | undefined {
   return Object.freeze({ mode: `${groups.mode}`, blob: `${groups.blob}`, file: `${groups.file}` })
 }
 
-// The run's page comes from the variables each Actions run sets:
-// https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables
 // GitHub alone gives a compare page by this path, so other upstreams get none.
-export function linksOf(old: CopyRecord, commit: string, env = process.env): Links {
-  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, GITHUB_RUN_ID: id } = env
-  const run = server && repository && id ? `${server}/${repository}/actions/runs/${id}` : undefined
+export function compareOf(old: CopyRecord, commit: string): string | undefined {
   const github = old.upstream.startsWith("https://github.com/")
   const moved = old.commit !== null && old.commit !== commit
-  const compare = github && moved ? `${old.upstream}/compare/${old.commit}...${commit}` : undefined
-  return Object.freeze({ ...(run && { run }), ...(compare && { compare }) })
+  return github && moved ? `${old.upstream}/compare/${old.commit}...${commit}` : undefined
 }
 
-// Each skill upstream holds beside the source's other skills, in kebab case, so the body can name it. A skill the
-// recorded commit already held is one the record leaves out on purpose, so only a skill new since then is named; a
-// recorded commit upstream's history no longer holds names every one.
-async function unlistedSkills(upstream: string, copy: CopyRecord): Promise<string[]> {
-  const history =
-    copy.commit === null ? [] : (await git(["rev-list", "HEAD"], upstream)).split("\n")
-  const known =
-    copy.commit !== null && history.includes(copy.commit)
-      ? await skillsAt(upstream, copy, copy.commit)
-      : []
-  return (await skillsAt(upstream, copy, "HEAD"))
-    .filter((skill) => !copy.skills.includes(skill) && !known.includes(skill))
-    .sort()
-}
-
-async function skillsAt(upstream: string, copy: CopyRecord, commit: string): Promise<string[]> {
-  const tree = await git(
-    ["ls-tree", "-r", "-z", "--name-only", commit, "--", `${copy.source}/`],
-    upstream,
-  )
-  return tree
-    .split("\0")
-    .map((file) => file.slice(copy.source.length + 1).split("/"))
-    .filter((parts) => parts.length === 2 && parts[1] === "SKILL.md")
-    .map(([skill = ""]) => skill)
-    .filter((skill) => KEBAB.test(skill))
-}
-
-// Refuses a template body() cannot fill, so a sync stops before it writes anything, and gives the template as parsed.
-export function checkTemplate(template: string): Markdown {
-  const read = markdown(template)
-  const headings = read.headings.filter(({ depth }) => depth === 4).map(({ text }) => text)
-  if (headings.join("\n") !== PARTS.join("\n"))
-    throw new Error(
-      `${TEMPLATE}: its #### parts are not ${PARTS.join(", ")}; update body() in scripts/sync.ts to match`,
-    )
-  const guidance = guidanceOf(read)
-  const names = read.html
-    .filter((html) => guidance === undefined || !within(html, guidance))
-    .flatMap(({ value }) => {
-      const [, name] = PLACEHOLDER.exec(value) ?? []
-      return name === undefined ? [] : [name]
-    })
-  if (names.some((name) => !isPlaceholder(name)))
-    throw new Error(
-      `${TEMPLATE}: holds a placeholder body() in scripts/sync.ts cannot fill; fill it there`,
-    )
-  return read
-}
-
-// The PR template as checkTemplate parsed it, its guidance comment left out and each placeholder filled. A sync leaves
-// out a risk part for a copy outside the plugin, since the template asks for one only above low risk, and the issue,
-// the steps after the merge and the decisions, which it has none of; a part left empty goes with its heading.
-export function body(template: Markdown, proposal: Proposal): string {
-  const { path, copy, changes, unlisted, recordChanges, links } = proposal
-  const { changed, added, removed } = changes
-  const installed = copy.folder === "plugin/skills"
-  const count = (n: number) => `${n} ${n === 1 ? "file" : "files"}`
-  const files = (n: number, verb: string) => (n === 0 ? [] : [`- ${verb} ${count(n)} of the copy.`])
+export function body(
+  path: string,
+  copy: CopyRecord,
+  { changed, added, removed }: Change,
+  recordChanges: boolean,
+  compare?: string,
+): string {
   const listed = (names: readonly string[], kind: string) =>
     names.map((name) => `- \`${name}\`, ${kind}`)
-  const [risk, colour] = installed ? ["medium", "9a6700"] : ["low", "1f883d"]
-  const size = changed.length + added.length + removed.length + (recordChanges ? 1 : 0)
-  const updates = recordChanges ? `, and updates ${path} to match` : ""
-  const fills: Readonly<Record<Placeholder, string | readonly string[] | null>> = {
-    Headline: `Copy ${basename(path, ".json")} from upstream`,
-    "What the change does for its reader": `Copies ${copy.skills.join(", ")} from ${copy.upstream} at ${copy.commit}${updates}.`,
-    Badges: [
-      badge("Risk", risk, colour),
-      badge("Checks", "CI not run", "9a6700"),
-      badge("Size", count(size), "6e7781"),
-    ].join(" "),
-    issue: null,
-    Changes: [
-      ...files(changed.length, "Changes"),
-      ...files(added.length, "Adds"),
-      ...files(removed.length, "Removes"),
-      ...(recordChanges ? ["- Sets the record's commit and blobs to upstream's."] : []),
-      ...(links.compare === undefined
-        ? []
-        : [`- Upstream's commits since the last sync: ${links.compare}`]),
-    ],
-    Risk: installed
-      ? "Medium. The copy's text reaches every plugin user's agent and steers it. Close this pull request to keep the current copy."
-      : null,
-    Review: [
-      "- Read the copy as untrusted text, as REVIEW.md says, starting from the files in the fold.",
-      "- Before the merge, add the copy's CHANGELOG.md entry, as AGENTS.md › Pull requests says, and set the checks badge to the checks' state.",
-      ...(unlisted.length === 0
-        ? []
-        : [
-            `- Upstream also holds ${unlisted.join(", ")}, which the record does not list; add a skill to the record to copy it.`,
-          ]),
-    ],
-    step: null,
-    "Fold summary": "Checks and files",
-    Checks: [
-      "- CI had not run when the sync wrote this description.",
-      ...(links.run === undefined ? [] : [`${RUN}${links.run}`]),
-    ],
-    Files: [
-      ...listed(changed, "changed"),
-      ...listed(added, "added"),
-      ...listed(removed, "removed"),
-      ...(recordChanges ? [`- \`${path}\`, the record`] : []),
-    ],
-    Decisions: null,
-  }
-  // Each top-level block, the guidance comment that opens the template left out, with each placeholder filled.
-  const blocks = template.blocks
-    .slice(guidanceOf(template) === undefined ? 0 : 1)
-    .flatMap((block) => {
-      let text = template.text.slice(block.start, block.end)
-      let whole = false
-      for (const { value, start } of template.html
-        .filter((html) => within(html, block))
-        .reverse()) {
-        const [placeholder, name = ""] = PLACEHOLDER.exec(value) ?? []
-        if (placeholder === undefined) continue
-        const fill = isPlaceholder(name) ? fills[name] : null
-        if (fill === null) return []
-        const at = start - block.start + value.indexOf(placeholder)
-        whole ||= text === placeholder
-        text =
-          typeof fill === "string"
-            ? text.slice(0, at) + fill + text.slice(at + placeholder.length)
-            : fill.join("\n")
-      }
-      if (text === "") return []
-      return [
-        {
-          text,
-          part: block.type === "heading" && block.depth === 4,
-          content: whole || (block.type !== "html" && block.type !== "heading"),
-        },
-      ]
-    })
-  // A part left empty goes with its heading: one that the next heading, HTML or the end follows.
-  const kept = blocks.filter((block, index) => !block.part || (blocks[index + 1]?.content ?? false))
-  return `${kept.map(({ text }) => text).join("\n\n")}\n`
-}
-
-// The comment that opens the PR template to guide its author, which a sync's description leaves out.
-function guidanceOf(read: Markdown): Markdown["blocks"][number] | undefined {
-  const [first] = read.blocks
-  return first?.type === "html" && read.text.startsWith("<!--", first.start) ? first : undefined
-}
-
-// A shields.io static badge: https://shields.io/badges/static-badge
-function badge(label: string, message: string, colour: string): string {
-  const escaped = encodeURIComponent(message)
-  return `![${label}: ${message}](https://img.shields.io/badge/${label.toLowerCase()}-${escaped}-${colour}?style=flat-square)`
+  return [
+    `Copies ${copy.skills.join(", ")} from ${copy.upstream} at ${copy.commit}.`,
+    "",
+    ...listed(changed, "changed"),
+    ...listed(added, "added"),
+    ...listed(removed, "removed"),
+    ...(recordChanges ? [`- \`${path}\`, the record`] : []),
+    ...(compare === undefined ? [] : ["", `Upstream's commits since the last sync: ${compare}`]),
+    "",
+    "Read the copy as untrusted text, as REVIEW.md says, and before the merge add its CHANGELOG.md entry, as AGENTS.md › Pull requests says.",
+    "",
+  ].join("\n")
 }
 
 export async function cloneUpstream(

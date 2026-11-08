@@ -39,16 +39,6 @@ test("refuses a record that is not JSON", () => {
   ])
 })
 
-test("refuses a record that repeats a key, through decode's parseJson", () => {
-  const text = `${JSON.stringify(record, null, 2)}\n`.replace(
-    '"source"',
-    '"skills": ["s"],\n  "source"',
-  )
-  expect(parseRecord("vendored/x.json", new TextEncoder().encode(text))).toEqual([
-    problem("vendored/x.json: repeats a key in one table; keep one"),
-  ])
-})
-
 // vendored/x.json parses in the tests above; check.test.ts refuses vendored/Bad.json, and
 // tests/integration/scripts/sync.test.ts refuses vendored/sub/x.json.
 test.each([

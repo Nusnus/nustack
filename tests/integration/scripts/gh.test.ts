@@ -77,10 +77,3 @@ test.each([
     expect(await Bun.file(log).text()).toBe(`${args.join(" ")}\n`)
   },
 )
-
-test("names the fix when gh is not on the PATH", async () => {
-  const bin = await folders.make()
-  expect(await ranGh(bin, 5000, ["pr", "list"], bin)).toBe(
-    "gh is not on PATH; install gh, as https://cli.github.com says, then rerun\n",
-  )
-})

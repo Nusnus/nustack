@@ -52,7 +52,6 @@ export function parseRecord(path: string, bytes?: Uint8Array | "symlink"): CopyR
     "folder is .agents/skills or plugin/skills": RECORD_FOLDERS.some((name) => name === folder),
     "skills lists distinct skill names in kebab case":
       distinct && names.every((name) => matches(name, KEBAB)),
-    "each skill name is at most 64 characters": names.every((name) => String(name).length <= 64),
     "commit is null or a full commit SHA": commit === null || matches(commit, SHA),
     "files maps each file, under one of its skills, to its Git blob":
       isMap &&
@@ -70,12 +69,6 @@ export function parseRecord(path: string, bytes?: Uint8Array | "symlink"): CopyR
   if (fixes.length > 0)
     return fixes.map((fix) => problem(`${path}: is not a record; make sure ${fix}`))
   for (const part of [names, files, record]) Object.freeze(part)
-  if (new TextDecoder().decode(bytes as Uint8Array) !== recordText(record as CopyRecord))
-    return [
-      problem(
-        `${path}: is not laid out as the sync writes a record; write it with two-space indents, its keys in the order upstream, source, folder, skills, commit, files, its files sorted and one final newline`,
-      ),
-    ]
   return record as CopyRecord
 }
 

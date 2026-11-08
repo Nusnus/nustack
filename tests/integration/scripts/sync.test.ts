@@ -5,20 +5,9 @@
  * base's head, resets it once upstream, the base or the copy moves or no such pull request is open, and stops when gh
  * fails or prints no list of pull requests.
  */
-import { afterEach, expect, spyOn, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
-import * as files from "node:fs/promises"
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises"
+import { chmod, mkdir, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { Gh, GhResult } from "../../../scripts/gh.ts"
 import { GitError, git } from "../../../scripts/git.ts"
@@ -60,11 +49,6 @@ async function repositoryOf(records: Record<string, unknown>): Promise<string> {
   const root = await folders.make()
   await git(["init", "-q", root], root)
   await mkdir(join(root, "vendored"))
-  await mkdir(join(root, ".github"))
-  await copyFile(
-    join(import.meta.dir, "../../../.github/pull_request_template.md"),
-    join(root, ".github/pull_request_template.md"),
-  )
   for (const [name, text] of Object.entries(records))
     await writeFile(join(root, "vendored", name), `${JSON.stringify(text, null, 2)}\n`)
   await git(["add", "."], root)
@@ -129,7 +113,6 @@ test("copies each blob's bytes and mode under upstream's root LICENSE, drops wha
   expect(text).toContain(
     "- `s/SKILL.md`, changed\n- `s/A.bin`, added\n- `s/nested/SKILL.md`, added\n- `s/old.md`, removed\n",
   )
-  expect(text).toContain("- Upstream also holds t, which the record does not list;")
   await git(["add", "."], root)
   expect(await run(root, ["sync", "vendored/x.json", out], cloned)).toBe(
     `Wrote ${out}\nThe copy matches upstream, so the sync proposes nothing.`,
@@ -164,9 +147,7 @@ test("copies each blob's bytes and mode under upstream's root LICENSE, drops wha
     `${JSON.stringify({ ...old, skills: ["gone"], commit: null, files: {} }, null, 2)}\n`,
   )
   await expect(sync(root, "vendored/x.json", cloned)).rejects.toThrow(
-    new Error(
-      "https://h/o/n holds no skills/gone/SKILL.md or no LICENSE; fix vendored/x.json. Upstream holds s, t, which the record does not list; it may have renamed gone to one.",
-    ),
+    new Error("https://h/o/n holds no skills/gone/SKILL.md or no LICENSE; fix vendored/x.json"),
   )
 })
 
@@ -215,7 +196,7 @@ test("rewrites a record edited by hand since its last sync, whose copy matches u
   await git(["add", "."], root)
   const { body, proposes } = await sync(root, "vendored/x.json", clonerOf(upstream))
   expect(proposes).toBe(true)
-  expect(body).toContain("#### Files\n\n- `vendored/x.json`, the record\n\n</details>")
+  expect(body).toContain(".\n\n- `vendored/x.json`, the record\n\nRead the copy")
   const written = JSON.parse(await readFile(join(root, "vendored/x.json"), "utf8"))
   expect(written).toEqual({ ...record, commit: head, files })
 })
@@ -233,12 +214,7 @@ test("restores a copy edited by hand since its last sync, its mode included", as
   await git(["add", "."], root)
   const before = await readFile(join(root, "vendored/x.json"), "utf8")
   const { body: text } = await sync(root, "vendored/x.json", clonerOf(upstream))
-  expect(text).toContain(
-    "#### Files\n\n- `s/LICENSE`, changed\n- `s/SKILL.md`, changed\n\n</details>",
-  )
-  expect(text).toContain(
-    "![Size: 2 files](https://img.shields.io/badge/size-2%20files-6e7781?style=flat-square)",
-  )
+  expect(text).toContain(".\n\n- `s/LICENSE`, changed\n- `s/SKILL.md`, changed\n\nRead the copy")
   expect(text).not.toContain("the record")
   expect(await readFile(join(root, "vendored/x.json"), "utf8")).toBe(before)
   expect(await readFile(join(skill, "SKILL.md"), "utf8")).toBe("x\n")
@@ -249,7 +225,7 @@ test("refuses a skill upstream holds with no LICENSE of its own and none at its 
   const upstream = await upstreamOf({ "skills/s/SKILL.md": "x\n" })
   const root = await repositoryOf({ "x.json": { ...record, commit: null, files: {} } })
   await expect(sync(root, "vendored/x.json", clonerOf(upstream))).rejects.toThrow(
-    new Error("https://h/o/n holds no skills/s/SKILL.md or no LICENSE; fix vendored/x.json."),
+    new Error("https://h/o/n holds no skills/s/SKILL.md or no LICENSE; fix vendored/x.json"),
   )
 })
 
@@ -356,26 +332,6 @@ test("proposes nothing for a copy that matches upstream, naming no skill when up
   )
 })
 
-test("names only the unlisted skills upstream added since the recorded commit", async () => {
-  const upstream = await upstreamOf({
-    LICENSE: "MIT\n",
-    "skills/s/SKILL.md": "x\n",
-    "skills/t/SKILL.md": "t\n",
-  })
-  const root = await repositoryOf({ "x.json": { ...record, commit: null, files: {} } })
-  const synced = await sync(root, "vendored/x.json", clonerOf(upstream))
-  expect(synced.body).toContain("- Upstream also holds t, which the record does not list;")
-  await git(["add", "."], root)
-  await mkdir(join(upstream, "skills/u"))
-  await writeFile(join(upstream, "skills/u/SKILL.md"), "u\n")
-  await commit(upstream)
-  await git(["push", "-q", `${upstream}.git`, "HEAD"], upstream, LOCAL)
-  expect(await sync(root, "vendored/x.json", clonerOf(upstream))).toEqual({
-    body: "The copy matches upstream, so the sync proposes nothing. Upstream also holds u, which the record does not list.\n",
-    proposes: false,
-  })
-})
-
 test("reads an upstream source that starts with a dash as a folder, not an option", async () => {
   const upstream = await upstreamOf({
     LICENSE: "MIT\n",
@@ -386,8 +342,7 @@ test("reads an upstream source that starts with a dash as a folder, not an optio
   const root = await repositoryOf({
     "x.json": { ...record, source: "-x", commit: null, files: {} },
   })
-  const synced = await sync(root, "vendored/x.json", clonerOf(upstream))
-  expect(synced.body).toContain("- Upstream also holds t, which the record does not list;")
+  await sync(root, "vendored/x.json", clonerOf(upstream))
   expect(JSON.parse(await readFile(join(root, "vendored/x.json"), "utf8")).files).toEqual({
     "s/LICENSE": blob("MIT\n"),
     "s/SKILL.md": blob("x\n"),
@@ -415,15 +370,6 @@ test("stops on a pull request body longer than GitHub's 65,536 characters, writi
   expect(JSON.parse(await readFile(join(root, "vendored/x.json"), "utf8"))).toEqual(old)
 })
 
-test("refuses a checkout with no PR template", async () => {
-  const root = await repositoryOf({ "x.json": { ...record, commit: null, files: {} } })
-  await rm(join(root, ".github/pull_request_template.md"))
-  const clone = () => Promise.reject(new Error("the sync cloned upstream"))
-  await expect(sync(root, "vendored/x.json", clone)).rejects.toThrow(
-    new Error(".github/pull_request_template.md: is missing; restore it"),
-  )
-})
-
 test("refuses a file under a root LICENSE folder, which no record can list", async () => {
   const upstream = await upstreamOf({
     "LICENSE/MIT": "MIT\n",
@@ -436,23 +382,7 @@ test("refuses a file under a root LICENSE folder, which no record can list", asy
   )
 })
 
-test("refuses a PR template body() cannot fill before it writes the copy or the record", async () => {
-  const upstream = await upstreamOf({ LICENSE: "MIT\n", "skills/s/SKILL.md": "x\n" })
-  const old = { ...record, commit: null, files: {} }
-  const root = await repositoryOf({ "x.json": old })
-  const template = join(root, ".github/pull_request_template.md")
-  await writeFile(
-    template,
-    (await readFile(template, "utf8")).replace("#### Review first", "#### Review"),
-  )
-  await expect(sync(root, "vendored/x.json", clonerOf(upstream))).rejects.toThrow(
-    "its #### parts are not",
-  )
-  expect(JSON.parse(await readFile(join(root, "vendored/x.json"), "utf8"))).toEqual(old)
-  expect(existsSync(join(root, "plugin/skills/s"))).toBe(false)
-})
-
-test("links the sync's run and upstream's commits since the recorded one from the body", async () => {
+test("links upstream's commits since the recorded one from the body", async () => {
   const upstream = await upstreamOf({ LICENSE: "MIT\n", "skills/s/SKILL.md": "x\n" })
   const head = (await git(["rev-parse", "HEAD"], upstream)).trim()
   const github = {
@@ -462,24 +392,11 @@ test("links the sync's run and upstream's commits since the recorded one from th
     files: { "s/LICENSE": blob("MIT\n"), "s/SKILL.md": blob("x\n") },
   }
   const root = await repositoryOf({ "x.json": github })
-  const keys = ["GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"] as const
-  const saved = keys.map((key) => [key, process.env[key]] as const)
-  Object.assign(process.env, {
-    GITHUB_SERVER_URL: "https://github.com",
-    GITHUB_REPOSITORY: "o/r",
-    GITHUB_RUN_ID: "7",
-  })
   const cloned = (_url: string, into: string) => cloneUpstream(`file://${upstream}`, into, LOCAL)
-  const ran = sync(root, "vendored/x.json", cloned).finally(() => {
-    for (const [key, value] of saved)
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-  })
-  const { body } = await ran
+  const { body } = await sync(root, "vendored/x.json", cloned)
   expect(body).toContain(
-    `- Upstream's commits since the last sync: https://github.com/o/n/compare/${"a".repeat(40)}...${head}\n`,
+    `\nUpstream's commits since the last sync: https://github.com/o/n/compare/${"a".repeat(40)}...${head}\n`,
   )
-  expect(body).toContain("- The sync run that wrote it: https://github.com/o/r/actions/runs/7\n")
 })
 
 test("refuses a copy whose index entry it cannot read", async () => {
@@ -650,13 +567,8 @@ const reply = (path: string): Promise<GhResult> => Bun.file(join(GITHUB, path)).
 // `gh api repos/Nusnus-Private/nustack/pulls/143 --jq .body` and `--jq '{title}'` printed; pr-edit/143.json is
 // `gh pr edit 143 --body-file body.md`'s, run with the body it held.
 const VIEWED = await reply("pr-view/body.json")
-const RUN = "- The sync run that wrote it: https://github.com/Nusnus-Private/nustack/actions/runs/7"
-// #143's body has no run link, so the pull request a sync keeps holds it with one, closing on no newline, as GitHub
-// keeps a body.
-const VIEWED_BODY: string = JSON.parse(VIEWED.stdout).body
-const HELD = `${VIEWED_BODY}\n\n${RUN}`
-// A line that quotes the run link mid-line, which a body may hold beside the link itself.
-const QUOTED = `A sync's description ends on "${RUN}".`
+// #143's body, closing on no newline, as GitHub keeps a body.
+const HELD: string = JSON.parse(VIEWED.stdout).body
 const viewing = (body: string): GhResult => ({ ...VIEWED, stdout: `${JSON.stringify({ body })}\n` })
 
 // A gh that answers the open pull requests from the branch into main with a reply recorded in
@@ -733,22 +645,10 @@ test("keeps a branch, with the reviewer's commit, that proposes this copy on the
 
 test.each([
   ["the body the sync writes", HELD, HELD, false],
-  ["that body with another run's link", HELD, HELD.replace("/runs/7", "/runs/8"), false],
   ["that body with a closing newline", HELD, `${HELD}\n`, false],
-  [
-    "a body that also quotes the run link mid-line",
-    `${QUOTED}\n\n${HELD}`,
-    `${QUOTED}\n\n${VIEWED_BODY}\n\n${RUN.replace("/runs/7", "/runs/8")}`,
-    false,
-  ],
-  [
-    "a body that differs beyond the run's link",
-    HELD,
-    HELD.replace(RUN, `- Another check.\n${RUN}`),
-    true,
-  ],
+  ["another body", HELD, `${HELD}\n\n- Another file.`, true],
 ] as const)(
-  "gives a kept pull request the sync's body only when it differs beyond the run's link, as for %s",
+  "gives a kept pull request the sync's body only when it differs, as for %s",
   async (_written, held, written, edited) => {
     const upstream = await upstreamOf({ LICENSE: "MIT\n", "skills/s/SKILL.md": "x\n" })
     const edits: string[] = []
@@ -895,24 +795,6 @@ test("stops on an upstream that names its commits by SHA-256, before it reads a 
   expect(await readFile(join(root, "vendored/x.json"), "utf8")).toBe(before)
   expect(existsSync(join(root, "plugin"))).toBe(false)
   expect(existsSync(out)).toBe(false)
-})
-
-test("leaves the record as it was, with no file beside it, when its write stops partway", async () => {
-  const upstream = await upstreamOf({ LICENSE: "MIT\n", "skills/s/SKILL.md": "x\n" })
-  const root = await repositoryOf({ "x.json": { ...record, commit: null, files: {} } })
-  const before = await readFile(join(root, "vendored/x.json"), "utf8")
-  const write = files.writeFile
-  const stop = spyOn(files, "writeFile").mockImplementation(async (path, data, options) => {
-    if (!String(path).includes("x.json")) return write(path, data, options)
-    await write(path, String(data).slice(0, 10))
-    throw new Error("stopped partway")
-  })
-  const stopped = sync(root, "vendored/x.json", clonerOf(upstream)).finally(() =>
-    stop.mockRestore(),
-  )
-  await expect(stopped).rejects.toThrow("stopped partway")
-  expect(await readFile(join(root, "vendored/x.json"), "utf8")).toBe(before)
-  expect(await readdir(join(root, "vendored"))).toEqual(["x.json"])
 })
 
 test("stops proposed outside a GitHub Actions step, which gives no $GITHUB_OUTPUT", async () => {

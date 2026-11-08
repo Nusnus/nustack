@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { GhResult } from "../../../scripts/gh.ts"
-import { notes, publish, title, unixModes } from "../../../scripts/release.ts"
+import { notes, publish, title } from "../../../scripts/release.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
 
 const plugin = { name: "nustack", version: "0.0.3", description: "d", repository: "https://h/o/n" }
@@ -109,19 +109,6 @@ describe("notes", () => {
       expect(`${page}\n`).toBe(await fixture(`notes-${version}.txt`))
     },
   )
-
-  test("refuses an entry the release page would break, as the check does", () => {
-    expect(() =>
-      notes(
-        "## [0.0.2] - d\n\nSee [the readme](README.md).\n\n[0.0.2]: v\n",
-        readme,
-        "0.0.2",
-        plugin,
-      ),
-    ).toThrow(
-      "CHANGELOG.md: links README.md from the entry for 0.0.2, which the release page copies, where a relative link breaks; link it by its full URL",
-    )
-  })
 
   test("refuses a version whose next heading links no version", () => {
     expect(() =>
@@ -421,41 +408,5 @@ describe("publish", () => {
     const { gh, calls } = fakeGh({ api: [], view: [] })
     await expect(publish(root, "v0.0.3", built, gh)).rejects.toThrow(message)
     expect(calls).toEqual([])
-  })
-})
-
-describe("unixModes", () => {
-  // A zip's end of central directory record, https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT 4.3.16, of
-  // an archive with no entry, followed by a comment as long as the one given.
-  const end = (comment: string) => {
-    const record = new Uint8Array(22 + comment.length)
-    const view = new DataView(record.buffer)
-    view.setUint32(0, 0x06054b50, true)
-    view.setUint16(20, comment.length, true)
-    record.set(new TextEncoder().encode(comment), 22)
-    return record
-  }
-
-  test("reads a zip that ends on its end record, and refuses one that ends in a comment", () => {
-    expect(unixModes(end(""))).toEqual(end(""))
-    expect(() => unixModes(end("x"))).toThrow(
-      "git archive ended the zip in a comment, which bundle does not read; report it to nustack",
-    )
-  })
-
-  test("marks an MS-DOS entry Unix with 0644, though its high attributes hold an executable's mode", () => {
-    const name = new TextEncoder().encode("run.sh")
-    const zip = new Uint8Array(46 + name.length + 22)
-    const view = new DataView(zip.buffer)
-    // One central directory entry, made by host 0, MS-DOS, at offset 0, then the end record that counts it.
-    view.setUint32(0, 0x02014b50, true)
-    view.setUint16(4, 20, true)
-    view.setUint16(28, name.length, true)
-    view.setUint32(38, (0o100755 << 16) >>> 0, true)
-    zip.set(name, 46)
-    zip.set(end(""), 46 + name.length)
-    view.setUint16(46 + name.length + 10, 1, true)
-    unixModes(zip)
-    expect([view.getUint16(4, true) >> 8, view.getUint32(38, true) >>> 16]).toEqual([3, 0o100644])
   })
 })
