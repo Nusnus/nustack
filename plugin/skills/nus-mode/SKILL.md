@@ -47,6 +47,7 @@ Match the task to one playbook, read it in full, and copy its numbered steps to 
 | Investigate a problem | [investigate](playbooks/investigate.md) |
 | Align existing code with nus-mode | [align](playbooks/align.md) |
 | Cut lines from an existing project | [polish](playbooks/polish.md) |
+| Report what align and polish would change | [audit](playbooks/audit.md) |
 
 ## Principles
 

@@ -14,6 +14,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 - The [`small-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/small-project.md) playbook starts a project only you use, within the task, such as an experiment. It holds the code to the full bar and skips agreed standards, commit hooks, CI, a remote repository and docs beyond those its tools create.
 - The [`polish`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/polish.md) playbook cuts as many lines from a project's code, tests, docs and config as nus-mode's principles justify, keeping what the project does, and splits each line too dense to read.
+- The [`audit`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/audit.md) playbook reports what align and polish would change in a project, each finding confirmed and routed to one of them, and leaves the project unchanged.
 
 ### Changed
 
