@@ -15,7 +15,7 @@
 
 nustack is a plugin for Claude Code, Cursor, Devin and OpenCode. It gives your coding agent nus-mode: Tomer Nosrati's way of building software, as one mode. On each task, nus-mode:
 
-1. follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does, to start a project, investigate a problem or align existing code;
+1. follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does, to start a project, investigate a problem, align existing code or cut lines from a project;
 2. reads, in full, each principle the work touches;
 3. puts your project's own rules first;
 4. rereads the work as a newcomer would, and fixes each friction point before it finishes.
@@ -57,6 +57,7 @@ To use nus-mode for one task, invoke it with the task:
 /nustack:nus-mode Start a CLI that tracks expenses.
 /nustack:nus-mode Investigate why the nightly export times out.
 /nustack:nus-mode Align this repository with nus-mode.
+/nustack:nus-mode Polish this repository.
 ```
 
 | Host | Invoke |

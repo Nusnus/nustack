@@ -46,6 +46,7 @@ Match the task to one playbook, read it in full, and copy its numbered steps to 
 | Start a project only the user uses, within the task | [small project](playbooks/small-project.md) |
 | Investigate a problem | [investigate](playbooks/investigate.md) |
 | Align existing code with nus-mode | [align](playbooks/align.md) |
+| Cut lines from an existing project | [polish](playbooks/polish.md) |
 
 ## Principles
 
