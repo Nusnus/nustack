@@ -9,9 +9,10 @@ Object.assign(process.env, {
 process.env.XDG_CONFIG_HOME = "/nonexistent" // where Git looks for the machine's excludes and attributes
 
 export const LOCAL: GitOptions = Object.freeze({ transport: "file" })
+export const AUTHOR = Object.freeze(["-c", "user.name=T", "-c", "user.email=t@t"])
 
 export async function commit(root: string, message = "c"): Promise<string> {
   await git(["add", "."], root)
-  await git(["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", message], root)
+  await git([...AUTHOR, "commit", "-qm", message], root)
   return (await git(["rev-parse", "HEAD"], root)).trim()
 }

@@ -4,7 +4,7 @@
  * through nested tables, of which isObject takes only a non-array object.
  */
 import { afterEach, expect, spyOn, test } from "bun:test"
-import { chmod, mkdir, symlink, writeFile } from "node:fs/promises"
+import { mkdir, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Document } from "yaml"
 import { SkillFile } from "../../../plugin/opencode.ts"
@@ -21,7 +21,6 @@ import {
   problem,
   readEntry,
   rethrowUnlessMissing,
-  UnreadableEntry,
   valueAt,
 } from "../../../scripts/tree.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"

@@ -1366,6 +1366,16 @@ describe("check", () => {
       ],
     ],
     [
+      "frontmatter with !!float on an integer, which the core schema reads as a float",
+      {
+        "plugin/skills/principle-naming/SKILL.md":
+          "---\nname: principle-naming\ndescription: n\ndisable-model-invocation: true\ntriggers: [user]\nmetadata: !!float 1\n---\n",
+      },
+      [
+        "plugin/skills/principle-naming/SKILL.md: holds a field outside name, description, disable-model-invocation, triggers; drop it",
+      ],
+    ],
+    [
       "frontmatter with !!float on text",
       {
         "plugin/skills/principle-naming/SKILL.md":

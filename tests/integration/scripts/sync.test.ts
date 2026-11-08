@@ -25,7 +25,7 @@ import { GitError, git } from "../../../scripts/git.ts"
 import { blobOf } from "../../../scripts/record.ts"
 import { cloneUpstream, list, proposed, run, sync } from "../../../scripts/sync.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
-import { commit, LOCAL } from "../../fixtures/scripts/git.ts"
+import { AUTHOR, commit, LOCAL } from "../../fixtures/scripts/git.ts"
 
 const folders = new TemporaryFolders()
 afterEach(() => folders.clear())
@@ -281,18 +281,7 @@ test("takes upstream's merge commit into the record, not the commit of the branc
   await writeFile(join(upstream, "skills/s/SKILL.md"), "y\n")
   await commit(upstream)
   await git(["checkout", "-q", "-"], upstream)
-  const merged = [
-    "-c",
-    "user.name=T",
-    "-c",
-    "user.email=t@t",
-    "merge",
-    "-q",
-    "--no-ff",
-    "-m",
-    "m",
-    "side",
-  ]
+  const merged = [...AUTHOR, "merge", "-q", "--no-ff", "-m", "m", "side"]
   await git(merged, upstream)
   const merge = (await git(["rev-parse", "HEAD"], upstream)).trim()
   await git(["push", "-q", `${upstream}.git`, "HEAD"], upstream, LOCAL)
@@ -343,7 +332,7 @@ test("refuses a skill whose upstream folder holds a submodule, which no record c
   const upstream = await upstreamOf({ LICENSE: "MIT\n", "skills/s/SKILL.md": "x\n" })
   const head = (await git(["rev-parse", "HEAD"], upstream)).trim()
   await git(["update-index", "--add", "--cacheinfo", `160000,${head},skills/s/sub`], upstream)
-  await git(["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "sub"], upstream)
+  await git([...AUTHOR, "commit", "-qm", "sub"], upstream)
   await git(["push", "-q", `${upstream}.git`, "HEAD"], upstream, LOCAL)
   const root = await repositoryOf({ "x.json": { ...record, commit: null, files: {} } })
   await expect(sync(root, "vendored/x.json", clonerOf(upstream))).rejects.toThrow(

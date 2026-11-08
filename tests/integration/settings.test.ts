@@ -1,19 +1,21 @@
 /**
- * Each target make help lists installs bun.lock before it runs a script, as make itself expands the target: through
- * its prerequisites and each recursive make. Each command make would run counts as a script run or an install as the
- * check's workflows rule counts one, through the command forms scripts/workflows.ts exports. make check stops at once
- * without zip or unzip, and make smoke without unzip, each naming the fix.
+ * Each target make help lists installs bun.lock before it runs a Bun script, as make itself expands the target: through
+ * its prerequisites and each recursive make. The test reads each command by its own pattern, apart from the check's
+ * workflows rule, so a script form that rule misses still counts here. make check stops at once without zip or unzip,
+ * and make smoke without unzip, each naming the fix.
  */
 import { afterEach, expect, test } from "bun:test"
 import { symlink } from "node:fs/promises"
 import { join } from "node:path"
-import { commandsOf, INSTALL, RUNS_SCRIPT } from "../../scripts/workflows.ts"
 import { TemporaryFolders } from "../fixtures/folders.ts"
 import { type Finished, finished } from "../fixtures/process.ts"
 
 const root = join(import.meta.dir, "../..")
 const folders = new TemporaryFolders()
-const runsScript = (command: string) => RUNS_SCRIPT.test(command)
+// bun runs the file its command line names, with run or flags before it or not.
+const RUNS_FILE = /(?:^|\s)bun\s+(?:-\S+\s+)*(?:run\s+)?\S+\.[cm]?[jt]sx?(?:\s|$)/
+const INSTALL = "bun install --frozen-lockfile"
+const runsFile = (command: string) => RUNS_FILE.test(command)
 
 afterEach(() => folders.clear())
 
@@ -39,16 +41,18 @@ test("installs bun.lock before each target that runs a script", async () => {
   const runs = await Promise.all(
     targets.map(async (target) => ({
       target,
-      commands: (await make("--dry-run", "--always-make", target)).split("\n").flatMap(commandsOf),
+      commands: (await make("--dry-run", "--always-make", target))
+        .split(/&&|\|\||[;|\n]/)
+        .map((command) => command.trim()),
     })),
   )
-  const scripted = runs.filter(({ commands }) => commands.some(runsScript))
+  const scripted = runs.filter(({ commands }) => commands.some(runsFile))
   expect(scripted.length).toBeGreaterThan(0)
   expect(
     scripted
       .filter(({ commands }) => {
         const install = commands.indexOf(INSTALL)
-        return install < 0 || install > commands.findIndex(runsScript)
+        return install < 0 || install > commands.findIndex(runsFile)
       })
       .map(({ target }) => target),
   ).toEqual([])

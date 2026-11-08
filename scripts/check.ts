@@ -134,7 +134,13 @@ const CORE_TAGS: Readonly<Record<string, (node: unknown) => boolean>> = Object.f
   "tag:yaml.org,2002:null": (node) => isScalar(node) && node.value === null,
   "tag:yaml.org,2002:bool": (node) => isScalar(node) && typeof node.value === "boolean",
   "tag:yaml.org,2002:int": (node) => isScalar(node) && Number.isInteger(node.value),
-  "tag:yaml.org,2002:float": (node) => isScalar(node) && typeof node.value === "number",
+  // yaml leaves a float written as an integer, such as 1, a string, so its text is read by the core schema's pattern.
+  "tag:yaml.org,2002:float": (node) =>
+    isScalar(node) &&
+    (typeof node.value === "number" ||
+      /^(?:[-+]?(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][-+]?\d+)?|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$/.test(
+        String(node.value),
+      )),
   "tag:yaml.org,2002:seq": isSeq,
   "tag:yaml.org,2002:map": isMap,
 })

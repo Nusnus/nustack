@@ -20,7 +20,7 @@ import { join } from "node:path"
 import { GitError, git } from "../../../scripts/git.ts"
 import { bump, bundle, readPlugin, run, tag, verifyTag } from "../../../scripts/release.ts"
 import { TemporaryFolders } from "../../fixtures/folders.ts"
-import { commit, LOCAL } from "../../fixtures/scripts/git.ts"
+import { AUTHOR, commit, LOCAL } from "../../fixtures/scripts/git.ts"
 
 const folders = new TemporaryFolders()
 afterEach(() => folders.clear())
@@ -481,10 +481,9 @@ describe("bundle", () => {
     const zip = join(root, "dist/nustack-0.1.0.zip")
     const first = await Bun.file(zip).bytes()
     process.env.GIT_COMMITTER_DATE = "2030-06-07T08:09:10Z"
-    await git(
-      ["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c"],
-      root,
-    ).finally(() => delete process.env.GIT_COMMITTER_DATE)
+    await git([...AUTHOR, "commit", "-q", "--allow-empty", "-m", "c"], root).finally(
+      () => delete process.env.GIT_COMMITTER_DATE,
+    )
     await bundle(root)
     expect(await Bun.file(zip).bytes()).toEqual(first)
   })
@@ -631,18 +630,7 @@ describe("tag", () => {
     await writeFile(join(root, "plugin/package.json"), pkg("0.2.0"))
     await commit(root, "bump")
     await git(["checkout", "-q", "main"], root)
-    const merged = [
-      "-c",
-      "user.name=T",
-      "-c",
-      "user.email=t@t",
-      "merge",
-      "-q",
-      "--no-ff",
-      "-m",
-      "m",
-      "release",
-    ]
+    const merged = [...AUTHOR, "merge", "-q", "--no-ff", "-m", "m", "release"]
     await git(merged, root)
     await git(["push", "-q", "origin", "main"], root, LOCAL)
     const merge = await head(root)
@@ -754,17 +742,7 @@ describe("tag", () => {
 
   test("finds an annotated tag the repository holds on the commit", async () => {
     const root = await checkout()
-    const annotated = [
-      "-c",
-      "user.name=T",
-      "-c",
-      "user.email=t@t",
-      "tag",
-      "-a",
-      "-m",
-      "t",
-      "v0.1.0",
-    ]
+    const annotated = [...AUTHOR, "tag", "-a", "-m", "t", "v0.1.0"]
     await git(annotated, root)
     await git(["push", "-q", "origin", "refs/tags/v0.1.0"], root, LOCAL)
     expect(await tag(root, passes, "file")).toBe(
@@ -841,6 +819,16 @@ describe("tag", () => {
     await rm(hook)
     await tag(root, passes, "file")
     expect(await refs()).toBe(before)
+  })
+
+  test("leaves the clone's refs as they were when main on the remote names a tree, not a commit", async () => {
+    const root = await checkout()
+    const before = await git(["for-each-ref"], root)
+    const tree = (await git(["rev-parse", "HEAD^{tree}"], root)).trim()
+    // update-ref refuses to point a branch at a tree, so the ref is written as a server whose ref went bad holds it.
+    await writeFile(join(await origin(root), "refs/heads/main"), `${tree}\n`)
+    await expect(tag(root, passes, "file")).rejects.toThrow("expected commit type")
+    expect(await git(["for-each-ref"], root)).toBe(before)
   })
 
   test("rethrows an error at the push that is not Git's as it is", async () => {

@@ -150,7 +150,14 @@ describe("SkillFile", () => {
     expect(new SkillFile(PATH, text).info("a").description).toHaveLength(4074)
   })
 
-  test.each([["4097 characters", `name: a\ndescription: ${"A".repeat(4075)}\n`]])(
+  const deepMap = Array.from({ length: 6000 }, (_, at) => `${"  ".repeat(at)}k:`).join("\n")
+  test.each([
+    ["4097 characters", `name: a\ndescription: ${"A".repeat(4075)}\n`],
+    [
+      "a quote holding a bracket, then a map 6000 levels deep",
+      `name: x\ndescription: see "[docs]" here\n${deepMap} 1\n`,
+    ],
+  ])(
     "refuses frontmatter of %s before Bun's YAML parser reads it, naming the fix",
     async (_, frontmatter) => {
       expect(await thrown(() => new SkillFile(PATH, `---\n${frontmatter}---\n`).info("a"))).toEqual(
