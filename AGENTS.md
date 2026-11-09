@@ -4,14 +4,14 @@ The rules for changing nustack. [README.md](README.md) shows how to install and 
 
 Work in this repository in nus-mode: load `plugin/skills/nus-mode/SKILL.md` before you start. Every file nustack's authors write follows nus-mode and this file; a vendored copy, a released changelog entry and a lockfile, beyond what a change to its dependencies rewrites, are not theirs to change.
 
-Word every agent file, meaning each skill, this file, REVIEW.md, CLAUDE.md, the issue form and the PR template's comment, by Matt Pocock's [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md), and review them against it. It governs how a text is worded, never what nustack does; where it and this file differ, this file wins.
+Word every agent file, meaning each skill, this file, REVIEW.md, the issue form and the PR template's comment, by Matt Pocock's [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md), and review them against it. It governs how a text is worded, never what nustack does; where it and this file differ, this file wins.
 
 ## Where things live
 
 - `plugin/` is what users install, through the two marketplace files, `.claude-plugin/marketplace.json` and `.cursor-plugin/marketplace.json`, or as the folder itself; nothing else reaches their sessions. It holds the skills, one manifest per host, and `opencode.ts`, the only code users run, since OpenCode loads plugins only as code.
 - `plugin/skills/` holds one mode, nus-mode, beside the principle skills, `principle-<name>/`, the language skills, `language-<name>/`, and the vendored skills; the prefixes are how `scripts/hosts.sh` tells which skills the model must not see. nus-mode's `SKILL.md` states the goal every principle serves and lists every playbook, principle and language skill with when it applies.
 - A principle is stated in its own `SKILL.md` alone; every other file links it. A language skill holds what the principles leave to one language. A playbook holds one task as numbered steps, each ending on a done condition an agent can check.
-- `.agents/skills/` holds the skills for working on nustack, such as the release skill. `.claude/skills` is a symlink to it, since Claude Code reads a project's skills only from there, and `CLAUDE.md` imports this file.
+- `.agents/skills/` holds the skills for working on nustack, such as the release skill. `.claude/skills` is a symlink to it, since Claude Code reads a project's skills only from there, and `CLAUDE.md` is a symlink to this file.
 - `scripts/` holds the short scripts that check, vendor and release nustack and test it in Claude Code and OpenCode, and `tests/` the unit test of `plugin/opencode.ts`.
 - `vendor.json` records each vendored copy: its upstream, the skills it copies and the commit they came from. Change a copy only through the pull request the vendor workflow opens, or upstream.
 

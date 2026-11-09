@@ -11,6 +11,12 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Changed
+
+- The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook makes each instruction file a host reads instead of `AGENTS.md`, such as `CLAUDE.md`, a symlink to `AGENTS.md`, keeps the project's own skills in `.agents/skills/`, and makes each skills folder a host reads instead, such as `.claude/skills`, a symlink to it.
+- For nustack's maintainers:
+  - `CLAUDE.md` is a symlink to `AGENTS.md`.
+
 ## [0.0.5] - 2026-11-09
 
 nustack's fifth release adds three playbooks to nus-mode, the mode that has a coding agent build software to a senior engineer's bar. A playbook holds one task as numbered steps: small project starts a project only you use, polish cuts a project's lines, and audit reports what align and polish would change without changing anything. New project keeps the projects others will use or that outlive the task, and align offers a project what new project would build that it lacks. The agent also names the check behind each claim it makes, replaces an old form outright instead of keeping both, explains a benchmark result before acting on it, and fixes the cause of a problem, not its symptom.
