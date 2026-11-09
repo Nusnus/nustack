@@ -24,6 +24,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook starts a project others will use or that outlives the task. It writes a README, and the license and changelog you agree to, and it creates the remote repository in the step that configures it, after the docs.
 - The [`align`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/align.md) playbook offers a project each part of what new project builds that it lacks: a remote repository with CI, each doc, and each part an existing doc lacks.
 - nus-mode follows `principle-responses` on claims when it reports to another agent.
+- nus-mode fixes the cause of each problem, not its symptom: before it fixes a problem, it traces it to the flaw that produces it and fixes that, as `principle-long-term` says.
 - For nustack's maintainers:
   - AGENTS.md, and the release script's comment on pre-releases, state that nustack promises its users no stable interface before v0.1.0, and leave how an old form is replaced to `principle-long-term`.
 
