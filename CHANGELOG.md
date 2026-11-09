@@ -2,13 +2,18 @@
 
 All notable changes to nustack are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/Nusnus/nustack/releases/tag/v0.0.5
 [0.0.4]: https://github.com/Nusnus/nustack/releases/tag/v0.0.4
 [0.0.3]: https://github.com/Nusnus/nustack/releases/tag/v0.0.3
 [0.0.2]: https://github.com/Nusnus/nustack/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Nusnus/nustack/releases/tag/v0.0.1
 
 ## [Unreleased]
+
+## [0.0.5] - 2026-11-09
+
+nustack's fifth release adds three playbooks to nus-mode, the mode that has a coding agent build software to a senior engineer's bar. A playbook holds one task as numbered steps: small project starts a project only you use, polish cuts a project's lines, and audit reports what align and polish would change without changing anything. New project keeps the projects others will use or that outlive the task, and align offers a project what new project would build that it lacks. The agent also names the check behind each claim it makes, replaces an old form outright instead of keeping both, explains a benchmark result before acting on it, and fixes the cause of a problem, not its symptom.
 
 ### Added
 
