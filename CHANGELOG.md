@@ -27,6 +27,11 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - For nustack's maintainers:
   - AGENTS.md, and the release script's comment on pre-releases, state that nustack promises its users no stable interface before v0.1.0, and leave how an old form is replaced to `principle-long-term`.
 
+### Fixed
+
+- For nustack's maintainers:
+  - The Devin blueprint downloads Bun from npm's registry when Bun's GitHub release fails to download, which GitHub can refuse with a 504 for longer than the download's retries last.
+
 ## [0.0.4] - 2026-11-08
 
 nustack's fourth release adds one rule to nus-mode, the mode that has a coding agent build software to a senior engineer's bar. When fixing one failure turns up another of the same kind, the agent stops patching them one at a time: it names why its approach keeps producing them, and replaces the approach.
