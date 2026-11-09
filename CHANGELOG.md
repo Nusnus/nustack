@@ -15,11 +15,17 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - The [`small-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/small-project.md) playbook starts a project only you use, within the task, such as an experiment. It holds the code to the full bar and skips agreed standards, commit hooks, CI, a remote repository and docs beyond those its tools create.
 - The [`polish`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/polish.md) playbook cuts as many lines from a project's code, tests, docs and config as nus-mode's principles justify, keeping what the project does, and splits each line too dense to read.
 - The [`audit`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/audit.md) playbook reports what align and polish would change in a project, each finding confirmed and routed to one of them, and leaves the project unchanged.
+- nus-mode names the check behind each claim that work is done or works and how far it reached, and with it each thing left unchecked or unknown, and labels each claim it did not observe as inferred from evidence it names, or else as guessed, as [`principle-responses`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/principle-responses/SKILL.md) says.
+- nus-mode replaces an old form outright, keeping it deprecated only for an outside consumer promised a stable interface, data an earlier version stored beyond the change's reach, or an older version running mid-deploy, and naming beside it when it can go, as [`principle-long-term`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/principle-long-term/SKILL.md) says.
+- nus-mode explains each benchmark or eval result before acting on it or reporting it, writing the result that would change its decision before the runs, as `principle-long-term` says.
 
 ### Changed
 
 - The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook starts a project others will use or that outlives the task. It writes a README, and the license and changelog you agree to, and it creates the remote repository in the step that configures it, after the docs.
 - The [`align`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/align.md) playbook offers a project each part of what new project builds that it lacks: a remote repository with CI, each doc, and each part an existing doc lacks.
+- nus-mode follows `principle-responses` on claims when it reports to another agent.
+- For nustack's maintainers:
+  - AGENTS.md, and the release script's comment on pre-releases, state that nustack promises its users no stable interface before v0.1.0, and leave how an old form is replaced to `principle-long-term`.
 
 ## [0.0.4] - 2026-11-08
 

@@ -31,7 +31,7 @@ nustack is mostly Markdown, and stays that way.
 - Adding a script, a check, a workflow, a test or a dependency needs the owner's OK first. Ask before you build it.
 - When an agent gets something wrong, put the lesson in the wording of the skill it read. New machinery earns its place only where a user or maintainer would otherwise meet a silent failure.
 - Rely on what each host documents. Where a host falls short in practice, as OpenCode does with nus-mode after a summary, keep the workaround as small as `plugin/opencode.ts`.
-- Until v0.1.0, a change replaces an old form outright.
+- Before v0.1.0, nustack promises its users no stable interface.
 
 ## Pull requests
 

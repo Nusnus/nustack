@@ -62,11 +62,11 @@ Before you apply or cite a principle, read its `SKILL.md` in full as a file. Her
 - [layout](../principle-layout/SKILL.md): you add, move, split or change any folder or file, or decide where anything lives.
 - [dependencies](../principle-dependencies/SKILL.md): you write or change code, add or use anything third-party, such as a library, a tool or a CI action, or choose the runtime versions a project targets.
 - [resilience](../principle-resilience/SKILL.md): you write code that waits on anything outside the process, writes state a crash or timeout can leave half-done, does work that may repeat, such as a job or message handler, guards against or handles a failure, or does work that grows with its input, data or traffic.
-- [long term](../principle-long-term/SKILL.md): you write or change anything, experiments included.
+- [long term](../principle-long-term/SKILL.md): you write or change anything, experiments included, or run a benchmark or eval, or act on or report its result.
 - [deterministic tests](../principle-deterministic-tests/SKILL.md): you write or change code, or a test flakes.
 - [self-explanatory code](../principle-self-explanatory-code/SKILL.md): you write or change code or any prose, comments and docs included.
 - [PR descriptions](../principle-pr-descriptions/SKILL.md): you write or update a PR description, or push to a branch with an open pull request.
-- [responses](../principle-responses/SKILL.md): you write to a person.
+- [responses](../principle-responses/SKILL.md): you write to a person, and, for your claims, when you report to another agent.
 
 ## Languages
 

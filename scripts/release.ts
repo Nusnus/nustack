@@ -81,7 +81,7 @@ async function bump(version: string, date: string) {
 async function publish(dryRun: boolean) {
   const version = await current()
   const tag = `v${version}`
-  // Until v0.1.0 a change replaces an old form outright, as AGENTS.md says, so each release before it is a pre-release.
+  // Before v0.1.0 nustack promises its users no stable interface, as AGENTS.md says, so each release before it is a pre-release.
   const prerelease = version.startsWith("0.0.")
   const kind = prerelease ? "pre-release" : "release"
   const body = await notes()
