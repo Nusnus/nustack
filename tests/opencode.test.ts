@@ -33,10 +33,11 @@ type Callbacks = {
   "execute.after"?: (input: Executed) => Promise<void> | void
 }
 
-const MODE_FILE = await Bun.file("plugin/skills/nus-mode/SKILL.md").text()
+const PLUGIN = join(import.meta.dirname, "..", "plugin")
+const MODE_FOLDER = join(PLUGIN, "skills", "nus-mode")
+const MODE_FILE = await Bun.file(join(MODE_FOLDER, "SKILL.md")).text()
 const CONTENT = MODE_FILE.slice(MODE_FILE.indexOf("\n---\n", 3) + 5)
 const BODY = CONTENT.trim()
-const MODE_FOLDER = join(import.meta.dirname, "..", "plugin", "skills", "nus-mode")
 const RELOAD = `${BODY}\n\nBase directory for this skill: ${MODE_FOLDER}`
 const HIDDEN = [
   "language-python",
@@ -137,94 +138,13 @@ async function start(setup = plugin.setup) {
 
 async function brokenInstall(build: (skills: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "nustack-"))
-  await cp("plugin/opencode.ts", join(root, "opencode.ts"))
+  await cp(join(PLUGIN, "opencode.ts"), join(root, "opencode.ts"))
   await build(join(root, "skills"))
   return { root, setup: (await import(join(root, "opencode.ts"))).default.setup }
 }
 
-test("registers every skill folder, hiding the principles and language skills", async () => {
-  const { added } = await start()
-  const ids = (hidden: boolean) =>
-    added
-      .filter((skill) => skill.autoinvoke !== hidden)
-      .map((skill): string => skill.id)
-      .sort()
-  expect(ids(true)).toEqual([...HIDDEN])
-  expect(ids(false)).toEqual([...OFFERED])
-  expect(added.find((skill) => skill.id === "nus-mode")).toMatchObject({
-    name: "nus-mode",
-    description:
-      "Builds software to a senior engineer's bar. Use when asked for nus-mode, or when the project's AGENTS.md turns it on.",
-    path: join(MODE_FOLDER, "SKILL.md"),
-    content: CONTENT,
-  })
-})
-
-test("puts nus-mode back once a summary drops it, only in a session that loaded it", async () => {
-  const { request, skillCall } = await start()
-  expect(await request("a", "summary")).toEqual([])
-  await skillCall("a", "error")
-  expect(await request("a", "summary")).toEqual([])
-  await skillCall("a", "completed")
-  expect(await request("a", BODY)).toEqual([])
-  expect(await request("a", "summary")).toEqual([RELOAD])
-  expect(await request("b", "summary")).toEqual([])
-})
-
-test("puts nus-mode back in a session whose user invoked it", async () => {
-  const { request, prompt } = await start()
-  await prompt("a")
-  expect(await request("a", "summary")).toEqual([RELOAD])
-  expect(await request("b", "summary")).toEqual([])
-})
-
 test.each([
   ["no skills folder", async () => {}, "skills is unreadable"],
-  [
-    "a skill folder with no SKILL.md",
-    async (skills: string) => void (await mkdir(join(skills, "x"), { recursive: true })),
-    "x/SKILL.md is missing",
-  ],
-  [
-    "a SKILL.md with no frontmatter",
-    async (skills: string) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "# x\n")
-    },
-    "x/SKILL.md has no frontmatter",
-  ],
-  [
-    "a SKILL.md that is not UTF-8",
-    async (skills: string) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), new Uint8Array([0xff, 0xfe]))
-    },
-    "x/SKILL.md is not UTF-8",
-  ],
-  [
-    "a SKILL.md that names no skill",
-    async (skills: string) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "---\ndescription: d\n---\n")
-    },
-    "x/SKILL.md names no skill or description",
-  ],
-  [
-    "a SKILL.md that names no description",
-    async (skills: string) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\n---\n")
-    },
-    "x/SKILL.md names no skill or description",
-  ],
-  [
-    "a SKILL.md whose frontmatter is not YAML",
-    async (skills: string) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: [x\n---\n")
-    },
-    "x/SKILL.md holds frontmatter that is not YAML",
-  ],
   [
     "a symlinked skill folder",
     async (skills: string) => {
@@ -244,8 +164,93 @@ test.each([
   ],
 ])("refuses an install with %s", async (_, build, message) => refuses(build, message))
 
+test("registers every skill folder, hiding the principles and language skills", async () => {
+  const { added } = await start()
+  const ids = (hidden: boolean) =>
+    added
+      .filter((skill) => skill.autoinvoke !== hidden)
+      .map((skill): string => skill.id)
+      .sort()
+  expect(ids(true)).toEqual([...HIDDEN])
+  expect(ids(false)).toEqual([...OFFERED])
+  expect(added.find((skill) => skill.id === "nus-mode")).toMatchObject({
+    name: "nus-mode",
+    description:
+      "Builds software to a senior engineer's bar. Use when asked for nus-mode, or when the project's AGENTS.md turns it on.",
+    path: join(MODE_FOLDER, "SKILL.md"),
+    content: CONTENT,
+  })
+})
+
+test("puts nus-mode back in a session whose user invoked it", async () => {
+  const { request, prompt } = await start()
+  await prompt("a")
+  expect(await request("a", "summary")).toEqual([RELOAD])
+  expect(await request("b", "summary")).toEqual([])
+})
+
+test("puts nus-mode back once a summary drops it, only in a session that loaded it", async () => {
+  const { request, skillCall } = await start()
+  expect(await request("a", "summary")).toEqual([])
+  await skillCall("a", "error")
+  expect(await request("a", "summary")).toEqual([])
+  await skillCall("a", "completed")
+  expect(await request("a", BODY)).toEqual([])
+  expect(await request("a", "summary")).toEqual([RELOAD])
+  expect(await request("b", "summary")).toEqual([])
+})
+
+test.each([
+  [
+    "a skill folder with no SKILL.md",
+    async (skills: string) => void (await mkdir(join(skills, "x"), { recursive: true })),
+    "x/SKILL.md is missing",
+  ],
+  [
+    "a SKILL.md that is not UTF-8",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), new Uint8Array([0xff, 0xfe]))
+    },
+    "x/SKILL.md is not UTF-8",
+  ],
+  [
+    "a SKILL.md with no frontmatter",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "# x\n")
+    },
+    "x/SKILL.md has no frontmatter",
+  ],
+  [
+    "a SKILL.md whose frontmatter is not YAML",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: [x\n---\n")
+    },
+    "x/SKILL.md holds frontmatter that is not YAML",
+  ],
+  [
+    "a SKILL.md that names no skill",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\ndescription: d\n---\n")
+    },
+    "x/SKILL.md names no skill or description",
+  ],
+  [
+    "a SKILL.md that names no description",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\n---\n")
+    },
+    "x/SKILL.md names no skill or description",
+  ],
+])("refuses an install with %s", async (_, build, message) => refuses(build, message))
+
 // Root reads a file whatever its mode, so this case cannot fail there:
 // https://man7.org/linux/man-pages/man7/capabilities.7.html (CAP_DAC_OVERRIDE)
+// It sits below the table, out of the code's order, since a table row cannot skip alone.
 test.skipIf(process.getuid?.() === 0)(
   "refuses an install with a SKILL.md that cannot be read",
   async () =>

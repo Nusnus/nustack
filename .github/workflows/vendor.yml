@@ -31,19 +31,17 @@ jobs:
         with:
           persist-credentials: false
       - id: list
-        run: echo "copies=$(jq -c keys vendor.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          copies=$(jq -ce 'objects | keys' vendor.json)
+          echo "copies=$copies" >> "$GITHUB_OUTPUT"
     timeout-minutes: 5
   update:
     name: Update ${{ matrix.copy }}
-    needs: copies
     permissions:
       contents: write
       pull-requests: write
+    needs: copies
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        copy: ${{ fromJSON(needs.copies.outputs.copies) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -121,3 +119,7 @@ jobs:
           title: "chore(vendor): update ${{ matrix.copy }}"
           body-path: ${{ runner.temp }}/body.md
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: ${{ fromJSON(needs.copies.outputs.copies) }}

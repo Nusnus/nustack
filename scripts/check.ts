@@ -26,12 +26,18 @@ const PLAYBOOKS = "plugin/skills/nus-mode/playbooks"
 const BLUEPRINT = ".devin/blueprint.yaml"
 const MARKETPLACES = [".claude-plugin/marketplace.json", ".cursor-plugin/marketplace.json"] as const
 const problems: string[] = []
-// Each file or folder the check cannot read or parse. When any exist, the run reports only these, since a comparison
-// reading one would report a problem with wrong advice; the other problems show once these are fixed.
-const fileProblems = new Set<string>()
+// Each file or folder the check cannot read or parse, and each value it cannot read from one. When any exist, the run
+// reports only these, since a comparison reading one would report a problem with wrong advice; the other problems
+// show once these are fixed.
+const unreadable = new Set<string>()
 const vendored = new Set<string>()
 const RECORD = ["upstream", "source", "folder", "skills", "commit"] as const
-for (const [name, copy] of Object.entries(Object(await jsonOf("vendor.json")))) {
+const copies = await jsonOf("vendor.json")
+if (copies !== undefined && !isMapping(copies))
+  unreadable.add(
+    `vendor.json: is not an object of records, got ${JSON.stringify(copies)}; key each vendored copy's record by its name`,
+  )
+for (const [name, copy] of Object.entries(isMapping(copies) ? copies : {})) {
   const record = Object(copy)
   const keys = Object.keys(record)
   const { folder, skills } = record
@@ -44,7 +50,7 @@ for (const [name, copy] of Object.entries(Object(await jsonOf("vendor.json")))) 
     )
   if (fits) for (const skill of skills) vendored.add(join(folder, skill))
   else
-    problems.push(
+    unreadable.add(
       `vendor.json: ${name} needs exactly ${RECORD.join(", ")}, each a string but skills, a list of strings; got ${JSON.stringify(copy)}`,
     )
 }
@@ -63,7 +69,7 @@ for (const [key, expected] of [
   ["version", version],
 ] as const) {
   const actual = stringAt("plugin/package.json", opencode, key)
-  if (actual !== undefined && expected !== undefined && actual !== expected)
+  if (actual !== expected)
     problems.push(
       `plugin/package.json: ${key} is ${actual}, where the manifests hold ${expected}; match them`,
     )
@@ -81,7 +87,7 @@ for (const [path, marketplace] of marketplaces) {
   else if (Object(entry).description !== description)
     problems.push(`${path}: the plugin's description differs from the manifests'; copy theirs`)
   const owner = stringAt(path, marketplace, "owner.name")
-  if (owner !== undefined && owner !== author)
+  if (owner !== author)
     problems.push(
       `${path}: the owner is ${owner}, where the manifests' author is ${author}; copy theirs`,
     )
@@ -91,11 +97,7 @@ for (const [path, marketplace] of marketplaces) {
 // (https://cursor.com/docs/reference/plugins#marketplace-manifest-fields).
 const claudeDescription = stringAt(MARKETPLACES[0], marketplaces[0]?.[1], "description")
 const cursorDescription = stringAt(MARKETPLACES[1], marketplaces[1]?.[1], "metadata.description")
-if (
-  claudeDescription !== undefined &&
-  cursorDescription !== undefined &&
-  claudeDescription !== cursorDescription
-)
+if (claudeDescription !== cursorDescription)
   problems.push(
     `${MARKETPLACES[1]}: the marketplace description differs from ${MARKETPLACES[0]}'s; copy it`,
   )
@@ -109,7 +111,7 @@ const authored: string[] = []
 for (const path of files) {
   const link = await lstat(path).then(
     (stat) => stat.isSymbolicLink(),
-    (error) => void fileProblems.add(failure(path, error)),
+    (error) => void unreadable.add(failure(path, error)),
   )
   if (link)
     problems.push(
@@ -143,7 +145,8 @@ for (const { name: folder } of folders) {
     problems.push(`${path}: frontmatter is not a YAML mapping; write each field as name: value`)
     continue
   }
-  if (fields.name !== folder)
+  if (fields.name === undefined) problems.push(`${path}: has no name; add its folder's`)
+  else if (fields.name !== folder)
     problems.push(`${path}: name ${fields.name} differs from its folder; rename one`)
   if (typeof fields.description !== "string") problems.push(`${path}: has no description; add one`)
   const hidden =
@@ -209,12 +212,14 @@ for (const row of new Set(rows))
     problems.push(`README.md: ${row} has more than one skills-table row; keep one`)
 
 // README.md shows users the line the new-project playbook writes into a project's AGENTS.md.
-const NEW_PROJECT = "plugin/skills/nus-mode/playbooks/new-project.md"
+const NEW_PROJECT = `${PLAYBOOKS}/new-project.md`
 const MODE_LINE = /^( *)```markdown\n\1(.+)\n\1```$/m
 const playbookLine = MODE_LINE.exec(await textOf(NEW_PROJECT))?.[2]
 const readmeLine = MODE_LINE.exec(readme)?.[2]
 if (playbookLine === undefined)
   problems.push(`${NEW_PROJECT}: holds no markdown block with the nus-mode line; add it`)
+else if (readmeLine === undefined)
+  problems.push(`README.md: holds no markdown block with the nus-mode line; copy ${NEW_PROJECT}'s`)
 else if (readmeLine !== playbookLine)
   problems.push(
     `README.md: its first markdown block holds ${readmeLine}, not ${NEW_PROJECT}'s ${playbookLine}; copy it`,
@@ -251,8 +256,10 @@ const packageManager = stringAt("package.json", await jsonOf("package.json"), "p
 // Devin builds no machine from a blueprint that is not YAML:
 // https://docs.devin.ai/onboard-devin/environment/git-backed-blueprints
 await yamlOf(BLUEPRINT)
-const blueprintBun = /bun-v([^/\s]+)/.exec(await textOf(BLUEPRINT))?.[1]
-if (`bun@${blueprintBun}` !== packageManager)
+const blueprintBun = /bun-v(\d[^/\s]*)/.exec(await textOf(BLUEPRINT))?.[1]
+if (blueprintBun === undefined)
+  problems.push(`${BLUEPRINT}: names no bun-v<version> to install; name the one package.json holds`)
+else if (`bun@${blueprintBun}` !== packageManager)
   problems.push(
     `${BLUEPRINT}: installs Bun ${blueprintBun}, where package.json names ${packageManager}; match them`,
   )
@@ -262,7 +269,7 @@ const RELEASE_WORKFLOW = ".github/workflows/release.yml"
 const releasePaths = Object(await yamlOf(RELEASE_WORKFLOW)).on?.push?.paths
 if (!Bun.deepEquals(releasePaths, [VERSION_SOURCE]))
   problems.push(
-    `${RELEASE_WORKFLOW}: runs on pushes to ${JSON.stringify(releasePaths)}, not to ${VERSION_SOURCE} alone; set on.push.paths to [${VERSION_SOURCE}]`,
+    `${RELEASE_WORKFLOW}: on.push.paths is ${JSON.stringify(releasePaths)}; set it to [${VERSION_SOURCE}] alone`,
   )
 
 // The vendor workflow commits the bookkeeping files and each folder vendor.json records, and lists the files apart.
@@ -281,15 +288,13 @@ const committed = addPaths
 const vendorFolders = [...new Set([...vendored].map((path) => `${dirname(path)}/`))]
 if (!Bun.deepEquals(committed?.sort(), [...BOOKKEEPING, ...vendorFolders].sort()))
   problems.push(
-    `.github/workflows/vendor.yml: add-paths differ from ${[...BOOKKEEPING, ...vendorFolders].join(", ")}; list them`,
+    `${VENDOR_WORKFLOW}: add-paths differ from ${[...BOOKKEEPING, ...vendorFolders].join(", ")}; list them`,
   )
 if (!vendorWorkflow.includes(`bookkeeping='${BOOKKEEPING.join("|")}'`))
-  problems.push(
-    `.github/workflows/vendor.yml: bookkeeping differs from ${BOOKKEEPING.join("|")}; list them`,
-  )
+  problems.push(`${VENDOR_WORKFLOW}: bookkeeping differs from ${BOOKKEEPING.join("|")}; list them`)
 
-if (fileProblems.size > 0) {
-  console.error([...fileProblems].join("\n"))
+if (unreadable.size > 0) {
+  console.error([...unreadable].join("\n"))
   process.exit(1)
 }
 if (problems.length > 0) {
@@ -301,32 +306,13 @@ async function listed<Entry>(path: string, list: () => Promise<Entry[]>): Promis
   try {
     return await list()
   } catch (error) {
-    fileProblems.add(failure(path, error))
+    unreadable.add(failure(path, error))
     return []
   }
 }
 
-// Names the path that failed, which a recursive listing reports in its error, with the advice its cause calls for.
-function failure(path: string, error: unknown): string {
-  const { code, path: failed = path } = Object(error)
-  if (code === "ENOENT") return `${failed}: is missing; add it`
-  if (code === "EACCES" || code === "EPERM")
-    return `${failed}: cannot be read (${code}); fix its permissions or its folder's`
-  if (code === "ELOOP") return `${failed}: is a symlink loop; remove it`
-  return `${failed}: cannot be read (${code ?? error}); fix it`
-}
-
 async function textOf(path: string): Promise<string> {
   return (await read(path)) ?? ""
-}
-
-async function read(path: string): Promise<string | undefined> {
-  try {
-    return await Bun.file(path).text()
-  } catch (error) {
-    fileProblems.add(failure(path, error))
-    return undefined
-  }
 }
 
 async function jsonOf(path: string): Promise<unknown> {
@@ -347,24 +333,46 @@ async function parsed(
   try {
     return parse(text)
   } catch (error) {
-    fileProblems.add(`${path}: is not ${format} (${error}); fix it`)
+    unreadable.add(`${path}: is not ${format} (${error}); fix it`)
     return undefined
   }
 }
 
-// Reads the string at a dotted key of parsed JSON, reporting it where it is missing or not a string.
+async function read(path: string): Promise<string | undefined> {
+  try {
+    return await Bun.file(path).text()
+  } catch (error) {
+    unreadable.add(failure(path, error))
+    return undefined
+  }
+}
+
+// A recursive listing's error names the path that failed.
+function failure(path: string, error: unknown): string {
+  const { code, path: failed = path } = Object(error)
+  if (code === "ENOENT") return `${failed}: is missing; add it`
+  if (code === "EACCES" || code === "EPERM")
+    return `${failed}: cannot be read (${code}); fix its permissions or its folder's`
+  if (code === "ELOOP") return `${failed}: is a symlink loop; remove it`
+  return `${failed}: cannot be read (${code ?? error}); fix it`
+}
+
 function stringAt(path: string, json: unknown, key: string): string | undefined {
   const value = key.split(".").reduce<unknown>((at, part) => Object(at)[part], json)
   if (typeof value === "string") return value
-  problems.push(`${path}: has no ${key} string, got ${JSON.stringify(value)}; add it`)
+  if (json !== undefined)
+    unreadable.add(`${path}: has no ${key} string, got ${JSON.stringify(value)}; add it`)
   return undefined
 }
 
 function fieldsOf(frontmatter: string): Record<string, unknown> | undefined {
   try {
     const fields = YAML.parse(frontmatter)
-    if (typeof fields === "object" && fields !== null && !Array.isArray(fields))
-      return fields as Record<string, unknown>
+    if (isMapping(fields)) return fields
   } catch {}
   return undefined
+}
+
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

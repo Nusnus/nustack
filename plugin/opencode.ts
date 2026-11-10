@@ -12,26 +12,32 @@ const MODE = "nus-mode"
 const UTF8 = new TextDecoder("utf-8", { fatal: true })
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
+/** An install the plugin cannot load, with the advice that recovers every one. */
+class BrokenInstall extends Error {
+  constructor(problem: string) {
+    super(`${problem}; reinstall the nustack plugin`)
+  }
+}
+
 export default {
   id: "nustack",
   async setup(context) {
     const folders = await readdir(SKILLS, { withFileTypes: true }).catch((error) => {
-      throw new Error(`${SKILLS} is unreadable (${error}); reinstall the nustack plugin`)
+      throw new BrokenInstall(`${SKILLS} is unreadable (${error})`)
     })
     const skills = await Promise.all(
       folders
         .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
         .map((entry) => {
           if (entry.isSymbolicLink())
-            throw new Error(
-              `${join(SKILLS, entry.name)} is a symlink, which some hosts skip; reinstall the nustack plugin`,
+            throw new BrokenInstall(
+              `${join(SKILLS, entry.name)} is a symlink, which some hosts skip`,
             )
           return load(entry.name)
         }),
     )
     const mode = skills.find((skill) => skill.id === MODE)
-    if (mode === undefined)
-      throw new Error(`${join(SKILLS, MODE, "SKILL.md")} is missing; reinstall the nustack plugin`)
+    if (mode === undefined) throw new BrokenInstall(`${join(SKILLS, MODE, "SKILL.md")} is missing`)
     const body = mode.content.trim()
     const escaped = JSON.stringify(body).slice(1, -1)
     const reload = `${body}\n\nBase directory for this skill: ${dirname(mode.path)}`
@@ -66,31 +72,26 @@ async function load(id: string): Promise<Skill.Info> {
   const bytes = await Bun.file(path)
     .bytes()
     .catch((error) => {
-      throw new Error(
-        error?.code === "ENOENT"
-          ? `${path} is missing; reinstall the nustack plugin`
-          : `${path} cannot be read (${error}); reinstall the nustack plugin`,
+      throw new BrokenInstall(
+        error?.code === "ENOENT" ? `${path} is missing` : `${path} cannot be read (${error})`,
       )
     })
   let text: string
   try {
     text = UTF8.decode(bytes)
   } catch {
-    throw new Error(`${path} is not UTF-8; reinstall the nustack plugin`)
+    throw new BrokenInstall(`${path} is not UTF-8`)
   }
   const match = FRONTMATTER.exec(text)
-  if (match?.[1] === undefined)
-    throw new Error(`${path} has no frontmatter; reinstall the nustack plugin`)
+  if (match?.[1] === undefined) throw new BrokenInstall(`${path} has no frontmatter`)
   let fields: Record<string, unknown>
   try {
     fields = Object(YAML.parse(match[1]))
   } catch (error) {
-    throw new Error(
-      `${path} holds frontmatter that is not YAML (${error}); reinstall the nustack plugin`,
-    )
+    throw new BrokenInstall(`${path} holds frontmatter that is not YAML (${error})`)
   }
   if (typeof fields.name !== "string" || typeof fields.description !== "string")
-    throw new Error(`${path} names no skill or description; reinstall the nustack plugin`)
+    throw new BrokenInstall(`${path} names no skill or description`)
   return {
     id: id as Skill.ID,
     name: fields.name as Skill.Name,

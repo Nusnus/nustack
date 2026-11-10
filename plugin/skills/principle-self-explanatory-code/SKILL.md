@@ -13,4 +13,4 @@ The code says what it does through its names, types and structure; its comments 
 - **Define each new domain term** in the docstring of the module or class that introduces it, or in the project's docs where none does.
 - **Comments point outside the code,** to what it cannot show, such as a spec, an upstream issue, an external constraint or a tool quirk, with its link where one exists.
 - **Use the fewest words that say it clearly.** In every text, cut each word that changes nothing for the reader; where fewer words read less clearly, keep the clearer text.
-- **Write for a reader who never saw the conversation.** State each rule in general terms, and keep an example from the conversation only where it generalises.
+- **Write for a reader who never saw the conversation.** State each rule in general terms, and keep an example from the conversation only where it generalizes.

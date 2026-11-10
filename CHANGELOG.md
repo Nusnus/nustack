@@ -16,6 +16,13 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - The [`new-project`](https://github.com/Nusnus/nustack/blob/main/plugin/skills/nus-mode/playbooks/new-project.md) playbook makes each instruction file a host reads instead of `AGENTS.md`, such as `CLAUDE.md`, a symlink to `AGENTS.md`, keeps the project's own skills in `.agents/skills/`, and makes each skills folder a host reads instead, such as `.claude/skills`, a symlink to it.
 - For nustack's maintainers:
   - `CLAUDE.md` is a symlink to `AGENTS.md`.
+  - The release script exits 2 on a command line it does not take, as the other scripts do.
+
+### Fixed
+
+- For nustack's maintainers:
+  - The vendor script stops, naming `vendor.json`, when the file is not an object of records, or a record's field is missing or of the wrong type; the vendor workflow's step that lists the copies fails when the file is not an object.
+  - `bun run check` reports alone, as it reports a file it cannot read, each `vendor.json` record it cannot use and each manifest, marketplace or `package.json` string it cannot read, so no comparison that reads one adds a problem with wrong advice. It names a `vendor.json` that is not an object of records, a skill with no name, a README with no nus-mode block and a blueprint that names no Bun version.
 
 ## [0.0.5] - 2026-11-09
 

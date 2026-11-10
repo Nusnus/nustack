@@ -19,12 +19,15 @@ else if (args.join(" ") === "notes") console.log(await notes())
 else if (args.join(" ") === "publish") await publish(false)
 else if (args.join(" ") === "publish --dry-run") await publish(true)
 else
-  fail(`Run bump <version>, notes or publish [--dry-run]; got ${args.join(" ") || "no arguments"}`)
+  fail(
+    `Run bump <version>, notes or publish [--dry-run]; got ${args.join(" ") || "no arguments"}`,
+    2,
+  )
 
 // A rerun after a bump stopped partway finishes it: each file already at the version is left as it is.
 async function bump(version: string, date: string) {
   if (!SEMVER.test(version))
-    fail(`Give the version as <major>.<minor>.<patch>, such as 0.1.0; got ${version}`)
+    fail(`Give the version as <major>.<minor>.<patch>, such as 0.1.0; got ${version}`, 2)
   const changelog = await Bun.file(CHANGELOG).text()
   const texts = new Map<string, string>()
   for (const path of VERSIONED) texts.set(path, await Bun.file(path).text())
@@ -149,7 +152,8 @@ async function writeWhole(path: string, text: string) {
   await rename(`${path}.tmp`, path)
 }
 
-function fail(message: string): never {
+// Exits 2 on a command line the script does not take, as nustack's other scripts do.
+function fail(message: string, status = 1): never {
   console.error(message)
-  process.exit(1)
+  process.exit(status)
 }

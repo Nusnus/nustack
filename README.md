@@ -49,7 +49,7 @@ To have every session in a project work in nus-mode, add this line to the projec
 Work in this repository in nus-mode: load the skill before you start.
 ```
 
-Claude Code reads AGENTS.md only where no CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it, [as its docs say](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), so make a project's CLAUDE.md a symlink to AGENTS.md, once AGENTS.md holds any instructions CLAUDE.md held. The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) writes AGENTS.md beside a CLAUDE.md symlinked to it, and symlinks `.claude/skills` to `.agents/skills`, where it keeps the project's own skills.
+Claude Code reads AGENTS.md only where no CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it, [as its docs say](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), so make a project's CLAUDE.md a symlink to AGENTS.md, once AGENTS.md holds any instructions CLAUDE.md held. The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) writes AGENTS.md beside a CLAUDE.md symlinked to it, and symlinks `.claude/skills` to `.agents/skills/`, where it keeps the project's own skills.
 
 To use nus-mode for one task, invoke it with the task:
 

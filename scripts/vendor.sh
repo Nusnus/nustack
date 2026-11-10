@@ -16,6 +16,14 @@ fi
 mode=${1-copy}
 only=${2-}
 case $mode in copy | --check | --update) ;; *) echo "scripts/vendor.sh: unknown mode $mode; use copy, --check or --update, each with an optional name" >&2; exit 2 ;; esac
+unreadable() {
+  echo "scripts/vendor.sh: cannot read $1 in vendor.json; run bun scripts/check.ts, which says what it needs" >&2
+  exit 1
+}
+# Reads vendor.json in assignments of one command substitution each, since an assignment fails with its last command
+# substitution, where a for list runs on with whatever a failed one printed:
+# https://www.gnu.org/software/bash/manual/html_node/Simple-Command-Expansion.html
+copies=$(jq -er 'objects | keys | join(" ")' vendor.json) || unreadable "the records"
 if [[ -n $only ]] && ! jq -e --arg c "$only" 'has($c)' vendor.json > /dev/null; then
   echo "scripts/vendor.sh: vendor.json has no record $only; name one of its keys" >&2
   exit 2
@@ -29,10 +37,14 @@ status=0
 license() {
   rm -f "$1/LICENSE" && cp "$work/$copy/LICENSE" "$1/LICENSE" || { echo "scripts/vendor.sh: cannot put upstream's LICENSE in $1" >&2; exit 1; }
 }
-for copy in $(jq -r 'keys[]' vendor.json); do
+for copy in $copies; do
   [[ -n $only && $copy != "$only" ]] && continue
-  record() { jq -r --arg c "$copy" ".[\$c].$1" vendor.json; }
-  upstream=$(record upstream) source=$(record source) folder=$(record folder) commit=$(record commit)
+  record() { jq -er --arg c "$copy" ".[\$c].$1 | $2" vendor.json || unreadable "$1 of $copy"; }
+  upstream=$(record upstream strings)
+  source=$(record source strings)
+  folder=$(record folder strings)
+  commit=$(record commit strings)
+  skills=$(record skills 'arrays | select(all(type == "string")) | join(" ")')
   git init -q "$work/$copy"
   # Fetches only the commits needed, so a run downloads no history.
   git -C "$work/$copy" fetch -q --depth 1 "$upstream" "$commit"
@@ -41,7 +53,7 @@ for copy in $(jq -r 'keys[]' vendor.json); do
     git -C "$work/$copy" fetch -q --depth 1 "$upstream" HEAD
     latest=$(git -C "$work/$copy" rev-parse FETCH_HEAD)
     paths=(LICENSE)
-    for skill in $(record 'skills[]'); do paths+=("$source/$skill"); done
+    for skill in $skills; do paths+=("$source/$skill"); done
     # Moves the record only where upstream changed a copied skill or its LICENSE; a copy that only drifted is copied
     # back at its recorded commit.
     compared=0
@@ -57,7 +69,7 @@ for copy in $(jq -r 'keys[]' vendor.json); do
   # tree, and a skill upstream no longer holds.
   at="$upstream at ${moved:-$commit}"
   copied=("$work/$copy/LICENSE")
-  for skill in $(record 'skills[]'); do
+  for skill in $skills; do
     path=$work/$copy
     for part in ${source//\// } "$skill"; do
       path+=/$part
@@ -85,7 +97,7 @@ for copy in $(jq -r 'keys[]' vendor.json); do
     license "$work/$copy/$source/$1"
     diff -r "$work/$copy/$source/$1" "$folder/$1" > /dev/null
   }
-  for skill in $(record 'skills[]'); do
+  for skill in $skills; do
     if [[ $mode == --check ]]; then
       same "$skill" || { echo "$folder/$skill: it or its LICENSE differs from $upstream at $commit; run scripts/vendor.sh" >&2; status=1; }
     else
