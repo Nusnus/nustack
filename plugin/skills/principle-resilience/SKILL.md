@@ -7,7 +7,7 @@ triggers: [user]
 
 # Resilience
 
-Resilient code comes through failure and load by its design, not by scattered guards: each failure and edge case it can meet is absorbed by its structure or left to fail on purpose, as [fail fast](../principle-fail-fast/SKILL.md) says, and each limit it has is known and accepted.
+Resilient code comes through failure and load by its design, not by scattered guards. Each failure and edge case it can meet is absorbed by its structure or left to fail on purpose, as [fail fast](../principle-fail-fast/SKILL.md) says, and each limit it has is known and accepted.
 
 - **Build for the load the code will grow into,** and know the larger load at which it breaks, so that limit is chosen rather than found.
 - **Leave state a rerun finishes, whatever line the process stops at:** work that may run again is idempotent, and each change lands whole or not at all.
