@@ -16,12 +16,13 @@ maintenance:
         tag=bun-v1.4.4
         zip=$(mktemp -d)/bun.zip
         mkdir -p "$HOME/.bun/bin"
+        download() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 --max-time 300 "$@"; }
         # GitHub's release downloads can return 504 for longer than curl's retries last, so the same build comes from npm instead.
-        if curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 --max-time 300 -o "$zip" "https://github.com/oven-sh/bun/releases/download/$tag/bun-$target.zip"; then
+        if download -o "$zip" "https://github.com/oven-sh/bun/releases/download/$tag/bun-$target.zip"; then
           unzip -oqj "$zip" -d "$HOME/.bun/bin"
         else
           echo "Bun's GitHub release failed to download; downloading the same build from npm" >&2
-          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 --max-time 300 "https://registry.npmjs.org/@oven/bun-$target/-/bun-$target-${tag#bun-v}.tgz" |
+          download "https://registry.npmjs.org/@oven/bun-$target/-/bun-$target-${tag#bun-v}.tgz" |
             tar -xzf - -C "$HOME/.bun/bin" --strip-components=2 package/bin/bun
         fi
         # bunx is Bun run under that name, a link Bun's install script makes too.

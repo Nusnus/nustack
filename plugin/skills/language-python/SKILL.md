@@ -13,7 +13,7 @@ A Python project's tools, and the form a principle takes where Python changes it
 
 - **Astral's tools** do every job they cover, now or once they cover it, such as installing Python, managing the environment and dependencies, building, formatting, linting and type checking. Ruff's config keeps each import at the top of its module, absolute and on its own line.
 - **pytest** runs the tests with **pytest-randomly**, and **pytest-timeout** bounds each test. **import-linter** enforces import contracts.
-- **Typer** builds command-line interfaces, **pydantic** parses outside data, and **pydantic-settings** reads settings.
+- **Typer** builds CLIs, **pydantic** parses outside data, and **pydantic-settings** reads settings.
 
 ## Code
 
@@ -26,7 +26,7 @@ A Python project's tools, and the form a principle takes where Python changes it
 
 ## Tests
 
-- [Deterministic tests](../principle-deterministic-tests/SKILL.md): the tiers are the folders `tests/unit`, `tests/integration` and `tests/smoke`.
+- [Deterministic tests](../principle-deterministic-tests/SKILL.md): the tiers are the folders `tests/unit/`, `tests/integration/` and `tests/smoke/`.
 - [Self-explanatory code](../principle-self-explanatory-code/SKILL.md): every test is a method of a `Test<Term>` class named for the domain term whose promises it checks.
 - [Layout](../principle-layout/SKILL.md): a test module holds only those classes, and a class's setup is an autouse fixture. A fixture sits in the class that uses it, or in the nearest `conftest.py` above its users within one tier. One that tiers share is a plugin module in the shared helpers folder, and registering those modules is all the root `conftest.py` does.
 - [Design](../principle-design/SKILL.md): a fixture that would return a closure returns a small object with methods instead.

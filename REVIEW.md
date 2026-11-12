@@ -1,10 +1,10 @@
 # REVIEW.md
 
-What a reviewer, person or agent, holds each pull request to beyond `bun run check` and `bun run hosts`. Report each defect on the line that holds it: what is wrong, the fix, and the rule it breaks.
+What a reviewer, person or agent, holds each pull request to beyond `bun run check` and `bun run hosts`. Report each flaw on the line that holds it: what is wrong, the fix, and the rule it breaks.
 
 ## Every pull request
 
-- **A break of [AGENTS.md](AGENTS.md) or nus-mode blocks the pull request.** Read and apply each principle as nus-mode's `SKILL.md` says.
+- **A break of [AGENTS.md](AGENTS.md) or nus-mode blocks the pull request.** Read and apply each principle as [nus-mode's `SKILL.md`](plugin/skills/nus-mode/SKILL.md) says.
 - **A new script, check, workflow, test or dependency names where the owner approved it.**
 - **A finding names every instance of its flaw** in the repository.
 - **The `CHANGELOG.md` entry describes the change the diff makes.**

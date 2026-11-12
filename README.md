@@ -18,7 +18,7 @@ nustack is a plugin for Claude Code, Cursor, Devin and OpenCode. It gives your c
 1. follows the [playbook](plugin/skills/nus-mode/SKILL.md#playbooks) that fits, if one does, to start a project, investigate a problem, align existing code, cut lines from a project or audit a project;
 2. reads, in full, each principle the work touches;
 3. puts your project's own rules first;
-4. rereads the work as a newcomer would, and fixes each friction point before it finishes.
+4. rereads the work as a newcomer would, and fixes each [friction point](plugin/skills/nus-mode/SKILL.md#goal) before it finishes.
 
 ## Install
 
@@ -37,7 +37,7 @@ opencode plugin add 'github:Nusnus/nustack#main::path:plugin'
 
 In [Devin](https://docs.devin.ai/product-guides/plugins), add a plugin from the repository `Nusnus/nustack`, subdirectory `plugin`.
 
-In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise plan imports `https://github.com/Nusnus/nustack` as a team marketplace with Import from Repo; with the Cursor GitHub App installed, Enable Auto Refresh sends each merge to `main` to the team. To try nustack before that, or on other plans, copy this repository's `plugin` folder to `~/.cursor/plugins/local/nustack` and run Developer: Reload Window, where local plugin imports are allowed; to update, replace the folder and reload.
+In [Cursor](https://cursor.com/docs/plugins), an admin on a Teams or Enterprise plan imports `https://github.com/Nusnus/nustack` as a team marketplace with Import from Repo; with the Cursor GitHub App installed, Enable Auto Refresh sends each merge to `main` to the team. To try nustack before that, or on other plans, copy this repository's `plugin/` folder to `~/.cursor/plugins/local/nustack/` and run Developer: Reload Window, where local plugin imports are allowed; to update, replace the folder and reload.
 
 Each host's link says how to update.
 
@@ -49,7 +49,7 @@ To have every session in a project work in nus-mode, add this line to the projec
 Work in this repository in nus-mode: load the skill before you start.
 ```
 
-Claude Code reads AGENTS.md only where no CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it, [as its docs say](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), so make a project's CLAUDE.md a symlink to AGENTS.md, once AGENTS.md holds any instructions CLAUDE.md held. The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) writes AGENTS.md beside a CLAUDE.md symlinked to it, and symlinks `.claude/skills` to `.agents/skills/`, where it keeps the project's own skills.
+Claude Code reads AGENTS.md only where no CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it, [as its documentation says](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), so make a project's CLAUDE.md a symlink to AGENTS.md, once AGENTS.md holds any instructions CLAUDE.md held. The [new-project playbook](plugin/skills/nus-mode/playbooks/new-project.md) writes AGENTS.md beside a CLAUDE.md symlinked to it, and symlinks `.claude/skills` to `.agents/skills/`, where it keeps the project's own skills.
 
 To use nus-mode for one task, invoke it with the task:
 

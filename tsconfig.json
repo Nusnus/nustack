@@ -1,5 +1,5 @@
 {
-  // tsc reads every folder but dot-folders and node_modules, as Biome does
+  // tsc reads every folder but dot-folders and node_modules/, as Biome does
   // (https://www.typescriptlang.org/tsconfig/#include).
   // Settings equal to TypeScript's defaults stay out: https://www.typescriptlang.org/tsconfig
   "compilerOptions": {

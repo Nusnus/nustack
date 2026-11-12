@@ -156,18 +156,13 @@ for (const { name: folder } of folders) {
     problems.push(
       `${path}: is visible to the model; set disable-model-invocation: true and triggers: [user]`,
     )
-  if (indexed && !nusMode.includes(`(../${folder}/SKILL.md)`))
-    problems.push(
-      `plugin/skills/nus-mode/SKILL.md: does not link ${folder}; add it with when it applies`,
-    )
+  if (indexed && !nusMode.includes(`(../${folder}/SKILL.md)`)) problems.push(unlinked(folder))
   if (folder === "nus-mode" && skill.length - match[0].length > MODE_CAP)
     problems.push(`${path}: body is over ${MODE_CAP} characters; shorten it`)
 }
 for (const playbook of await listed(PLAYBOOKS, () => readdir(PLAYBOOKS)))
   if (playbook.endsWith(".md") && !nusMode.includes(`(playbooks/${playbook})`))
-    problems.push(
-      `plugin/skills/nus-mode/SKILL.md: does not link playbooks/${playbook}; add it with when it applies`,
-    )
+    problems.push(unlinked(`playbooks/${playbook}`))
 
 // A link out of plugin/ works on GitHub but is dead once installed.
 for (const path of authored) {
@@ -371,6 +366,10 @@ function fieldsOf(frontmatter: string): Record<string, unknown> | undefined {
     if (isMapping(fields)) return fields
   } catch {}
   return undefined
+}
+
+function unlinked(target: string): string {
+  return `plugin/skills/nus-mode/SKILL.md: does not link ${target}; add it with when it applies`
 }
 
 function isMapping(value: unknown): value is Record<string, unknown> {

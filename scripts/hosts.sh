@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs this checkout's plugin in the latest Claude Code, as its users do, and in the latest OpenCode through a
-# config file pointed at it, and checks each offers every folder under plugin/skills, with OpenCode hiding the
+# config file pointed at it, and checks each offers every folder under plugin/skills/, with OpenCode hiding the
 # principle and language skills from the model.
 set -euo pipefail
 if (( $# > 0 )); then
@@ -40,9 +40,10 @@ mkdir -p "$project"
 printf '{"plugins": ["%s"]}\n' "$root/plugin" > "$project/opencode.json"
 (cd "$project" && exec "$bin/opencode" serve --port 0 > "$work/serve.log" 2>&1) &
 server=$!
-for _ in $(seq 60); do grep -q "server password" "$work/serve.log" && break; sleep 1; done
+limit=60
+for _ in $(seq "$limit"); do grep -q "server password" "$work/serve.log" && break; sleep 1; done
 if ! grep -q "server password" "$work/serve.log"; then
-  echo "OpenCode did not start its server within 60 seconds; its log follows:" >&2
+  echo "OpenCode did not start its server within $limit seconds; its log follows:" >&2
   cat "$work/serve.log" >&2
   exit 1
 fi

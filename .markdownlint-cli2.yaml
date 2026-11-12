@@ -5,39 +5,8 @@ config:
   MD013: false
   MD060:
     style: compact
-# The first-line title rule skips only the PR template:
-# https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
-# It opens on the comment and centred header a description starts from, where
-# an inline disable comment would land in every description:
-# https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#markdownlint-cli2jsonc
-overrides:
-  - filter:
-      - .github/pull_request_template.md
-    config:
-      MD041: false
-      # The template centres its header and folds its detail with the HTML
-      # GitHub renders in a description.
-      MD033:
-        allowed_elements: [details, div, sub, summary]
-    combine: merge
-  # Each CHANGELOG.md release repeats the section headings Keep a Changelog
-  # names, such as Added: https://keepachangelog.com/en/1.1.0/
-  - filter:
-      - CHANGELOG.md
-    config:
-      MD024:
-        siblings_only: true
-    combine: merge
-  # README.md's front page centres its title, tagline and links, folds its
-  # skills tables and shows the wordmark for the reader's theme, which only
-  # HTML does on GitHub:
-  # https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#specifying-the-theme-an-image-is-shown-to
-  - filter:
-      - README.md
-    config:
-      MD033:
-        allowed_elements: [a, br, details, h1, img, p, picture, source, summary]
-    combine: merge
+# Skips what .gitignore ignores, such as node_modules/.
+gitignore: true
 globs:
   - "**/*.md"
 # Vendored copies keep upstream's bytes; scripts/vendor.sh --check compares them.
@@ -50,5 +19,36 @@ ignores:
   - plugin/skills/obsidian-bases
   - plugin/skills/obsidian-cli
   - plugin/skills/obsidian-markdown
-# Skips what .gitignore ignores, such as node_modules.
-gitignore: true
+overrides:
+  - filter:
+      - .github/pull_request_template.md
+    config:
+      # The template centres its header and folds its detail with the HTML
+      # GitHub renders in a description.
+      MD033:
+        allowed_elements: [details, div, sub, summary]
+      # The first-line title rule skips only the PR template:
+      # https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
+      # It opens on the comment and centred header a description starts from,
+      # where an inline disable comment would land in every description:
+      # https://github.com/DavidAnson/markdownlint-cli2/tree/v0.24.0#markdownlint-cli2jsonc
+      MD041: false
+    combine: merge
+  # Each CHANGELOG.md release repeats the section headings Keep a Changelog
+  # names, such as Added: https://keepachangelog.com/en/1.1.0/
+  - filter:
+      - CHANGELOG.md
+    config:
+      MD024:
+        siblings_only: true
+    combine: merge
+  # README.md's front page centres its title, tagline and links, folds its
+  # skills tables and shows the wordmark for the reader's theme, which only
+  # HTML does on GitHub:
+  # https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/quickstart-for-writing-on-github#adding-an-image-to-suit-your-visitors
+  - filter:
+      - README.md
+    config:
+      MD033:
+        allowed_elements: [a, br, details, h1, img, p, picture, source, summary]
+    combine: merge

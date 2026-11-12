@@ -31,12 +31,6 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 status=0
-# Puts upstream's root LICENSE at the top of a skill folder, replacing any LICENSE or symlink there rather than writing
-# through it, and stops the run where that fails, as set -e does not inside a function called left of ||:
-# https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
-license() {
-  rm -f "$1/LICENSE" && cp "$work/$copy/LICENSE" "$1/LICENSE" || { echo "scripts/vendor.sh: cannot put upstream's LICENSE in $1" >&2; exit 1; }
-}
 for copy in $copies; do
   [[ -n $only && $copy != "$only" ]] && continue
   record() { jq -er --arg c "$copy" ".[\$c].$1 | $2" vendor.json || unreadable "$1 of $copy"; }
@@ -68,12 +62,16 @@ for copy in $copies; do
   # Refuses a symlink on the way to or inside what it copies, since copying one would read or write outside the fetched
   # tree, and a skill upstream no longer holds.
   at="$upstream at ${moved:-$commit}"
+  refuse_symlink() {
+    echo "scripts/vendor.sh: $at holds a symlink at ${1#"$work/$copy/"}, which it does not copy; ask upstream to replace it with the file, or keep the copy at a commit without it" >&2
+    exit 1
+  }
   copied=("$work/$copy/LICENSE")
   for skill in $skills; do
     path=$work/$copy
     for part in ${source//\// } "$skill"; do
       path+=/$part
-      [[ -L $path ]] && { echo "scripts/vendor.sh: $at holds a symlink at ${path#"$work/$copy/"}, which it does not copy; ask upstream to replace it with the file, or keep the copy at a commit without it" >&2; exit 1; }
+      [[ -L $path ]] && refuse_symlink "$path"
     done
     if [[ ! -d $path ]]; then
       if [[ -n $moved ]]; then fix="upstream dropped it: remove $skill from vendor.json's skills, delete $folder/$skill and the changelog's mention of it, then run bun run check, which names each list it checks that still holds it"; else fix="check this record's commit and skills in vendor.json"; fi
@@ -88,14 +86,17 @@ for copy in $copies; do
     exit 1
   fi
   link=$(find "${copied[@]}" -type l -print -quit)
-  if [[ -n $link ]]; then
-    echo "scripts/vendor.sh: $at holds a symlink at ${link#"$work/$copy/"}, which it does not copy; ask upstream to replace it with the file, or keep the copy at a commit without it" >&2
-    exit 1
-  fi
+  [[ -n $link ]] && refuse_symlink "$link"
   # Compares a copy with what copying it produces: upstream's skill, with upstream's root LICENSE on top.
   same() {
     license "$work/$copy/$source/$1"
     diff -r "$work/$copy/$source/$1" "$folder/$1" > /dev/null
+  }
+  # Puts upstream's root LICENSE at the top of a skill folder, replacing any LICENSE or symlink there rather than
+  # writing through it, and stops the run where that fails, as set -e does not inside a function called left of ||:
+  # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
+  license() {
+    rm -f "$1/LICENSE" && cp "$work/$copy/LICENSE" "$1/LICENSE" || { echo "scripts/vendor.sh: cannot put upstream's LICENSE in $1" >&2; exit 1; }
   }
   for skill in $skills; do
     if [[ $mode == --check ]]; then
@@ -104,7 +105,7 @@ for copy in $copies; do
       rm -rf "${folder:?}/$skill"
       cp -R "$work/$copy/$source/$skill" "$folder/$skill"
       license "$folder/$skill"
-      # README.md's skills table copies the description of each skill under plugin/skills.
+      # README.md's skills table copies the description of each skill under plugin/skills/.
       # Reads the description as YAML, as scripts/check.ts does, so quotes and escapes resolve the same way.
       description=$(bun -e '
         const [, frontmatter] = (await Bun.file(Bun.argv[1]).text()).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)

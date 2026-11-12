@@ -120,6 +120,6 @@ jobs:
           body-path: ${{ runner.temp }}/body.md
     timeout-minutes: 5
     strategy:
-      fail-fast: false
       matrix:
         copy: ${{ fromJSON(needs.copies.outputs.copies) }}
+      fail-fast: false
