@@ -2,7 +2,8 @@
 
 All notable changes to nustack are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/Nusnus/nustack/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/Nusnus/nustack/releases/tag/v0.0.6
 [0.0.5]: https://github.com/Nusnus/nustack/releases/tag/v0.0.5
 [0.0.4]: https://github.com/Nusnus/nustack/releases/tag/v0.0.4
 [0.0.3]: https://github.com/Nusnus/nustack/releases/tag/v0.0.3
@@ -10,6 +11,10 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 [0.0.1]: https://github.com/Nusnus/nustack/releases/tag/v0.0.1
 
 ## [Unreleased]
+
+## [0.0.6] - 2026-11-13
+
+nustack's sixth release rewords nus-mode, the mode that has a coding agent build software to a senior engineer's bar, so it reads more easily and asks what it asked before. The rewording covers the mode itself, its six playbooks, each of which holds one task as numbered steps, eleven of the fourteen principles, the skills the agent reads for one kind of decision each, and the Python skill. The new project playbook keeps a project's own skills in `.agents/skills/`, and makes a symlink of whatever a host reads in place of that folder or of `AGENTS.md`, such as `CLAUDE.md`, so every host reads the same instructions and skills. Steph Ango's six Obsidian skills move to a newer upstream commit. The fixes reach only nustack's maintainers, in the scripts, tests and environment setup they work with.
 
 ### Changed
 
