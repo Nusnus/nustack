@@ -1,12 +1,14 @@
 /**
- * The OpenCode plugin's promises: it registers every skill folder, hides the principle and language skills from
- * the model, disposes of what it registered once the host stops it, puts nus-mode back once a summary drops it, only
- * in a session that loaded it, and refuses a broken install by name. It sits at tests/opencode.test.ts rather than
- * mirroring the plugin's path, since tests/ holds this one test, and a tests/plugin/ folder would add a package of
- * one module, which plugin/skills/principle-layout/SKILL.md rules out.
+ * The OpenCode plugin's promises: it registers every skill folder by its frontmatter's name and description, hides
+ * the principle and language skills from the model, disposes of what it registered once the host stops it, puts
+ * nus-mode back once a summary drops it, only in a session that loaded it, and refuses a broken install by name. It
+ * sits at tests/opencode.test.ts rather than mirroring the plugin's path, since tests/ holds this one test, and a
+ * tests/plugin/ folder would add a package of one module, which plugin/skills/principle-layout/SKILL.md rules out.
  */
 import { expect, test } from "bun:test"
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { once } from "node:events"
+import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Plugin, Skill } from "@opencode/plugin"
@@ -33,6 +35,9 @@ type Callbacks = {
   context?: (input: Request) => Promise<void> | void
   "execute.after"?: (input: Executed) => Promise<void> | void
 }
+
+// Makes a skills folder, and returns what stops anything its removal leaves running, such as a socket's server.
+type Build = (skills: string) => Promise<void | (() => Promise<void>)>
 
 const PLUGIN = join(import.meta.dirname, "..", "plugin")
 const MODE_FOLDER = join(PLUGIN, "skills", "nus-mode")
@@ -172,7 +177,7 @@ async function start(setup = plugin.setup, storage = new Map<string, Json>()) {
 }
 
 test.each([
-  ["no skills folder", async () => {}, "/skills is unreadable"],
+  ["no skills folder", async () => {}, /\/skills is unreadable \(.+\)/],
   [
     "a symlinked skill folder",
     async (skills: string) => {
@@ -192,6 +197,10 @@ test.each([
       // A SKILL.md with CRLF line endings, as a vendored skill holds where its upstream wrote them, is a skill.
       await mkdir(join(skills, "y"))
       await writeFile(join(skills, "y", "SKILL.md"), "---\r\nname: y\r\ndescription: d\r\n---\r\n")
+      // A socket, as a running tool leaves one, is no skill either. It lasts while its server listens.
+      const server = createServer().listen(join(skills, "z.sock"))
+      await once(server, "listening")
+      return async () => void (await once(server.close(), "close"))
     },
     "/skills/nus-mode/SKILL.md is missing",
   ],
@@ -209,16 +218,34 @@ test("registers every skill folder, hiding the principles and language skills, a
   expect(Object.fromEntries(added.map(({ id, path, content }) => [id, { path, content }]))).toEqual(
     await registered(),
   )
-  expect(added.find((skill) => skill.id === "nus-mode")).toMatchObject({
-    name: "nus-mode",
-    description:
-      "Builds software to a senior engineer's bar. Use when asked for nus-mode, or when the project's AGENTS.md turns it on.",
-  })
   // Its cleanup, and nothing before it, disposes of each registration once: the skills and the three hooks.
   expect(disposals()).toEqual([0, 0, 0, 0])
   await stop()
   expect(disposals()).toEqual([1, 1, 1, 1])
 })
+
+test("registers each skill by its frontmatter's name and description, not its folder's name", async () =>
+  installed(
+    async (skills) => {
+      await mkdir(join(skills, "nus-mode"), { recursive: true })
+      await writeFile(
+        join(skills, "nus-mode", "SKILL.md"),
+        "---\nname: nus-mode\ndescription: m\n---\n",
+      )
+      await mkdir(join(skills, "x"))
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: y\ndescription: d\n---\n")
+    },
+    async (setup) => {
+      const { added } = await start(setup)
+      expect(added.map(({ id, name, description }) => ({ id, name, description }))).toEqual(
+        expect.arrayContaining([
+          { id: "nus-mode", name: "nus-mode", description: "m" },
+          { id: "x", name: "y", description: "d" },
+        ]),
+      )
+      expect(added).toHaveLength(2)
+    },
+  ))
 
 test("puts nus-mode back in a session whose user invoked it", async () => {
   const { request, prompt, storage } = await start()
@@ -286,7 +313,7 @@ test.each([
     "a folder in place of SKILL.md",
     async (skills: string) =>
       void (await mkdir(join(skills, "x", "SKILL.md"), { recursive: true })),
-    "/skills/x/SKILL.md cannot be read",
+    /\/skills\/x\/SKILL\.md cannot be read \(.+\)/,
   ],
   [
     "a SKILL.md that is not UTF-8",
@@ -295,6 +322,14 @@ test.each([
       await writeFile(join(skills, "x", "SKILL.md"), new Uint8Array([0xff, 0xfe]))
     },
     "/skills/x/SKILL.md is not UTF-8",
+  ],
+  [
+    "a SKILL.md with no frontmatter",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "# x\n")
+    },
+    "/skills/x/SKILL.md has no frontmatter",
   ],
   [
     "a SKILL.md with no frontmatter at its start",
@@ -310,7 +345,15 @@ test.each([
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), "---\nname: [x\n---\n")
     },
-    "/skills/x/SKILL.md holds frontmatter that is not YAML",
+    /\/skills\/x\/SKILL\.md holds frontmatter that is not YAML \(.+\)/,
+  ],
+  [
+    "a SKILL.md whose frontmatter holds no field",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\n# x\n---\n")
+    },
+    "/skills/x/SKILL.md names no skill or description",
   ],
   [
     "a SKILL.md that names no skill",
@@ -328,18 +371,55 @@ test.each([
     },
     "/skills/x/SKILL.md names no skill or description",
   ],
+  [
+    "a SKILL.md whose name is not a string",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: 5\ndescription: d\n---\n")
+    },
+    "/skills/x/SKILL.md names no skill or description",
+  ],
+  [
+    "a SKILL.md whose description is not a string",
+    async (skills: string) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\ndescription: 5\n---\n")
+    },
+    "/skills/x/SKILL.md names no skill or description",
+  ],
 ])("refuses an install with %s", async (_, build, message) => refuses(build, message))
 
-async function refuses(build: (skills: string) => Promise<void>, message: string) {
+// Root reads a file whatever its permissions, so no SKILL.md is unreadable to it.
+test.skipIf(process.getuid?.() === 0)(
+  "refuses an install with a SKILL.md it may not read",
+  async () =>
+    refuses(async (skills) => {
+      await mkdir(join(skills, "x"), { recursive: true })
+      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\ndescription: d\n---\n")
+      await chmod(join(skills, "x", "SKILL.md"), 0)
+    }, /\/skills\/x\/SKILL\.md cannot be read \(.*EACCES.*\)/),
+)
+
+async function refuses(build: Build, message: string | RegExp) {
+  await installed(build, async (setup) => {
+    await expect(start(setup)).rejects.toThrow(message)
+    await expect(start(setup)).rejects.toThrow("reinstall the nustack plugin")
+  })
+}
+
+// Runs the check on a copy of the plugin beside the skills folder the build makes.
+async function installed(build: Build, check: (setup: typeof plugin.setup) => Promise<void>) {
   // An import reads a relative path with no leading ./ as a package's name, so this makes a relative TMPDIR absolute:
   // https://nodejs.org/api/esm.html#import-specifiers
   const root = await mkdtemp(join(resolve(tmpdir()), "nustack-"))
   try {
     await cp(join(PLUGIN, "opencode.ts"), join(root, "opencode.ts"))
-    await build(join(root, "skills"))
-    const { setup } = (await import(join(root, "opencode.ts"))).default
-    await expect(start(setup)).rejects.toThrow(message)
-    await expect(start(setup)).rejects.toThrow("reinstall the nustack plugin")
+    const undo = await build(join(root, "skills"))
+    try {
+      await check((await import(join(root, "opencode.ts"))).default.setup)
+    } finally {
+      await undo?.()
+    }
   } finally {
     await rm(root, { recursive: true })
   }

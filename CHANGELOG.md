@@ -39,7 +39,7 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
   - `bun run hosts` waits for OpenCode's server to stop before it removes its temporary folder, and prints the server's log when the server logs no address or no password, or lists none of the plugin's skills in time.
   - The vendor script and `bun run hosts` stop where a tool whose answer they act on, such as jq or diff, cannot run or fails with a status that is none of its answers, so neither takes such a failure for another, such as a copy that differs.
   - `bun scripts/release.ts publish` stops before it tags when the clone is shallow, or when the bump is uncommitted, merged in part or not on `origin/main`.
-  - The tests of the OpenCode plugin fail where they passed on a broken plugin, such as one that puts nus-mode back in a session whose prompts invoked no skill, or forgets, once it starts again, which sessions loaded nus-mode.
+  - The tests of the OpenCode plugin fail where they passed on a broken plugin, such as one that puts nus-mode back in a session whose prompts invoked no skill, forgets, once it starts again, which sessions loaded nus-mode, or registers a skill by its folder's name.
   - The Devin blueprint's step fails where `apt-get update` fails, where it passed and left the machine without jq.
 
 ## [0.0.5] - 2026-11-09
