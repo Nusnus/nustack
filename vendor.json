@@ -1,7 +1,7 @@
 {
   "obsidian-skills": {
     "upstream": "https://github.com/kepano/obsidian-skills",
-    "source": "skills",
+    "source": "plugins/obsidian/skills",
     "folder": "plugin/skills",
     "skills": [
       "obsidian-markdown",
@@ -11,7 +11,7 @@
       "defuddle",
       "knap"
     ],
-    "commit": "3ccff5338ea700537839b21900aa5358a0402c98"
+    "commit": "398127736bd4ba42d767b1419fee1a927508370b"
   },
   "writing-for-agents": {
     "upstream": "https://github.com/mattpocock/skills",
