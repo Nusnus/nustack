@@ -29,6 +29,17 @@ All notable changes to nustack are recorded here. The format follows [Keep a Cha
 - For nustack's maintainers:
   - The vendor script stops, naming `vendor.json`, when the file is not an object of records, or a record's field is missing or of the wrong type; the vendor workflow's step that lists the copies fails when the file is not an object.
   - `bun run check` reports alone, as it reports a file it cannot read, each `vendor.json` record it cannot use and each manifest, marketplace or `package.json` string it cannot read, so no comparison that reads one adds a problem with wrong advice. It names a `vendor.json` that is not an object of records, a skill with no name, a README with no nus-mode block and a blueprint that names no Bun version.
+  - `bun run check` sorts the files it lists under `plugin/` and the lines for what it cannot read, whose order changed between runs.
+  - The vendor script leaves the caller's `HEAD` and index as they were when Git runs it, as a commit hook or `git rebase --exec` does.
+  - The vendor script stops before it copies into `plugin/skills/` an upstream skill whose `SKILL.md` is missing, is not UTF-8, or holds no YAML frontmatter with a name and a one-line description.
+  - Where upstream moved a skill's folder, the vendor script's advice names the record's `source` to change, where it said upstream dropped the skill.
+  - The vendor script's fetches start none of Git's maintenance, which failed some runs of `--update`.
+  - `bun run hosts` starts Bun and both hosts with `PATH` alone of the variables set outside, so no other variable moves a file of theirs out of its temporary folder, and a proxy the environment names reaches none of them.
+  - `bun run hosts` waits for OpenCode's server to stop before it removes its temporary folder, and prints the server's log when the server logs no address or no password, or lists none of the plugin's skills in time.
+  - The vendor script and `bun run hosts` stop where a tool whose answer they act on, such as jq or diff, cannot run or fails with a status that is none of its answers, so neither takes such a failure for another, such as a copy that differs.
+  - `bun scripts/release.ts publish` stops before it tags when the clone is shallow, or when the bump is uncommitted, merged in part or not on `origin/main`.
+  - The tests of the OpenCode plugin fail where they passed on a broken plugin, such as one that puts nus-mode back in a session whose prompts invoked no skill, or forgets, once it starts again, which sessions loaded nus-mode.
+  - The Devin blueprint's step fails where `apt-get update` fails, where it passed and left the machine without jq.
 
 ## [0.0.5] - 2026-11-09
 

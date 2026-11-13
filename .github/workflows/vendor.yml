@@ -60,8 +60,8 @@ jobs:
           # Lists the copied skill files first, then the bookkeeping files on one line.
           changed=$(git status --porcelain --untracked-files=all | cut -c4-)
           bookkeeping='CHANGELOG.md|README.md|vendor.json'
-          skills=$(grep -vxE "$bookkeeping|" <<< "$changed" | sed 's/^/- /' || true)
-          others=$(grep -xE "$bookkeeping" <<< "$changed" | paste -sd, - | sed 's/,/, /g' || true)
+          skills=$(sed -nE "/^($bookkeeping|)\$/!s/^/- /p" <<< "$changed")
+          others=$(sed -nE "/^($bookkeeping)\$/p" <<< "$changed" | paste -sd, - | sed 's/,/, /g')
           PR_FILES=$(printf '%s\n' "$skills" ${others:+"- $others"} | sed '/^$/d')
           export PR_FILES
           if [[ $COPY == writing-for-agents ]]; then

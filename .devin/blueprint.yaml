@@ -6,21 +6,29 @@ maintenance:
       set -euo pipefail
       if ! command -v bun >/dev/null; then
         # Downloads Bun's release itself, since Bun's install script downloads it with no time limit and no retry.
-        case $(uname -sm) in
+        # Reads the platform in an assignment, which fails with uname, where a case word runs on with nothing:
+        # https://www.gnu.org/software/bash/manual/html_node/Simple-Command-Expansion.html
+        platform=$(uname -sm)
+        case $platform in
           "Linux x86_64") target=linux-x64-baseline ;;
           "Linux aarch64") target=linux-aarch64 ;;
           "Darwin x86_64") target=darwin-x64-baseline ;;
           "Darwin arm64") target=darwin-aarch64 ;;
-          *) echo "Bun has no build for $(uname -sm)" >&2; exit 1 ;;
+          *) echo "Bun has no build for $platform" >&2; exit 1 ;;
         esac
         tag=bun-v1.4.4
-        zip=$(mktemp -d)/bun.zip
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
         mkdir -p "$HOME/.bun/bin"
         download() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 --max-time 300 "$@"; }
         # GitHub's release downloads can return 504 for longer than curl's retries last, so the same build comes from npm instead.
-        if download -o "$zip" "https://github.com/oven-sh/bun/releases/download/$tag/bun-$target.zip"; then
-          unzip -oqj "$zip" -d "$HOME/.bun/bin"
+        if download -o "$work/bun.zip" "https://github.com/oven-sh/bun/releases/download/$tag/bun-$target.zip"; then
+          unzip -oqj "$work/bun.zip" -d "$HOME/.bun/bin"
         else
+          # A status of 126 or more is the shell's, for a curl it cannot run or a signal kills, and stops the step:
+          # https://www.gnu.org/software/bash/manual/html_node/Exit-Status.html
+          failure=$?
+          (( failure < 126 )) || exit "$failure"
           echo "Bun's GitHub release failed to download; downloading the same build from npm" >&2
           download "https://registry.npmjs.org/@oven/bun-$target/-/bun-$target-${tag#bun-v}.tgz" |
             tar -xzf - -C "$HOME/.bun/bin" --strip-components=2 package/bin/bun
@@ -31,7 +39,7 @@ maintenance:
         sudo ln -sf "$HOME/.bun/bin/bun" "$HOME/.bun/bin/bunx" /usr/local/bin/
       fi
       if ! command -v jq >/dev/null; then
-        if command -v brew >/dev/null; then brew install jq; else sudo apt-get update && sudo apt-get install -y jq; fi
+        if command -v brew >/dev/null; then brew install jq; else sudo apt-get update; sudo apt-get install -y jq; fi
       fi
       bun install --frozen-lockfile
 runs-on: [default, macos]

@@ -104,9 +104,9 @@ if (claudeDescription !== cursorDescription)
 if ((await textOf("plugin/LICENSE")) !== (await textOf("LICENSE")))
   problems.push("plugin/LICENSE: differs from LICENSE; copy LICENSE over it")
 
-const files = (await listed("plugin", () => readdir("plugin", { recursive: true }))).map((path) =>
-  join("plugin", path),
-)
+const files = (await listed("plugin", () => readdir("plugin", { recursive: true })))
+  .map((path) => join("plugin", path))
+  .sort()
 const authored: string[] = []
 for (const path of files) {
   const link = await lstat(path).then(
@@ -289,7 +289,7 @@ if (!vendorWorkflow.includes(`bookkeeping='${BOOKKEEPING.join("|")}'`))
   problems.push(`${VENDOR_WORKFLOW}: bookkeeping differs from ${BOOKKEEPING.join("|")}; list them`)
 
 if (unreadable.size > 0) {
-  console.error([...unreadable].join("\n"))
+  console.error([...unreadable].sort().join("\n"))
   process.exit(1)
 }
 if (problems.length > 0) {

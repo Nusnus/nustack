@@ -1,14 +1,14 @@
 /**
  * The OpenCode plugin's promises: it registers every skill folder, hides the principle and language skills from
- * the model, puts nus-mode back once a summary drops it, only in a session that loaded it, and refuses a broken
- * install by name. It sits at tests/opencode.test.ts rather than mirroring the plugin's path, since tests/ holds
- * this one test, and a tests/plugin/ folder would add a package of one module, which
- * plugin/skills/principle-layout/SKILL.md rules out.
+ * the model, disposes of what it registered once the host stops it, puts nus-mode back once a summary drops it, only
+ * in a session that loaded it, and refuses a broken install by name. It sits at tests/opencode.test.ts rather than
+ * mirroring the plugin's path, since tests/ holds this one test, and a tests/plugin/ folder would add a package of
+ * one module, which plugin/skills/principle-layout/SKILL.md rules out.
  */
 import { expect, test } from "bun:test"
-import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import type { Plugin, Skill } from "@opencode/plugin"
 import plugin from "../plugin/opencode.ts"
 
@@ -26,6 +26,7 @@ declare const toolHook: Context["tool"]["hook"]
 type Input<Hook extends (...args: never[]) => unknown> = Parameters<Parameters<Hook>[1]>[0]
 type Prompt = Input<typeof sessionHook<"prompt">>
 type Request = Input<typeof sessionHook<"context">>
+type Message = Request["messages"][number]
 type Executed = Input<typeof toolHook<"execute.after">>
 type Callbacks = {
   prompt?: (input: Prompt) => Promise<void> | void
@@ -35,10 +36,9 @@ type Callbacks = {
 
 const PLUGIN = join(import.meta.dirname, "..", "plugin")
 const MODE_FOLDER = join(PLUGIN, "skills", "nus-mode")
-const MODE_FILE = await Bun.file(join(MODE_FOLDER, "SKILL.md")).text()
-const CONTENT = MODE_FILE.slice(MODE_FILE.indexOf("\n---\n", 3) + 5)
-const BODY = CONTENT.trim()
+const BODY = contentOf(await Bun.file(join(MODE_FOLDER, "SKILL.md")).text()).trim()
 const RELOAD = `${BODY}\n\nBase directory for this skill: ${MODE_FOLDER}`
+const HOST_PROMPT = "the host's own system prompt"
 const HIDDEN = [
   "language-python",
   "principle-boundaries",
@@ -66,14 +66,27 @@ const OFFERED = [
   "obsidian-markdown",
 ] as const
 
-async function start(setup = plugin.setup) {
+async function start(setup = plugin.setup, storage = new Map<string, Json>()) {
   const added: Skill.Info[] = []
   const hooks: Callbacks = {}
-  const storage = new Map<string, Json>()
-  const registration = { dispose: async () => {} }
+  // A disposal and a write to the storage each take effect a turn of the event loop after the call, as a host's may,
+  // so the tests fail a plugin that goes on before one it does not await.
+  const turn = () => Bun.sleep(0)
+  // A registration of its own for each one the plugin makes, which counts the times the plugin disposes of it.
+  const registrations: { disposals: number }[] = []
+  const registration = () => {
+    const made = { disposals: 0 }
+    registrations.push(made)
+    return {
+      dispose: async () => {
+        await turn()
+        made.disposals++
+      },
+    }
+  }
   const register = async (name: keyof Callbacks, callback: never) => {
     hooks[name] = callback
-    return registration
+    return registration()
   }
   const editor = {
     list: () => added,
@@ -86,38 +99,55 @@ async function start(setup = plugin.setup) {
     skill: {
       transform: async (edit: (input: typeof editor) => void) => {
         edit(editor)
-        return registration
+        return registration()
       },
     },
     session: { hook: register as Context["session"]["hook"] },
     tool: { hook: register as Context["tool"]["hook"] },
     storage: {
       get: async (key: string) => storage.get(key),
-      set: async (key: string, value: Json) => void storage.set(key, value),
+      set: async (key: string, value: Json) => {
+        await turn()
+        storage.set(key, value)
+      },
     },
   } satisfies Used
-  await setup(context as Used as Context)
-  const request = async (session: string, text: string) => {
+  const stop = await setup(context as Used as Context)
+  // Sends a request whose messages are the given ones, a string as a user's text, and returns what the plugin put
+  // after the host's system prompt.
+  const request = async (session: string, ...messages: (string | Message)[]) => {
     const event = {
       sessionID: session as Request["sessionID"],
       agent: "build" as Request["agent"],
       model: { id: "claude", providerID: "anthropic" } as Request["model"],
-      system: [] as Request["system"],
-      messages: [{ role: "user", content: [{ type: "text", text }] }],
+      system: [{ type: "text", text: HOST_PROMPT }] as Request["system"],
+      messages: messages.map(
+        (message): Message =>
+          typeof message === "string"
+            ? { role: "user", content: [{ type: "text", text: message }] }
+            : message,
+      ),
       options: {},
       tools: {},
     } satisfies Request
     await hooks.context?.(event)
-    return event.system.map((part) => part.text)
+    const [first, ...put] = event.system.map((part) => part.text)
+    expect(first).toBe(HOST_PROMPT)
+    return put
   }
-  const skillCall = async (session: string, status: Executed["status"]) => {
+  const toolCall = async (
+    session: string,
+    status: Executed["status"],
+    tool: string,
+    input: unknown,
+  ) => {
     const call = {
-      tool: "skill",
+      tool,
       sessionID: session as Executed["sessionID"],
       agent: "build" as Executed["agent"],
       messageID: "m" as Executed["messageID"],
       id: "c" as Executed["id"],
-      input: { id: "nus-mode" },
+      input,
     }
     // Tool.Error is a class of OpenCode's schema package, which nustack does not depend on.
     await hooks["execute.after"]?.(
@@ -126,25 +156,23 @@ async function start(setup = plugin.setup) {
         : { ...call, status, error: {} as Extract<Executed, { status: "error" }>["error"] },
     )
   }
-  const prompt = async (session: string) =>
+  // Sends a prompt that invokes the given skills, and one with no skills key where it is given no list.
+  const prompt = async (session: string, skills?: string[]) =>
     hooks.prompt?.({
       sessionID: session as Prompt["sessionID"],
       messageID: "m" as Prompt["messageID"],
-      prompt: { text: "go", skills: [{ id: "nus-mode" as Skill.ID }] },
+      prompt: {
+        text: "go",
+        ...(skills && { skills: skills.map((id) => ({ id: id as Skill.ID })) }),
+      },
       delivery: "queue",
     })
-  return { added, request, skillCall, prompt }
-}
-
-async function brokenInstall(build: (skills: string) => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), "nustack-"))
-  await cp(join(PLUGIN, "opencode.ts"), join(root, "opencode.ts"))
-  await build(join(root, "skills"))
-  return { root, setup: (await import(join(root, "opencode.ts"))).default.setup }
+  const disposals = () => registrations.map((made) => made.disposals)
+  return { added, request, toolCall, prompt, storage, stop, disposals }
 }
 
 test.each([
-  ["no skills folder", async () => {}, "skills is unreadable"],
+  ["no skills folder", async () => {}, "/skills is unreadable"],
   [
     "a symlinked skill folder",
     async (skills: string) => {
@@ -152,20 +180,25 @@ test.each([
       await mkdir(skills)
       await symlink(join(skills, "..", "elsewhere"), join(skills, "x"))
     },
-    "skills/x is a symlink",
+    "/skills/x is a symlink",
   ],
   [
     "no nus-mode",
     async (skills: string) => {
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\ndescription: d\n---\n")
+      // A plain file beside the skill folders, as an operating system leaves one, is no skill.
+      await writeFile(join(skills, ".DS_Store"), "")
+      // A SKILL.md with CRLF line endings, as a vendored skill holds where its upstream wrote them, is a skill.
+      await mkdir(join(skills, "y"))
+      await writeFile(join(skills, "y", "SKILL.md"), "---\r\nname: y\r\ndescription: d\r\n---\r\n")
     },
-    "nus-mode/SKILL.md is missing",
+    "/skills/nus-mode/SKILL.md is missing",
   ],
 ])("refuses an install with %s", async (_, build, message) => refuses(build, message))
 
-test("registers every skill folder, hiding the principles and language skills", async () => {
-  const { added } = await start()
+test("registers every skill folder, hiding the principles and language skills, and disposes of each registration", async () => {
+  const { added, stop, disposals } = await start()
   const ids = (hidden: boolean) =>
     added
       .filter((skill) => skill.autoinvoke !== hidden)
@@ -173,38 +206,87 @@ test("registers every skill folder, hiding the principles and language skills", 
       .sort()
   expect(ids(true)).toEqual([...HIDDEN])
   expect(ids(false)).toEqual([...OFFERED])
+  expect(Object.fromEntries(added.map(({ id, path, content }) => [id, { path, content }]))).toEqual(
+    await registered(),
+  )
   expect(added.find((skill) => skill.id === "nus-mode")).toMatchObject({
     name: "nus-mode",
     description:
       "Builds software to a senior engineer's bar. Use when asked for nus-mode, or when the project's AGENTS.md turns it on.",
-    path: join(MODE_FOLDER, "SKILL.md"),
-    content: CONTENT,
   })
+  // Its cleanup, and nothing before it, disposes of each registration once: the skills and the three hooks.
+  expect(disposals()).toEqual([0, 0, 0, 0])
+  await stop()
+  expect(disposals()).toEqual([1, 1, 1, 1])
 })
 
 test("puts nus-mode back in a session whose user invoked it", async () => {
-  const { request, prompt } = await start()
-  await prompt("a")
+  const { request, prompt, storage } = await start()
+  await prompt("a", ["nus-mode"])
+  await prompt("c", ["defuddle", "nus-mode", "knap"])
+  await prompt("d", ["defuddle", "knap"])
+  await prompt("e", [])
+  await prompt("f")
+  // A later prompt that invokes another skill leaves the session's mark.
+  await prompt("a", ["defuddle"])
   expect(await request("a", "summary")).toEqual([RELOAD])
   expect(await request("b", "summary")).toEqual([])
+  expect(await request("c", "summary")).toEqual([RELOAD])
+  expect(await request("d", "summary")).toEqual([])
+  expect(await request("e", "summary")).toEqual([])
+  expect(await request("f", "summary")).toEqual([])
+  // A session keeps its mark across a start of the plugin on the same storage.
+  const again = await start(plugin.setup, storage)
+  expect(await again.request("a", "summary")).toEqual([RELOAD])
+  expect(await again.request("b", "summary")).toEqual([])
+  // A start on another storage holds no mark of that session.
+  expect(await (await start()).request("a", "summary")).toEqual([])
 })
 
 test("puts nus-mode back once a summary drops it, only in a session that loaded it", async () => {
-  const { request, skillCall } = await start()
+  const { request, toolCall, storage } = await start()
   expect(await request("a", "summary")).toEqual([])
-  await skillCall("a", "error")
+  await toolCall("a", "error", "skill", { id: "nus-mode" })
   expect(await request("a", "summary")).toEqual([])
-  await skillCall("a", "completed")
+  await toolCall("a", "completed", "skill", { id: "nus-mode" })
+  // A later call that loads another skill leaves the session's mark.
+  await toolCall("a", "completed", "skill", { id: "defuddle" })
+  await toolCall("c", "completed", "skill", { id: "defuddle" })
+  await toolCall("c", "completed", "read", { id: "nus-mode" })
+  // A call with no input, which OpenCode's type for a tool call allows.
+  await toolCall("c", "completed", "skill", undefined)
   expect(await request("a", BODY)).toEqual([])
+  expect(await request("a", "go", `Loaded:\n${BODY}\n`, "go on")).toEqual([])
+  // The skill tool's result, which holds nus-mode's text in a session that loaded it by the tool.
+  const result: Message = {
+    role: "tool",
+    content: [
+      { type: "tool-result", id: "c", name: "skill", result: { type: "text", value: BODY } },
+    ],
+  }
+  expect(await request("a", "go", result, "go on")).toEqual([])
   expect(await request("a", "summary")).toEqual([RELOAD])
   expect(await request("b", "summary")).toEqual([])
+  expect(await request("c", "summary")).toEqual([])
+  // A session keeps the mark a tool call set across a start of the plugin on the same storage.
+  const again = await start(plugin.setup, storage)
+  expect(await again.request("a", "summary")).toEqual([RELOAD])
+  expect(await again.request("c", "summary")).toEqual([])
+  // A start on another storage holds no mark of that session.
+  expect(await (await start()).request("a", "summary")).toEqual([])
 })
 
 test.each([
   [
     "a skill folder with no SKILL.md",
     async (skills: string) => void (await mkdir(join(skills, "x"), { recursive: true })),
-    "x/SKILL.md is missing",
+    "/skills/x/SKILL.md is missing",
+  ],
+  [
+    "a folder in place of SKILL.md",
+    async (skills: string) =>
+      void (await mkdir(join(skills, "x", "SKILL.md"), { recursive: true })),
+    "/skills/x/SKILL.md cannot be read",
   ],
   [
     "a SKILL.md that is not UTF-8",
@@ -212,15 +294,15 @@ test.each([
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), new Uint8Array([0xff, 0xfe]))
     },
-    "x/SKILL.md is not UTF-8",
+    "/skills/x/SKILL.md is not UTF-8",
   ],
   [
-    "a SKILL.md with no frontmatter",
+    "a SKILL.md with no frontmatter at its start",
     async (skills: string) => {
       await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "# x\n")
+      await writeFile(join(skills, "x", "SKILL.md"), "# x\n---\nname: x\ndescription: d\n---\n")
     },
-    "x/SKILL.md has no frontmatter",
+    "/skills/x/SKILL.md has no frontmatter",
   ],
   [
     "a SKILL.md whose frontmatter is not YAML",
@@ -228,7 +310,7 @@ test.each([
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), "---\nname: [x\n---\n")
     },
-    "x/SKILL.md holds frontmatter that is not YAML",
+    "/skills/x/SKILL.md holds frontmatter that is not YAML",
   ],
   [
     "a SKILL.md that names no skill",
@@ -236,7 +318,7 @@ test.each([
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), "---\ndescription: d\n---\n")
     },
-    "x/SKILL.md names no skill or description",
+    "/skills/x/SKILL.md names no skill or description",
   ],
   [
     "a SKILL.md that names no description",
@@ -244,29 +326,41 @@ test.each([
       await mkdir(join(skills, "x"), { recursive: true })
       await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\n---\n")
     },
-    "x/SKILL.md names no skill or description",
+    "/skills/x/SKILL.md names no skill or description",
   ],
 ])("refuses an install with %s", async (_, build, message) => refuses(build, message))
 
-// Root reads a file whatever its mode, so this case cannot fail there:
-// https://man7.org/linux/man-pages/man7/capabilities.7.html (CAP_DAC_OVERRIDE)
-// It sits below the table, out of the code's order, since a table row cannot skip alone.
-test.skipIf(process.getuid?.() === 0)(
-  "refuses an install with a SKILL.md that cannot be read",
-  async () =>
-    refuses(async (skills) => {
-      await mkdir(join(skills, "x"), { recursive: true })
-      await writeFile(join(skills, "x", "SKILL.md"), "---\nname: x\ndescription: d\n---\n")
-      await chmod(join(skills, "x", "SKILL.md"), 0o000)
-    }, "x/SKILL.md cannot be read"),
-)
-
 async function refuses(build: (skills: string) => Promise<void>, message: string) {
-  const { root, setup } = await brokenInstall(build)
+  // An import reads a relative path with no leading ./ as a package's name, so this makes a relative TMPDIR absolute:
+  // https://nodejs.org/api/esm.html#import-specifiers
+  const root = await mkdtemp(join(resolve(tmpdir()), "nustack-"))
   try {
+    await cp(join(PLUGIN, "opencode.ts"), join(root, "opencode.ts"))
+    await build(join(root, "skills"))
+    const { setup } = (await import(join(root, "opencode.ts"))).default
     await expect(start(setup)).rejects.toThrow(message)
     await expect(start(setup)).rejects.toThrow("reinstall the nustack plugin")
   } finally {
     await rm(root, { recursive: true })
   }
+}
+
+// What the plugin registers of each skill: its SKILL.md's path, and the text below that file's frontmatter. The test
+// that compares it reads the files, so a skill folder that is gone fails that test alone, but for nus-mode's, whose
+// text this file reads as it loads.
+async function registered() {
+  return Object.fromEntries(
+    await Promise.all(
+      [...HIDDEN, ...OFFERED].map(async (id) => {
+        const path = join(PLUGIN, "skills", id, "SKILL.md")
+        return [id, { path, content: contentOf(await Bun.file(path).text()) }]
+      }),
+    ),
+  )
+}
+
+// The text below a SKILL.md's frontmatter, which the plugin's own pattern finds: FRONTMATTER in plugin/opencode.ts,
+// without its capture group.
+function contentOf(file: string) {
+  return file.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")
 }
